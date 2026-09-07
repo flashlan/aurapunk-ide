@@ -120,19 +120,17 @@ jobs:
     runs-on: windows-x64
     steps:
       - name: Checkout from Gitea
-        shell: pwsh
+        shell: cmd
         run: |
-          $ErrorActionPreference = 'Stop'
-          git clone --depth 1 --branch main $env:GITEA_REPOSITORY_URL .
+          git clone --depth 1 --branch main "%GITEA_REPOSITORY_URL%" .
       - name: Build AuraPunk IDE Desktop
-        shell: pwsh
+        shell: cmd
         run: |
-          $ErrorActionPreference = 'Stop'
           corepack enable
           pnpm install --frozen-lockfile
           pnpm app:build
-          if (-not (Test-Path 'target/release/bundle')) { throw 'Desktop bundle directory was not created' }
-          Get-ChildItem -Recurse 'target/release/bundle' | Where-Object { -not $_.PSIsContainer }
+          if not exist target\release\bundle exit /b 1
+          dir /s target\release\bundle
 
   shutdown-builders:
     needs: [wake-macos, wake-windows, build-macos-x64, build-windows-x64]
