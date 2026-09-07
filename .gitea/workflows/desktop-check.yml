@@ -34,7 +34,17 @@ jobs:
         shell: sh
         run: |
           set -eu
-          apk add --no-cache openssh-client
+          if ! command -v ssh >/dev/null 2>&1; then
+            if command -v apt-get >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y openssh-client
+            elif command -v apk >/dev/null 2>&1; then
+              apk add --no-cache openssh-client
+            else
+              echo 'ssh is not available on the release controller' >&2
+              exit 1
+            fi
+          fi
           control() {
             ssh -i "$PROXMOX_CONTROLLER_KEY" -o BatchMode=yes \
               -o StrictHostKeyChecking=accept-new \
@@ -57,7 +67,17 @@ jobs:
         shell: sh
         run: |
           set -eu
-          apk add --no-cache openssh-client
+          if ! command -v ssh >/dev/null 2>&1; then
+            if command -v apt-get >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y openssh-client
+            elif command -v apk >/dev/null 2>&1; then
+              apk add --no-cache openssh-client
+            else
+              echo 'ssh is not available on the release controller' >&2
+              exit 1
+            fi
+          fi
           control() {
             ssh -i "$PROXMOX_CONTROLLER_KEY" -o BatchMode=yes \
               -o StrictHostKeyChecking=accept-new \
@@ -121,7 +141,17 @@ jobs:
         shell: sh
         run: |
           set -eu
-          apk add --no-cache openssh-client
+          if ! command -v ssh >/dev/null 2>&1; then
+            if command -v apt-get >/dev/null 2>&1; then
+              apt-get update
+              apt-get install -y openssh-client
+            elif command -v apk >/dev/null 2>&1; then
+              apk add --no-cache openssh-client
+            else
+              echo 'ssh is not available on the release controller' >&2
+              exit 1
+            fi
+          fi
           control() {
             ssh -i "$PROXMOX_CONTROLLER_KEY" -o BatchMode=yes \
               -o StrictHostKeyChecking=accept-new \
