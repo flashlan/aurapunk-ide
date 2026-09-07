@@ -22,7 +22,9 @@ permissions:
   contents: read
 
 env:
-  PROXMOX_HOST: 192.168.254.25
+  # The runner is on 192.168.1.91 and reaches the Proxmox host through its
+  # second bridge address. The 192.168.254.25 address is not routed from it.
+  PROXMOX_HOST: 192.168.1.125
   PROXMOX_CONTROLLER_USER: aurapunk-vm-controller
   PROXMOX_CONTROLLER_KEY: /run/secrets/aurapunk-vm-controller
 
@@ -47,6 +49,7 @@ jobs:
           fi
           control() {
             ssh -i "$PROXMOX_CONTROLLER_KEY" -o BatchMode=yes \
+              -o ConnectTimeout=8 \
               -o StrictHostKeyChecking=accept-new \
               -o UserKnownHostsFile=/tmp/proxmox_known_hosts \
               "$PROXMOX_CONTROLLER_USER@$PROXMOX_HOST" "$@"
@@ -80,6 +83,7 @@ jobs:
           fi
           control() {
             ssh -i "$PROXMOX_CONTROLLER_KEY" -o BatchMode=yes \
+              -o ConnectTimeout=8 \
               -o StrictHostKeyChecking=accept-new \
               -o UserKnownHostsFile=/tmp/proxmox_known_hosts \
               "$PROXMOX_CONTROLLER_USER@$PROXMOX_HOST" "$@"
@@ -154,6 +158,7 @@ jobs:
           fi
           control() {
             ssh -i "$PROXMOX_CONTROLLER_KEY" -o BatchMode=yes \
+              -o ConnectTimeout=8 \
               -o StrictHostKeyChecking=accept-new \
               -o UserKnownHostsFile=/tmp/proxmox_known_hosts \
               "$PROXMOX_CONTROLLER_USER@$PROXMOX_HOST" "$@"
