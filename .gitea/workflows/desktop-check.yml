@@ -134,7 +134,9 @@ jobs:
 
   shutdown-builders:
     needs: [wake-macos, wake-windows, build-macos-x64, build-windows-x64]
-    if: always()
+    # Keep failed builders online for diagnosis and toolchain repair. A
+    # successful build still shuts both VMs down automatically.
+    if: ${{ always() && needs.build-macos-x64.result == 'success' && needs.build-windows-x64.result == 'success' }}
     runs-on: release-controller
     steps:
       - name: Stop native builder VMs
