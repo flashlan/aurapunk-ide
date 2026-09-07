@@ -164,18 +164,20 @@ impl PushNotifier for TauriNotifier {
 }
 
 fn main() {
-    // The NPX launcher forwards `--cloud` to the desktop bundle. Preserve the
-    // same runtime mode used by the browser launcher for the embedded server.
-    if std::env::args().any(|arg| arg == "--cloud") {
+    // Packaged desktop builds are the AuraPunk IDE Cloud client: clicking the
+    // executable must open the native window with the Cloud login available.
+    // Local browser/dev launches remain local because they do not pass through
+    // this Tauri entrypoint. `--local` is an explicit escape hatch for
+    // diagnostics on a packaged build.
+    let local_mode = std::env::args().any(|arg| arg == "--local");
+    if !local_mode {
         // Environment mutation is process-wide and intentionally happens
         // before the backend is started; this is safe during single-threaded
         // application initialization.
         unsafe { std::env::set_var("VIBE_KANBAN_MODE", "cloud") };
 
-        // The first cloud-mode pilot uses the Mem0 service on the local
-        // AuraPunk server. Keep an explicit MEM0_URL override for deployments
-        // that use another host, while preserving the ordinary local-mode
-        // default when the app is launched without --cloud.
+        // Keep an explicit MEM0_URL override for deployments that use another
+        // host while giving the packaged Cloud client a useful default.
         if std::env::var_os("MEM0_URL").is_none() {
             let mem0_url = std::env::var("AURAPUNK_CLOUD_MEM0_URL")
                 .unwrap_or_else(|_| DEFAULT_CLOUD_MEM0_URL.to_string());

@@ -1,13 +1,25 @@
-name: AuraPunk IDE desktop release
+name: AuraPunk IDE desktop check
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+    paths:
+      - '.gitea/workflows/desktop-check.yml'
+      - 'crates/tauri-app/**'
+      - 'crates/server/**'
+      - 'crates/**/src/**'
+      - 'packages/**'
+      - 'shared/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   PROXMOX_HOST: 192.168.254.25
@@ -66,70 +78,42 @@ jobs:
     runs-on: macos-x64
     steps:
       - uses: actions/checkout@v4
-      - name: Build signed update artifacts
+      - name: Build AuraPunk IDE Desktop
         run: |
           set -euo pipefail
           corepack enable
           pnpm install --frozen-lockfile
           pnpm app:build
+          test -d target/release/bundle
       - uses: actions/upload-artifact@v4
         with:
-          name: aurapunk-ide-macos-x64
+          name: aurapunk-ide-check-macos-x64
           path: target/release/bundle/**
           if-no-files-found: error
+          retention-days: 3
 
   build-windows-x64:
     needs: wake-windows
     runs-on: windows-x64
     steps:
       - uses: actions/checkout@v4
-      - name: Build signed update artifacts
+      - name: Build AuraPunk IDE Desktop
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           corepack enable
           pnpm install --frozen-lockfile
           pnpm app:build
+          if (-not (Test-Path 'target/release/bundle')) { throw 'Desktop bundle directory was not created' }
       - uses: actions/upload-artifact@v4
         with:
-          name: aurapunk-ide-windows-x64
+          name: aurapunk-ide-check-windows-x64
           path: target/release/bundle/**
           if-no-files-found: error
-
-  publish:
-    needs: [build-macos-x64, build-windows-x64]
-    runs-on: release-controller
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: release-artifacts
-          merge-multiple: true
-      - name: Create the Gitea release and upload artifacts
-        shell: sh
-        env:
-          RELEASE_TOKEN: ${{ secrets.RELEASE_PUBLISH_TOKEN }}
-        run: |
-          set -eu
-          test -n "$RELEASE_TOKEN"
-          apk add --no-cache curl jq
-          api="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/releases"
-          body=$(jq -nc --arg tag "$GITHUB_REF_NAME" '{tag_name:$tag,name:$tag}')
-          release=$(curl --fail --silent --show-error \
-            -H "Authorization: token $RELEASE_TOKEN" \
-            -H 'Content-Type: application/json' \
-            -d "$body" "$api")
-          release_id=$(printf '%s' "$release" | jq -r '.id')
-          test -n "$release_id"
-          find release-artifacts -type f -print0 | while IFS= read -r -d '' artifact; do
-            name=$(basename "$artifact")
-            curl --fail --silent --show-error \
-              -H "Authorization: token $RELEASE_TOKEN" \
-              --data-binary "@$artifact" \
-              "$api/$release_id/assets?name=$name"
-          done
+          retention-days: 3
 
   shutdown-builders:
-    needs: [wake-macos, wake-windows, build-macos-x64, build-windows-x64, publish]
+    needs: [wake-macos, wake-windows, build-macos-x64, build-windows-x64]
     if: always()
     runs-on: release-controller
     steps:
