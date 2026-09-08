@@ -134,6 +134,15 @@ jobs:
           if errorlevel 1 exit /b 1
           call pnpm.cmd install --frozen-lockfile
           if errorlevel 1 exit /b 1
+          if not exist "%USERPROFILE%\.cargo\bin\cargo.exe" (
+            curl.exe -fL --retry 3 https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe -o "%TEMP%\rustup-init.exe"
+            if errorlevel 1 exit /b 1
+            "%TEMP%\rustup-init.exe" -y --default-toolchain stable --profile minimal --no-modify-path
+            if errorlevel 1 exit /b 1
+          )
+          set "PATH=%USERPROFILE%\.cargo\bin;%PATH%"
+          cargo.exe --version
+          if errorlevel 1 exit /b 1
           call pnpm.cmd app:build
           if errorlevel 1 exit /b 1
           if not exist target\release\bundle exit /b 1
