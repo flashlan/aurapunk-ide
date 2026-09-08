@@ -72,16 +72,17 @@ export function BrandWordmark({ className }: { className?: string }) {
   );
 }
 
-/**
- * Full lockup: feather caret beside the wordmark. Used where both the
- * mark and the wordmark should appear together (e.g. the header rail).
- */
+/** AuraPunk IDE logo used in the desktop application's top bar. */
 export function BrandLockup({ className }: { className?: string }) {
   return (
-    <span className={cn('flex items-center gap-3', className)}>
-      <FeatherCaret size={32} className="text-brand" />
-      <BrandWordmark />
-    </span>
+    <img
+      src="/aurapunk-ide-logo.png"
+      alt="AuraPunk IDE"
+      className={cn(
+        'block h-8 w-auto max-w-[220px] object-contain object-left',
+        className
+      )}
+    />
   );
 }
 
