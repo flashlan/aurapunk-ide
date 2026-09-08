@@ -167,8 +167,12 @@ jobs:
           set "PATH=C:\Users\sandman\.cargo\bin;%PATH%"
           C:\Users\sandman\.cargo\bin\cargo.exe --version
           if errorlevel 1 exit /b 1
-          call pnpm.cmd app:build -- --bundles nsis
+          call pnpm.cmd --filter @vibe/local-web run build
           if errorlevel 1 exit /b 1
+          cd crates\tauri-app
+          call npx.cmd @tauri-apps/cli build --config tauri.build.conf.json --bundles nsis
+          if errorlevel 1 exit /b 1
+          cd ..\..
           if not exist target\release\bundle exit /b 1
           dir /s /b target\release\bundle
           if exist "C:\AuraPunk\gitea-runner\build-output\windows" rmdir /s /q "C:\AuraPunk\gitea-runner\build-output\windows"
