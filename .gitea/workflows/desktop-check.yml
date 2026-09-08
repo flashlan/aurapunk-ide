@@ -109,6 +109,7 @@ jobs:
       - name: Build AuraPunk IDE Desktop
         run: |
           set -euo pipefail
+          export PATH="$HOME/tools/node/bin:$HOME/.cargo/bin:$PATH"
           corepack enable
           pnpm install --frozen-lockfile
           pnpm app:build
