@@ -110,6 +110,12 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$HOME/tools/node/bin:$HOME/.cargo/bin:$PATH"
+          if [ -f "$HOME/gitea-runner/aurapunk-ide.key" ]; then
+            export TAURI_SIGNING_PRIVATE_KEY="$(cat "$HOME/gitea-runner/aurapunk-ide.key")"
+          else
+            echo 'Tauri signing key is missing from the macOS builder' >&2
+            exit 1
+          fi
           corepack enable
           pnpm install --frozen-lockfile
           pnpm app:build
@@ -134,8 +140,10 @@ jobs:
           if errorlevel 1 exit /b 1
           call pnpm.cmd install --frozen-lockfile
           if errorlevel 1 exit /b 1
+          set "CARGO_HOME=C:\Users\sandman\.cargo"
+          set "RUSTUP_HOME=C:\Users\sandman\.rustup"
           set "PATH=C:\Users\sandman\.cargo\bin;%PATH%"
-          cargo.exe --version
+          C:\Users\sandman\.cargo\bin\cargo.exe --version
           if errorlevel 1 exit /b 1
           call pnpm.cmd app:build
           if errorlevel 1 exit /b 1
@@ -152,7 +160,7 @@ jobs:
       - name: Build AuraPunk IDE Linux
         run: |
           set -euo pipefail
-          apt-get update
+          apt-get -o Acquire::Check-Valid-Until=false update
           apt-get install -y \
             libappindicator3-dev \
             librsvg2-dev \
