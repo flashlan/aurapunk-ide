@@ -133,8 +133,35 @@ jobs:
           if not exist target\release\bundle exit /b 1
           dir /s target\release\bundle
 
+  build-linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout from Gitea
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch main "$GITEA_REPOSITORY_URL" .
+      - name: Build AuraPunk IDE Linux
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.0-dev \
+            patchelf
+          if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          fi
+          export PATH="$HOME/.cargo/bin:$PATH"
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm app:build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          test -d target/release/bundle/appimage
+          find target/release/bundle/appimage -maxdepth 1 -type f -print
+
   shutdown-builders:
-    needs: [wake-macos, wake-windows, build-macos-x64, build-windows-x64]
+    needs: [wake-macos, wake-windows, build-macos-x64, build-windows-x64, build-linux-x64]
     # Keep failed builders online for diagnosis and toolchain repair. A
     # successful build still shuts both VMs down automatically.
     if: ${{ always() && needs.build-macos-x64.result == 'success' && needs.build-windows-x64.result == 'success' }}

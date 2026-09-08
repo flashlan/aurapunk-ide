@@ -39,7 +39,7 @@
   "plugins": {
     "macos-fps": {},
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMyN0ZCNDVCMDhFMDdEQjAKUldTd2ZlQUlXN1IvTWt1Z0ZmaWpsUUVGOHl3QUExRVVWL0crWkROSjViRUZSTXdUODN4WkFlQ1AK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDExRTUwMTJBRTgxRThFMTYKUldRV2poN29LZ0hsRWUzUFVObWRiS2UyUVl4b2hJanJpMkdiMVBsYjFaVjBXTmxiQWlRNE42R2sK",
       "endpoints": [
         "https://localhost/disabled"
       ]
