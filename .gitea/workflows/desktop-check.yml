@@ -121,26 +121,23 @@ jobs:
     runs-on: windows-x64
     steps:
       - name: Checkout from Gitea
-        shell: powershell
+        shell: cmd
         run: |
-          $ErrorActionPreference = 'Stop'
-          git clone --depth 1 --branch main $env:GITEA_REPOSITORY_URL .
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          @echo on
+          git clone --depth 1 --branch main "%GITEA_REPOSITORY_URL%" .
+          if errorlevel 1 exit /b 1
       - name: Build AuraPunk IDE Desktop
-        shell: powershell
+        shell: cmd
         run: |
-          $ErrorActionPreference = 'Stop'
-          corepack.cmd enable
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm.cmd install --frozen-lockfile
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm.cmd app:build
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $bundle = Join-Path (Get-Location) 'target\release\bundle'
-          if (-not (Test-Path $bundle)) { throw "Desktop bundle directory was not created: $bundle" }
-          $files = Get-ChildItem -Recurse -File $bundle
-          if ($files.Count -eq 0) { throw "Desktop bundle directory is empty: $bundle" }
-          $files | Select-Object -ExpandProperty FullName
+          @echo on
+          call corepack.cmd enable
+          if errorlevel 1 exit /b 1
+          call pnpm.cmd install --frozen-lockfile
+          if errorlevel 1 exit /b 1
+          call pnpm.cmd app:build
+          if errorlevel 1 exit /b 1
+          if not exist target\release\bundle exit /b 1
+          dir /s /b target\release\bundle
 
   build-linux-x64:
     runs-on: ubuntu-latest
