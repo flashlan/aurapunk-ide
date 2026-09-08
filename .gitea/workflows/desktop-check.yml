@@ -148,6 +148,8 @@ jobs:
           set "CARGO_NET_RETRY=10"
           set "CARGO_NET_GIT_FETCH_WITH_CLI=true"
           set "CARGO_HTTP_MULTIPLEXING=false"
+          set "LIBCLANG_PATH=C:\msys64\mingw64\bin"
+          set "PATH=C:\msys64\mingw64\bin;%PATH%"
           set "PATH=C:\Users\sandman\.cargo\bin;%PATH%"
           C:\Users\sandman\.cargo\bin\cargo.exe --version
           if errorlevel 1 exit /b 1
