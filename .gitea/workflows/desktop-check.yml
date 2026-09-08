@@ -170,14 +170,14 @@ jobs:
           call pnpm.cmd --filter @vibe/local-web run build
           if errorlevel 1 exit /b 1
           cd crates\tauri-app
-          call npx.cmd @tauri-apps/cli build --config tauri.build.conf.json --bundles nsis
+          call npx.cmd @tauri-apps/cli build --config tauri.build.conf.json --no-bundle
           if errorlevel 1 exit /b 1
           cd ..\..
-          if not exist target\release\bundle exit /b 1
-          dir /s /b target\release\bundle
+          if not exist target\release\vibe-kanban-tauri.exe exit /b 1
           if exist "C:\AuraPunk\gitea-runner\build-output\windows" rmdir /s /q "C:\AuraPunk\gitea-runner\build-output\windows"
           mkdir "C:\AuraPunk\gitea-runner\build-output\windows"
-          xcopy /E /I /Y target\release\bundle "C:\AuraPunk\gitea-runner\build-output\windows"
+          copy /Y target\release\vibe-kanban-tauri.exe "C:\AuraPunk\gitea-runner\build-output\windows\AuraPunk-IDE.exe"
+          dir /s /b "C:\AuraPunk\gitea-runner\build-output\windows"
 
   build-linux-x64:
     runs-on: ubuntu-latest
