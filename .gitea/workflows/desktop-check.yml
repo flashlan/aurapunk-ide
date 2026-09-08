@@ -121,6 +121,9 @@ jobs:
           pnpm app:build
           test -d target/release/bundle
           find target/release/bundle -maxdepth 2 -type f -print
+          rm -rf "$HOME/gitea-runner/build-output/macos"
+          mkdir -p "$HOME/gitea-runner/build-output/macos"
+          cp -R target/release/bundle/. "$HOME/gitea-runner/build-output/macos/"
 
   build-windows-x64:
     needs: wake-windows
@@ -149,6 +152,9 @@ jobs:
           if errorlevel 1 exit /b 1
           if not exist target\release\bundle exit /b 1
           dir /s /b target\release\bundle
+          if exist "C:\AuraPunk\gitea-runner\build-output\windows" rmdir /s /q "C:\AuraPunk\gitea-runner\build-output\windows"
+          mkdir "C:\AuraPunk\gitea-runner\build-output\windows"
+          xcopy /E /I /Y target\release\bundle "C:\AuraPunk\gitea-runner\build-output\windows"
 
   build-linux-x64:
     runs-on: ubuntu-latest
@@ -160,7 +166,11 @@ jobs:
       - name: Build AuraPunk IDE Linux
         run: |
           set -euo pipefail
-          apt-get -o Acquire::Check-Valid-Until=false update
+          for attempt in 1 2 3 4 5; do
+            apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=3 update && break
+            [ "$attempt" -eq 5 ] && exit 1
+            sleep 10
+          done
           apt-get install -y \
             libappindicator3-dev \
             librsvg2-dev \
@@ -171,6 +181,8 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           fi
           export PATH="$HOME/.cargo/bin:$PATH"
+          export CARGO_NET_RETRY=10
+          export CARGO_HTTP_MULTIPLEXING=false
           corepack enable
           pnpm install --frozen-lockfile
           pnpm app:build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
