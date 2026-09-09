@@ -19,6 +19,24 @@ if (-not $certificate) {
     -NotAfter (Get-Date).AddYears(2)
 }
 
+# Authenticode validates the certificate chain while signing. Trust the
+# development certificate locally so the test installer can be signed on the
+# self-hosted runner without pretending to be a production certificate.
+$temporaryCertificate = Join-Path $env:TEMP 'aurapunk-ide-test-signing.cer'
+Export-Certificate -Cert $certificate -FilePath $temporaryCertificate -Type CERT | Out-Null
+foreach ($trustedStore in @(
+    'Cert:\LocalMachine\Root',
+    'Cert:\LocalMachine\TrustedPublisher'
+  )) {
+  $alreadyTrusted = Get-ChildItem $trustedStore |
+    Where-Object { $_.Thumbprint -eq $certificate.Thumbprint }
+  if (-not $alreadyTrusted) {
+    Import-Certificate -FilePath $temporaryCertificate -CertStoreLocation $trustedStore |
+      Out-Null
+  }
+}
+Remove-Item $temporaryCertificate -Force -ErrorAction SilentlyContinue
+
 $signature = Set-AuthenticodeSignature `
   -FilePath $Path `
   -Certificate $certificate `
