@@ -201,10 +201,6 @@ jobs:
       - name: Build AuraPunk IDE Linux
         run: |
           set -euo pipefail
-          sed -i \
-            -e 's|deb.debian.org/debian-security|archive.debian.org/debian-security|g' \
-            -e 's|deb.debian.org/debian|archive.debian.org/debian|g' \
-            /etc/apt/sources.list
           for attempt in 1 2 3 4 5; do
             apt-get -o Acquire::Check-Valid-Until=false -o Acquire::Retries=3 update && break
             [ "$attempt" -eq 5 ] && exit 1
