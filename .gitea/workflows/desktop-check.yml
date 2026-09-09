@@ -174,10 +174,15 @@ jobs:
           if not defined LOCALAPPDATA set "LOCALAPPDATA=C:\Windows\System32\config\systemprofile\AppData\Local"
           set "TAURI_NSIS_ROOT=%LOCALAPPDATA%\tauri\NSIS"
           if not exist "%TAURI_NSIS_ROOT%" mkdir "%TAURI_NSIS_ROOT%"
-          xcopy /E /I /Y "%SYSTEM_NSIS_ROOT%\*" "%TAURI_NSIS_ROOT%\" >nul
-          if errorlevel 4 exit /b 1
+          if not exist "%TAURI_NSIS_ROOT%\Include\MUI2.nsh" (
+            echo Tauri NSIS cache is missing its toolset files
+            exit /b 1
+          )
+          if not exist "%TAURI_NSIS_ROOT%\Bin" mkdir "%TAURI_NSIS_ROOT%\Bin"
           copy /Y "%SYSTEM_NSIS_ROOT%\makensis.exe" "%TAURI_NSIS_ROOT%\makensis.exe" >nul
+          if errorlevel 1 exit /b 1
           copy /Y "%SYSTEM_NSIS_ROOT%\makensis.exe" "%TAURI_NSIS_ROOT%\Bin\makensis.exe" >nul
+          if errorlevel 1 exit /b 1
           "%SYSTEM_NSIS_ROOT%\makensis.exe" /VERSION
           if errorlevel 1 exit /b 1
           cd crates\tauri-app
@@ -220,7 +225,7 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             libssl-dev \
-            libwebkit2gtk-4.0-dev \
+            libwebkit2gtk-4.1-dev \
             patchelf
           if [ ! -x "$HOME/.cargo/bin/cargo" ]; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
