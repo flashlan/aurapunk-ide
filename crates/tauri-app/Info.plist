@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>Vibe Kanban</string>
+	<string>Aurapunk IDE</string>
 	<key>CFBundleName</key>
-	<string>Vibe Kanban</string>
+	<string>Aurapunk IDE</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

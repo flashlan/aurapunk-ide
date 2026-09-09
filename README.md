@@ -1,16 +1,16 @@
 <p align="center">
-  <img src="vka-logo.png" alt="vibe-kanban-alternative logo" width="280" />
+  <img src="aurapunk-logo.png" alt="Aurapunk IDE logo" width="380" />
 </p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/vibe-kanban-alternative"><img alt="npm" src="https://img.shields.io/npm/v/vibe-kanban-alternative?style=flat-square" /></a>
-  <a href="https://github.com/flashlan/vibe-kanban-alternative/actions"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/flashlan/vibe-kanban-alternative/main.yml" /></a>
+  <a href="https://github.com/flashlan/aurapunk-ide/actions"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/flashlan/aurapunk-ide/main.yml" /></a>
   <a href="https://deepwiki.com/BloopAI/vibe-kanban"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square" /></a>
-  <a href="https://github.com/flashlan/vibe-kanban-alternative/issues"><img alt="PRs Welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" /></a>
+  <a href="https://github.com/flashlan/aurapunk-ide/issues"><img alt="PRs Welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" /></a>
 </p>
 
-<h1 align="center">VIBE KANBAN ALTERNATIVE</h1>
+<h1 align="center">AURAPUNK IDE</h1>
 
 <p align="center">
   Multi-agent development on a Kanban board, with semantic and vector memory (Qdrant memory Graph) shared across agent stages.
@@ -22,7 +22,7 @@
 
 ## Table of Contents
 
-- [Background](#background)
+- [Background and Credits](#background-and-credits)
 - [What This Fork Adds](#what-this-fork-adds)
 - [Overview](#overview)
 - [Getting Started](#getting-started)
@@ -33,13 +33,14 @@
 - [Terminal UI (TUI)](#terminal-ui-tui)
 - [Telegram Orchestration](#telegram-orchestration)
 - [Gitea and Forgejo Support](#gitea-and-forgejo-support)
+- [Credits and Acknowledgments](#credits-and-acknowledgments)
 - [License](#license)
 
-## Background
+## Background and Credits
 
 Following the [shutdown of Bloop's hosted servers](https://vibekanban.com/blog/shutdown), developers were left with orphaned workspaces and broken dependencies.
 
-`vibe-kanban-alternative` is an actively maintained, independent evolution of [BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban) and [dexloom/vibe-kanban-indie](https://github.com/dexloom/vibe-kanban-indie). It is built for a single-developer workflow: no cloud accounts, no team auth, no remote telemetry. Everything runs on your own machine, and you orchestrate a fleet of coding agents from the browser, a terminal (TUI), or a phone (Telegram).
+**Aurapunk IDE** (formerly `vibe-kanban-alternative`) is an actively maintained, independent evolution built upon the foundations of [BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban) and [dexloom/vibe-kanban-indie](https://github.com/dexloom/vibe-kanban-indie). It is built for a single-developer workflow: no cloud accounts, no team auth, no remote telemetry. Everything runs on your own machine, and you orchestrate a fleet of coding agents from the browser, a terminal (TUI), or a phone (Telegram).
 
 ![Kanban board overview in vibe-kanban-alternative, showing columns of cards with agent status](packages/public/vibe-kanban-alternative-screenshot-overview.png)
 
@@ -456,6 +457,13 @@ The local build helpers are kept together in `~/Desktop/Kiky/scripts/`:
 The Android/llama control menu also exposes these actions and includes a
 separate `Install APK on emulator` command that reuses the existing APK
 without rebuilding it.
+
+## Credits and Acknowledgments
+Aurapunk IDE is built upon the foundational work of the open-source community. We express our gratitude to:
+- **[BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban)** — The original multi-agent Kanban workspace architecture created by the Bloop team.
+- **[dexloom/vibe-kanban-indie](https://github.com/dexloom/vibe-kanban-indie)** — The single-developer, local-first evolution and independent maintainer foundation.
+
+All respective copyrights, licenses, and design credits remain fully honored and attributed.
 
 ## License
 

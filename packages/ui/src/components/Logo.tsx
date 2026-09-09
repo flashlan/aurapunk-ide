@@ -54,19 +54,19 @@ export function BrandWordmark({ className }: { className?: string }) {
       )}
     >
       <span
-        data-brand-word="vibe"
+        data-brand-word="aura"
         className="text-xl font-extrabold leading-none tracking-[0.14em] text-high"
       >
-        VIBE
+        AURA
       </span>
       <span
-        data-brand-word="kanban"
+        data-brand-word="punk"
         className="text-xl font-extrabold leading-none tracking-[0.14em] text-brand"
       >
-        KANBAN
+        PUNK
       </span>
       <span className="self-center rounded-[3px] border border-border px-1.5 py-0.5 text-micro font-semibold leading-none tracking-[0.16em] text-low">
-        ALTERNATIVE
+        IDE
       </span>
     </span>
   );
@@ -90,10 +90,10 @@ export function BrandLockup({ className }: { className?: string }) {
 export function GitHubStarBanner({ className }: { className?: string }) {
   return (
     <a
-      href="https://github.com/flashlan/vibe-kanban-alternative"
+      href="https://github.com/flashlan/aurapunk-ide"
       target="_blank"
       rel="noreferrer"
-      aria-label="Give Vibe Kanban Alternative a star on GitHub"
+      aria-label="Give Aurapunk IDE a star on GitHub"
       className={cn(
         'flex items-center gap-1.5 rounded border border-brand/40 px-2 py-1',
         'font-ibm-plex-mono text-micro font-semibold tracking-[0.08em] text-brand',

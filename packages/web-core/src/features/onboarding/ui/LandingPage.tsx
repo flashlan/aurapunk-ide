@@ -85,7 +85,7 @@ const AGENT_PRIORITY: BaseCodingAgent[] = [
 const SOCIAL_LINKS = [
   {
     label: 'GitHub',
-    href: 'https://github.com/dexloom/vibe-kanban-indie',
+    href: 'https://github.com/flashlan/aurapunk-ide',
     icon: GithubLogoIcon,
   },
   {
@@ -259,7 +259,7 @@ export function LandingPage() {
         {/* Header */}
         <header className="shrink-0 space-y-base p-double pb-base">
           <div className="flex items-center justify-between">
-            <img src={logoSrc} alt="Vibe Kanban" className="h-8 w-auto logo" />
+            <img src={logoSrc} alt="Aurapunk IDE" className="h-8 w-auto logo" />
             <div className="flex flex-wrap items-center gap-2">
               {SOCIAL_LINKS.map((link) => (
                 <PrimaryButton
@@ -279,7 +279,7 @@ export function LandingPage() {
                 weight="fill"
               />
               <p className="text-sm text-normal">
-                Vibe Kanban runs AI coding agents with{' '}
+                Aurapunk IDE runs AI coding agents with{' '}
                 <code>--dangerously-skip-permissions</code> /{' '}
                 <code>--yolo</code> by default. Always review what agents are
                 doing.{' '}

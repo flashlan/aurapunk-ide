@@ -1,8 +1,10 @@
 {
-  "name": "vibe-kanban-alternative",
+  "name": "aurapunk-ide",
   "private": true,
   "version": "0.2.45",
   "bin": {
+    "aurapunk-ide": "npx-cli/bin/cli.js",
+    "aurapunk": "npx-cli/bin/cli.js",
     "vibe-kanban-alternative": "npx-cli/bin/cli.js",
     "vibe-kanban": "npx-cli/bin/cli.js",
     "vibe-kanban-indie": "npx-cli/bin/cli.js"

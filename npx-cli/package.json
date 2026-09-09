@@ -1,9 +1,11 @@
 {
-  "name": "vibe-kanban-alternative",
+  "name": "aurapunk-ide",
   "private": false,
   "version": "0.2.45",
   "main": "index.js",
   "bin": {
+    "aurapunk-ide": "bin/cli.js",
+    "aurapunk": "bin/cli.js",
     "vibe-kanban-alternative": "bin/cli.js",
     "vibe-kanban": "bin/cli.js",
     "vibe-kanban-indie": "bin/cli.js"
@@ -16,13 +18,13 @@
   "author": "dexloom",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/flashlan/vibe-kanban-alternative.git"
+    "url": "git+https://github.com/flashlan/aurapunk-ide.git"
   },
   "engines": {
     "node": ">=20.19.0"
   },
   "license": "Apache-2.0",
-  "description": "NPX wrapper around vibe-kanban-alternative — the single-developer, self-hosted fork of vibe-kanban with a TUI cockpit and Telegram channel orchestration",
+  "description": "NPX wrapper around Aurapunk IDE — the single-developer, self-hosted AI workspace with a TUI cockpit and Telegram channel orchestration",
   "devDependencies": {
     "esbuild": "^0.27.2"
   },
