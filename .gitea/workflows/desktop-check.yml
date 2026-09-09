@@ -222,7 +222,9 @@ jobs:
             sleep 10
           done
           apt-get install -y \
+            clang \
             libappindicator3-dev \
+            libclang-dev \
             librsvg2-dev \
             libssl-dev \
             libwebkit2gtk-4.1-dev \
