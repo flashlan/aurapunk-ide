@@ -220,7 +220,7 @@ jobs:
           export CARGO_HTTP_MULTIPLEXING=false
           corepack enable
           pnpm install --frozen-lockfile
-          pnpm app:build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          pnpm app:build
           test -d target/release/bundle/appimage
           find target/release/bundle/appimage -maxdepth 1 -type f -print
 
