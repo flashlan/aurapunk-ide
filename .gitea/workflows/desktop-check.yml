@@ -145,7 +145,7 @@ jobs:
       - name: Checkout from Gitea
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch main "$GITEA_REPOSITORY_URL" .
+          git clone --depth 1 --branch "${GITHUB_REF_NAME:-main}" "$GITEA_REPOSITORY_URL" .
       - name: Build AuraPunk IDE Desktop
         run: |
           set -euo pipefail
@@ -174,7 +174,8 @@ jobs:
         shell: cmd
         run: |
           @echo on
-          git clone --depth 1 --branch main "%GITEA_REPOSITORY_URL%" .
+          if not defined GITHUB_REF_NAME set "GITHUB_REF_NAME=main"
+          git clone --depth 1 --branch "%GITHUB_REF_NAME%" "%GITEA_REPOSITORY_URL%" .
           if errorlevel 1 exit /b 1
       - name: Build AuraPunk IDE Desktop
         shell: cmd
@@ -241,7 +242,7 @@ jobs:
       - name: Checkout from Gitea
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch main "$GITEA_REPOSITORY_URL" .
+          git clone --depth 1 --branch "${GITHUB_REF_NAME:-main}" "$GITEA_REPOSITORY_URL" .
       - name: Restore Linux build cache
         uses: actions/cache@v4
         with:
