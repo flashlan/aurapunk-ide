@@ -165,12 +165,6 @@ jobs:
           rm -rf "$HOME/gitea-runner/build-output/macos"
           mkdir -p "$HOME/gitea-runner/build-output/macos"
           cp -R target/release/bundle/. "$HOME/gitea-runner/build-output/macos/"
-      - name: Upload macOS installers
-        uses: actions/upload-artifact@v4
-        with:
-          name: aurapunk-ide-macos-x64
-          path: target/release/bundle/**
-          if-no-files-found: error
 
   build-windows-x64:
     needs: wake-windows
@@ -240,12 +234,6 @@ jobs:
           mkdir "C:\AuraPunk\gitea-runner\build-output\windows"
           copy /Y "%INSTALLER_FILE%" "C:\AuraPunk\gitea-runner\build-output\windows\AuraPunk-IDE-setup.exe"
           dir /s /b "C:\AuraPunk\gitea-runner\build-output\windows"
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: aurapunk-ide-windows-x64
-          path: target/release/bundle/nsis/*-setup.exe
-          if-no-files-found: error
 
   build-linux-x64:
     runs-on: ubuntu-latest
