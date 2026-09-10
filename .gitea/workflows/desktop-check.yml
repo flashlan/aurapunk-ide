@@ -183,7 +183,7 @@ jobs:
             echo 'Tauri signing key is missing from the macOS Apple Silicon builder' >&2
             exit 1
           fi
-          corepack enable
+          command -v pnpm
           pnpm config set store-dir "$HOME/gitea-runner/pnpm-store"
           pnpm install --frozen-lockfile
           pnpm app:build
