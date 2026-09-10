@@ -52,6 +52,9 @@ pub struct MemoryConfig {
     pub mem0_url: Option<String>,
     pub local_url: Option<String>,
     pub cloud_url: Option<String>,
+    /// Hosted Free plans index supplied facts directly and must never call the
+    /// LLM extraction endpoint.
+    pub cloud_vector_only: bool,
     pub mem0_api_key: Option<String>,
     pub qdrant_url: Option<String>,
     pub qdrant_api_key: Option<String>,
@@ -68,6 +71,7 @@ impl Default for MemoryConfig {
             mem0_url: None,
             local_url: None,
             cloud_url: None,
+            cloud_vector_only: false,
             mem0_api_key: None,
             qdrant_url: None,
             qdrant_api_key: None,
@@ -256,6 +260,11 @@ mod tests {
     #[test]
     fn dimensions_default_to_384() {
         assert_eq!(MemoryConfig::default().embedding_dimensions, 384);
+    }
+
+    #[test]
+    fn cloud_vector_only_is_disabled_by_default() {
+        assert!(!MemoryConfig::default().cloud_vector_only);
     }
 
     #[test]

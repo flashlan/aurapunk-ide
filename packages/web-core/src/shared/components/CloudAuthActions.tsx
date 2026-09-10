@@ -60,6 +60,7 @@ export function CloudAuthActions() {
                 adapter: 'mem0_vk',
                 enabled: true,
                 url: account.memory.gatewayUrl,
+                cloud_vector_only: account.memory.plan === 'free',
                 mem0_api_key: account.accessToken,
               }
             : {

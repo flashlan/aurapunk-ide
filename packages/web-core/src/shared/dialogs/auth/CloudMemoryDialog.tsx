@@ -42,9 +42,16 @@ const CloudMemoryDialogImpl = create<CloudMemoryDialogProps>((props) => {
             <span className="block rounded-sm border border-border bg-panel p-3 text-normal">
               <strong className="block text-high">{props.plan} plan</strong>
               {props.memories.toLocaleString()} stored memories ·{' '}
-              {props.writesPerMonth.toLocaleString()} writes/month ·{' '}
+              {props.writesPerMonth.toLocaleString()} vector writes/month ·{' '}
               {props.searchesPerMonth.toLocaleString()} searches/month
             </span>
+            {props.plan === 'free' && (
+              <span className="block">
+                Free indexes facts already saved by the agent. Assisted LLM
+                extraction, graph traversal, and re-extraction are available on
+                Personal.
+              </span>
+            )}
             <span className="block">
               You can instead keep Mem0 disabled or configure your own Docker
               endpoint later in Settings → Memory.

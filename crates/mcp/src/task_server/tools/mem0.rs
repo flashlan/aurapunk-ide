@@ -24,6 +24,14 @@ fn using_mem0_platform() -> bool {
     memory_config::load().adapter == MemoryAdapter::Mem0Platform
 }
 
+fn using_cloud_vector_only() -> bool {
+    let config = memory_config::load();
+    config.enabled
+        && config.adapter == MemoryAdapter::Mem0Vk
+        && config.source == "cloud"
+        && config.cloud_vector_only
+}
+
 /// Apply the universal Mem0 service-to-service contract. Local/Docker and
 /// hosted Mem0 use the same bearer token variable; hosted deployments also
 /// receive the signed-in AuraPunk account identity for license validation and
@@ -417,15 +425,14 @@ struct Mem0TraverseResponse {
     truncated: bool,
 }
 
-/// mem0-vk now enqueues `POST /api/memories` (202 Accepted) instead of
-/// running extraction/embedding inline before responding — see
-/// `mem0-vk/src/index.ts`'s `memoryStoreQueue`. `job_id` is accepted but
-/// unused here: nothing polls it today, since the agent doesn't need to wait
-/// for the background extraction to know the save was accepted.
+/// Personal/local Mem0 enqueues `POST /api/memories` (202 Accepted), while a
+/// hosted Free account calls `POST /api/memories/index` for direct vector
+/// indexing. Neither response needs polling from the calling agent.
 #[derive(Debug, Deserialize)]
 struct Mem0SaveResponse {
     ok: Option<bool>,
     queued: Option<bool>,
+    vector_only: Option<bool>,
     #[allow(dead_code)]
     job_id: Option<String>,
 }
@@ -463,7 +470,15 @@ impl McpServer {
             (format!("{}/v3/memories/add/", mem0_url()), body)
         } else {
             (
-                format!("{}/api/memories", mem0_url()),
+                format!(
+                    "{}/api/memories{}",
+                    mem0_url(),
+                    if using_cloud_vector_only() {
+                        "/index"
+                    } else {
+                        ""
+                    }
+                ),
                 serde_json::json!({
                     "content": content,
                     "user_id": user_id,
@@ -507,7 +522,7 @@ impl McpServer {
                 return Ok(false);
             }
         };
-        let stored = parsed.queued.unwrap_or(false);
+        let stored = parsed.queued.unwrap_or(false) || parsed.vector_only.unwrap_or(false);
         let success = parsed.ok.unwrap_or(true);
         if !(success && stored) {
             tracing::warn!(target: "mem0", user_id, success, stored, "memory_save was not queued");

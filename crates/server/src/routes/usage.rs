@@ -62,6 +62,7 @@ struct UpdateMem0ConnectionRequest {
     url: Option<String>,
     clear_url: Option<bool>,
     disconnect_cloud: Option<bool>,
+    cloud_vector_only: Option<bool>,
     mem0_api_key: Option<String>,
     clear_mem0_api_key: Option<bool>,
     qdrant_url: Option<String>,
@@ -603,6 +604,7 @@ async fn update_mem0_connection(
         config.enabled = false;
         config.mem0_url = None;
         config.cloud_url = None;
+        config.cloud_vector_only = false;
         config.mem0_api_key = None;
     }
 
@@ -630,6 +632,9 @@ async fn update_mem0_connection(
     }
     if let Some(enabled) = body.enabled {
         config.enabled = enabled;
+    }
+    if let Some(cloud_vector_only) = body.cloud_vector_only {
+        config.cloud_vector_only = cloud_vector_only;
     }
     if body.clear_url.unwrap_or(false) {
         config.mem0_url = None;
