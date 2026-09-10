@@ -264,7 +264,9 @@ jobs:
           dir /s /b "C:\AuraPunk\gitea-runner\build-output\windows"
 
   build-linux-x64:
-    runs-on: ubuntu-latest
+    # SD is configured with host labels so Linux builds use its installed
+    # toolchain directly instead of requiring Docker/iptables.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout from Gitea
         run: |
@@ -291,7 +293,7 @@ jobs:
           done
           apt-get install -y \
             clang \
-            libappindicator3-dev \
+            libayatana-appindicator3-dev \
             libclang-dev \
             librsvg2-dev \
             libssl-dev \
