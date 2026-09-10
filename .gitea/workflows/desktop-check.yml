@@ -254,6 +254,17 @@ jobs:
         run: |
           set -euo pipefail
           git clone --depth 1 --branch main "$GITEA_REPOSITORY_URL" .
+      - name: Restore Linux build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /root/.cargo/git
+            /root/.cargo/registry
+            /var/cache/aurapunk/pnpm-store
+            target
+          key: linux-x64-desktop-${{ hashFiles('Cargo.lock', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            linux-x64-desktop-
       - name: Build AuraPunk IDE Linux
         run: |
           set -euo pipefail
@@ -274,6 +285,10 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           fi
           export PATH="$HOME/.cargo/bin:$PATH"
+          # Four parallel release rustc processes exceed this runner's 4 GiB
+          # memory limit. Two jobs plus stripped debug info stay below it.
+          export CARGO_BUILD_JOBS=2
+          export CARGO_PROFILE_RELEASE_DEBUG=0
           export CARGO_NET_RETRY=10
           export CARGO_HTTP_MULTIPLEXING=false
           corepack enable
