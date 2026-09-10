@@ -166,6 +166,33 @@ jobs:
           mkdir -p "$HOME/gitea-runner/build-output/macos"
           cp -R target/release/bundle/. "$HOME/gitea-runner/build-output/macos/"
 
+  build-macos-arm64:
+    runs-on: macos-arm64
+    steps:
+      - name: Checkout from Gitea
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${GITHUB_REF_NAME:-main}" "$GITEA_REPOSITORY_URL" .
+      - name: Build AuraPunk IDE Desktop for Apple Silicon
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/tools/node/bin:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
+          if [ -f "$HOME/gitea-runner/aurapunk-ide.key" ]; then
+            export TAURI_SIGNING_PRIVATE_KEY="$(cat "$HOME/gitea-runner/aurapunk-ide.key")"
+          else
+            echo 'Tauri signing key is missing from the macOS Apple Silicon builder' >&2
+            exit 1
+          fi
+          corepack enable
+          pnpm config set store-dir "$HOME/gitea-runner/pnpm-store"
+          pnpm install --frozen-lockfile
+          pnpm app:build
+          test -d target/release/bundle
+          find target/release/bundle -maxdepth 2 -type f -print
+          rm -rf "$HOME/gitea-runner/build-output/macos-arm64"
+          mkdir -p "$HOME/gitea-runner/build-output/macos-arm64"
+          cp -R target/release/bundle/. "$HOME/gitea-runner/build-output/macos-arm64/"
+
   build-windows-x64:
     needs: wake-windows
     runs-on: windows-x64
@@ -298,10 +325,10 @@ jobs:
           if-no-files-found: error
 
   shutdown-builders:
-    needs: [wake-macos, wake-windows, build-macos-x64, build-windows-x64, build-linux-x64]
+    needs: [wake-macos, wake-windows, build-macos-x64, build-macos-arm64, build-windows-x64, build-linux-x64]
     # Keep failed builders online for diagnosis and toolchain repair. A
     # successful build still shuts both VMs down automatically.
-    if: ${{ always() && needs.build-macos-x64.result == 'success' && needs.build-windows-x64.result == 'success' }}
+    if: ${{ always() && needs.build-macos-x64.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.build-windows-x64.result == 'success' }}
     runs-on: release-controller
     steps:
       - name: Stop native builder VMs
