@@ -17,6 +17,7 @@ import {
   openLocalApiWebSocket,
 } from '@/shared/lib/localApiTransport';
 import { makeRequest } from '@/shared/lib/remoteApi';
+import { CloudMemoryDialog } from '@/shared/dialogs/auth/CloudMemoryDialog';
 
 /**
  * Cloud authentication entry points. Authentication is completed by the
@@ -48,17 +49,57 @@ export function CloudAuthActions() {
     }
   }, []);
 
-  const syncMem0Account = useCallback(async (accountId: string | null) => {
+  const syncMem0Account = useCallback(async (account: CloudAccount | null) => {
     try {
+      await makeRequest('/api/usage/mem0-connection', {
+        method: 'PUT',
+        body: JSON.stringify(
+          account?.memory?.enabled
+            ? {
+                source: 'cloud',
+                adapter: 'mem0_vk',
+                enabled: true,
+                url: account.memory.gatewayUrl,
+                mem0_api_key: account.accessToken,
+              }
+            : {
+                disconnect_cloud: true,
+              }
+        ),
+      });
       await makeRequest('/api/usage/mem0-account', {
         method: 'PUT',
-        body: JSON.stringify({ account_id: accountId }),
+        body: JSON.stringify({ account_id: account?.userId ?? null }),
       });
     } catch {
       // The desktop app remains usable when its optional local backend is not
       // available; hosted Mem0 will simply reject requests without identity.
     }
   }, []);
+
+  const offerCloudMemory = useCallback(
+    async (nextAccount: CloudAccount, alwaysAsk = false) => {
+      const memory = nextAccount.memory;
+      if (!memory?.enabled) return;
+      const preferenceKey = `${CLOUD_MEMORY_PREFERENCE_PREFIX}:${nextAccount.userId}`;
+      const savedChoice = window.localStorage.getItem(preferenceKey);
+      if (!alwaysAsk && savedChoice === 'cloud') {
+        await syncMem0Account(nextAccount);
+        return;
+      }
+      if (!alwaysAsk && savedChoice === 'self-hosted') return;
+
+      const choice = await CloudMemoryDialog.show({
+        plan: memory.plan,
+        memories: memory.quota.memories,
+        writesPerMonth: memory.quota.writesPerMonth,
+        searchesPerMonth: memory.quota.searchesPerMonth,
+      });
+      window.localStorage.setItem(preferenceKey, choice);
+      if (choice === 'cloud') await syncMem0Account(nextAccount);
+    },
+    [syncMem0Account]
+  );
 
   const syncCloudContext = useCallback(
     async (nextAccount: CloudAccount) => {
@@ -381,7 +422,7 @@ export function CloudAuthActions() {
         if (!cancelled && parsed.accessToken) {
           setAccount(parsed);
           void persistAccount(parsed);
-          void syncMem0Account(parsed.userId);
+          void offerCloudMemory(parsed);
           void syncCloudContext(parsed);
         }
       } catch {
@@ -391,7 +432,7 @@ export function CloudAuthActions() {
     return () => {
       cancelled = true;
     };
-  }, [persistAccount, syncCloudContext, syncMem0Account]);
+  }, [offerCloudMemory, persistAccount, syncCloudContext]);
 
   useEffect(() => {
     if (!account?.accessToken) return;
@@ -487,7 +528,7 @@ export function CloudAuthActions() {
         if (result.status !== 'complete') continue;
 
         setAccount(result.account);
-        void syncMem0Account(result.account.userId);
+        await offerCloudMemory(result.account, true);
         void syncCloudContext(result.account);
         void persistAccount(result.account);
         break;
@@ -504,7 +545,7 @@ export function CloudAuthActions() {
     } finally {
       setPending(false);
     }
-  }, [cloudUrl, openExternal, persistAccount, syncMem0Account]);
+  }, [cloudUrl, offerCloudMemory, openExternal, persistAccount]);
 
   const openDashboard = useCallback(() => {
     void openExternal(`${cloudUrl.replace(/\/$/, '')}/dashboard`);
@@ -571,7 +612,19 @@ type CloudAccount = {
   deviceId: string;
   scopes: string[];
   expiresAt: number;
+  memory?: {
+    enabled: boolean;
+    gatewayUrl: string;
+    plan: 'free' | 'personal' | 'enterprise';
+    quota: {
+      memories: number;
+      writesPerMonth: number;
+      searchesPerMonth: number;
+    };
+  };
 };
+
+const CLOUD_MEMORY_PREFERENCE_PREFIX = 'aurapunk-cloud-memory';
 
 type DesktopAuthStatus =
   | { status: 'pending' }

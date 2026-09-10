@@ -6,6 +6,12 @@
 	<string>Aurapunk IDE</string>
 	<key>CFBundleName</key>
 	<string>Aurapunk IDE</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Aurapunk IDE needs access to your Desktop to manage local repositories and workspace files.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Aurapunk IDE needs access to your Documents folder to manage projects and workspaces.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Aurapunk IDE needs access to your Downloads folder to import assets and repositories.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

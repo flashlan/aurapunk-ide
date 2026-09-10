@@ -81,10 +81,10 @@ export async function resolveBootstrapRepos(
         // Once repos are non-empty, the "auto-apply repo defaults" effect in
         // useCreateModeState.ts skips re-deriving a branch (it only fills in
         // repo-less drafts), so an empty string here would stick forever —
-        // re-saving the repo's default branch in Settings can never reach
-        // it. `||` normalizes "" to `null` here instead, so the branch shows
-        // as genuinely unselected and the user can actually pick one.
-        targetBranch: preferredRepo.target_branch || null,
+        targetBranch:
+          preferredRepo.target_branch ||
+          repo.default_target_branch ||
+          'main',
       },
     ];
   });

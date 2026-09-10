@@ -21,7 +21,22 @@
     "active": true,
     "targets": "all",
     "macOS": {
-      "bundleName": "Aurapunk IDE"
+      "bundleName": "Aurapunk IDE",
+      "dmg": {
+        "background": "./dmg_background.png",
+        "windowSize": {
+          "width": 660,
+          "height": 420
+        },
+        "appPosition": {
+          "x": 170,
+          "y": 250
+        },
+        "applicationFolderPosition": {
+          "x": 490,
+          "y": 250
+        }
+      }
     },
     "windows": {},
     "icon": [

@@ -60,6 +60,8 @@ struct UpdateMem0ConnectionRequest {
     adapter: Option<String>,
     enabled: Option<bool>,
     url: Option<String>,
+    clear_url: Option<bool>,
+    disconnect_cloud: Option<bool>,
     mem0_api_key: Option<String>,
     clear_mem0_api_key: Option<bool>,
     qdrant_url: Option<String>,
@@ -597,6 +599,13 @@ async fn update_mem0_connection(
 ) -> ResponseJson<ApiResponse<Mem0Connection>> {
     let mut config = memory_config::load();
 
+    if body.disconnect_cloud.unwrap_or(false) && config.source == "cloud" {
+        config.enabled = false;
+        config.mem0_url = None;
+        config.cloud_url = None;
+        config.mem0_api_key = None;
+    }
+
     if let Some(source) = body.source {
         let source = source.trim().to_ascii_lowercase();
         if !matches!(source.as_str(), "local" | "cloud") {
@@ -621,6 +630,10 @@ async fn update_mem0_connection(
     }
     if let Some(enabled) = body.enabled {
         config.enabled = enabled;
+    }
+    if body.clear_url.unwrap_or(false) {
+        config.mem0_url = None;
+        config.cloud_url = None;
     }
     if let Some(url) = body.url {
         let url = url.trim().to_string();

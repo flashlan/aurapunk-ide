@@ -38,11 +38,11 @@ Cloud URL. The actions are exposed only when the app is launched with
 - Self-hosted installations can point the app at their own account service.
 - The desktop app displays the confirmed account identity locally after the
   one-time handoff. The identity is device-local UI state, not a cloud session.
-- Cloud-mode pilot builds may point `MEM0_URL` at the shared local AuraPunk
-  Mem0 service. `AURAPUNK_CLOUD_MEM0_URL` overrides the pilot default
-  (`http://192.168.1.168:8000`); local mode keeps its normal local Mem0
-  endpoint.
-- The pilot URL selection is transport configuration, not billing
-  authorization. Before exposing the service beyond the trusted local
-  network, add a scoped token exchange and enforce the active Personal/Pro or
-  Enterprise subscription at the cloud gateway.
+- Packaged clients start with hosted memory disconnected and contain no
+  built-in Mem0 address. After login, the user chooses in a modal between a
+  self-hosted endpoint and AuraPunk Cloud memory.
+- Confirming Cloud memory installs the device-scoped gateway URL and token
+  returned by the authenticated handoff. Declining leaves memory disabled or
+  available for manual self-hosted configuration.
+- Plan quotas and account namespaces are enforced by the private gateway. The
+  desktop never receives a Qdrant address or an internal Mem0 credential.

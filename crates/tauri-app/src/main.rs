@@ -26,8 +26,6 @@ use utils::assets::config_path;
 use uuid::Uuid;
 
 const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
-const DEFAULT_CLOUD_MEM0_URL: &str = "http://192.168.1.168:8000";
-
 #[cfg(target_os = "linux")]
 mod linux_notifications;
 #[cfg(target_os = "macos")]
@@ -171,17 +169,29 @@ fn main() {
     // diagnostics on a packaged build.
     let local_mode = std::env::args().any(|arg| arg == "--local");
     if !local_mode {
+        let memory = utils::memory_config::load();
+        let operator_configured_local_memory = memory.source == "local"
+            && (memory.mem0_url.is_some()
+                || memory.local_url.is_some()
+                || std::env::var_os("MEM0_URL").is_some());
+
         // Environment mutation is process-wide and intentionally happens
         // before the backend is started; this is safe during single-threaded
         // application initialization.
         unsafe { std::env::set_var("VIBE_KANBAN_MODE", "cloud") };
 
-        // Keep an explicit MEM0_URL override for deployments that use another
-        // host while giving the packaged Cloud client a useful default.
-        if std::env::var_os("MEM0_URL").is_none() {
-            let mem0_url = std::env::var("AURAPUNK_CLOUD_MEM0_URL")
-                .unwrap_or_else(|_| DEFAULT_CLOUD_MEM0_URL.to_string());
-            unsafe { std::env::set_var("MEM0_URL", mem0_url) };
+        // Hosted memory is fail-closed. The authenticated Cloud handoff
+        // supplies a device-scoped gateway URL and token after login; a
+        // packaged client must never contact a baked-in Mem0 address during
+        // startup, including when an older memory.toml still exists.
+        if !operator_configured_local_memory {
+            unsafe {
+                std::env::remove_var("MEM0_URL");
+                std::env::remove_var("AURAPUNK_CLOUD_MEM0_URL");
+                std::env::remove_var("MEM0_API_TOKEN");
+                std::env::remove_var("AURAPUNK_MEM0_TOKEN");
+                std::env::set_var("MEM0_ENABLED", "false");
+            }
         }
     }
 
