@@ -1,0 +1,364 @@
+name: Desktop installers
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing GitHub release to receive the installers'
+        required: true
+        default: 'v0.2.45'
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+  PNPM_VERSION: '10.13.1'
+  # Keep the JavaScript CLI reproducible while the Rust crates remain locked
+  # by Cargo.lock (currently on the Tauri 2.10.x line).
+  TAURI_CLI: '@tauri-apps/cli@2.11.4'
+
+jobs:
+  build-frontend:
+    name: Build shared frontend
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm --filter @vibe/local-web run build
+
+      - name: Upload frontend bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurapunk-frontend-dist
+          path: packages/local-web/dist/**
+          if-no-files-found: error
+          retention-days: 1
+
+  build-windows:
+    name: Windows x64 installer (.exe)
+    needs: build-frontend
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-x64-tauri
+
+      - name: Restore frontend bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: aurapunk-frontend-dist
+          path: packages/local-web/dist
+
+      - name: Build NSIS installer
+        working-directory: crates/tauri-app
+        run: npx --yes $env:TAURI_CLI build --config tauri.build.conf.json --bundles nsis
+
+      - name: Collect installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidates = @(
+            (Join-Path $env:GITHUB_WORKSPACE 'target\release\bundle\nsis'),
+            (Join-Path $env:GITHUB_WORKSPACE 'crates\tauri-app\target\release\bundle\nsis')
+          )
+          $bundle = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $bundle) {
+            throw 'Tauri NSIS output directory was not found.'
+          }
+          $installers = @(Get-ChildItem -Path $bundle -Filter '*.exe' -File)
+          if ($installers.Count -eq 0) {
+            throw "No .exe installer found in $bundle"
+          }
+          New-Item -ItemType Directory -Force -Path installer-output | Out-Null
+          Copy-Item $installers[0].FullName -Destination 'installer-output/Aurapunk-IDE-windows-x64.exe' -Force
+          Get-ChildItem installer-output
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurapunk-installer-windows-x64
+          path: installer-output/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  build-macos-intel:
+    name: macOS Intel installer (.dmg)
+    needs: build-frontend
+    runs-on: macos-15-intel
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-intel-tauri
+
+      - name: Restore frontend bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: aurapunk-frontend-dist
+          path: packages/local-web/dist
+
+      - name: Build Intel DMG
+        working-directory: crates/tauri-app
+        run: npx --yes $TAURI_CLI build --config tauri.build.conf.json --bundles dmg
+
+      - name: Collect installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle=''
+          for candidate in \
+            "$GITHUB_WORKSPACE/target/release/bundle/dmg" \
+            "$GITHUB_WORKSPACE/crates/tauri-app/target/release/bundle/dmg"; do
+            if [ -d "$candidate" ]; then
+              bundle="$candidate"
+              break
+            fi
+          done
+          [ -n "$bundle" ] || { echo 'Tauri DMG output directory was not found.' >&2; exit 1; }
+          mkdir -p installer-output
+          shopt -s nullglob
+          installers=("$bundle"/*.dmg)
+          [ "${#installers[@]}" -gt 0 ] || { echo "No .dmg installer found in $bundle" >&2; exit 1; }
+          cp -f "${installers[0]}" installer-output/Aurapunk-IDE-macos-intel.dmg
+          ls -lh installer-output
+
+      - name: Upload macOS Intel installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurapunk-installer-macos-intel
+          path: installer-output/*.dmg
+          if-no-files-found: error
+          retention-days: 30
+
+  build-macos-apple-silicon:
+    name: macOS Apple Silicon installer (.dmg)
+    needs: build-frontend
+    runs-on: macos-14
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-apple-silicon-tauri
+
+      - name: Restore frontend bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: aurapunk-frontend-dist
+          path: packages/local-web/dist
+
+      - name: Build Apple Silicon DMG
+        working-directory: crates/tauri-app
+        run: npx --yes $TAURI_CLI build --config tauri.build.conf.json --bundles dmg
+
+      - name: Collect installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle=''
+          for candidate in \
+            "$GITHUB_WORKSPACE/target/release/bundle/dmg" \
+            "$GITHUB_WORKSPACE/crates/tauri-app/target/release/bundle/dmg"; do
+            if [ -d "$candidate" ]; then
+              bundle="$candidate"
+              break
+            fi
+          done
+          [ -n "$bundle" ] || { echo 'Tauri DMG output directory was not found.' >&2; exit 1; }
+          mkdir -p installer-output
+          shopt -s nullglob
+          installers=("$bundle"/*.dmg)
+          [ "${#installers[@]}" -gt 0 ] || { echo "No .dmg installer found in $bundle" >&2; exit 1; }
+          cp -f "${installers[0]}" installer-output/Aurapunk-IDE-macos-apple-silicon.dmg
+          ls -lh installer-output
+
+      - name: Upload macOS Apple Silicon installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurapunk-installer-macos-apple-silicon
+          path: installer-output/*.dmg
+          if-no-files-found: error
+          retention-days: 30
+
+  build-linux:
+    name: Linux x64 installers (.deb, .rpm, .AppImage)
+    needs: build-frontend
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            file \
+            libayatana-appindicator3-dev \
+            libfuse2t64 \
+            libgtk-3-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            librsvg2-dev \
+            patchelf \
+            rpm
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: linux-x64-tauri
+
+      - name: Restore frontend bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: aurapunk-frontend-dist
+          path: packages/local-web/dist
+
+      - name: Build Linux installers
+        working-directory: crates/tauri-app
+        run: npx --yes $TAURI_CLI build --config tauri.build.conf.json --bundles deb,rpm,appimage
+
+      - name: Collect installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle=''
+          for candidate in \
+            "$GITHUB_WORKSPACE/target/release/bundle" \
+            "$GITHUB_WORKSPACE/crates/tauri-app/target/release/bundle"; do
+            if [ -d "$candidate" ]; then
+              bundle="$candidate"
+              break
+            fi
+          done
+          [ -n "$bundle" ] || { echo 'Tauri Linux bundle directory was not found.' >&2; exit 1; }
+          mkdir -p installer-output
+          appimage=$(find "$bundle" -type f -name '*.AppImage' -print -quit)
+          deb=$(find "$bundle" -type f -name '*.deb' -print -quit)
+          rpm=$(find "$bundle" -type f -name '*.rpm' -print -quit)
+          [ -n "$appimage" ] || { echo 'AppImage was not generated.' >&2; exit 1; }
+          [ -n "$deb" ] || { echo 'Debian package was not generated.' >&2; exit 1; }
+          [ -n "$rpm" ] || { echo 'RPM package was not generated.' >&2; exit 1; }
+          cp -f "$appimage" installer-output/Aurapunk-IDE-linux-x64.AppImage
+          cp -f "$deb" installer-output/Aurapunk-IDE-linux-x64.deb
+          cp -f "$rpm" installer-output/Aurapunk-IDE-linux-x64.rpm
+          count=$(find installer-output -maxdepth 1 -type f | wc -l)
+          [ "$count" -ge 3 ] || { echo "Expected .deb, .rpm and .AppImage; found $count file(s)." >&2; exit 1; }
+          ls -lh installer-output
+
+      - name: Upload Linux installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurapunk-installer-linux-x64
+          path: installer-output/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-release-assets:
+    name: Add installers to the GitHub release
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs:
+      - build-windows
+      - build-macos-intel
+      - build-macos-apple-silicon
+      - build-linux
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: aurapunk-installer-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: release-assets
+        run: sha256sum * > SHA256SUMS
+
+      - name: Publish installers to the tagged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          tag="$RELEASE_TAG"
+          # release-alternative.yml normally creates the release. Wait for it
+          # when both workflows start from the same tag, then upload safely.
+          for attempt in $(seq 1 30); do
+            if gh release view "$tag" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 10
+          done
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "$tag" --generate-notes
+          fi
+          gh release upload "$tag" release-assets/* --clobber
