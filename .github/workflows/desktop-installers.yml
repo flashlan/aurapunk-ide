@@ -346,6 +346,7 @@ jobs:
       - name: Publish installers to the tagged release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           set -euo pipefail
@@ -353,12 +354,12 @@ jobs:
           # release-alternative.yml normally creates the release. Wait for it
           # when both workflows start from the same tag, then upload safely.
           for attempt in $(seq 1 30); do
-            if gh release view "$tag" >/dev/null 2>&1; then
+            if gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
               break
             fi
             sleep 10
           done
-          if ! gh release view "$tag" >/dev/null 2>&1; then
-            gh release create "$tag" --title "$tag" --generate-notes
+          if ! gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GH_REPO" --title "$tag" --generate-notes
           fi
-          gh release upload "$tag" release-assets/* --clobber
+          gh release upload "$tag" --repo "$GH_REPO" release-assets/* --clobber
