@@ -111,9 +111,9 @@ export function TerminalPanel({
       </div>
 
       {tabs.length > 0 && (
-        <div className="flex items-stretch shrink-0 border-b border-border bg-tertiary h-7">
-          <div className="flex-1 min-w-0 overflow-x-auto">
-            <div className="flex items-stretch gap-px h-full">
+        <div className="flex items-start shrink-0 border-b border-border bg-tertiary min-h-7">
+          <div className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto max-h-[84px]">
+            <div className="flex flex-wrap items-stretch gap-px">
               {tabs.map((tab) => {
                 const isActive = tab.id === activeTab?.id;
                 const displayTitle = tab.cwd
@@ -126,7 +126,7 @@ export function TerminalPanel({
                   <div
                     key={tab.id}
                     className={cn(
-                      'group flex items-stretch border-r border-border shrink-0 h-full',
+                      'group flex items-stretch border-r border-border shrink-0 h-7',
                       isActive ? 'bg-secondary' : 'bg-tertiary'
                     )}
                   >
@@ -174,30 +174,30 @@ export function TerminalPanel({
                   </div>
                 );
               })}
-              {onNewTab && (
-                <button
-                  type="button"
-                  title="New terminal"
-                  aria-label="New terminal"
-                  className="flex items-center px-1.5 text-low hover:text-normal shrink-0 h-full cursor-pointer"
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    onNewTab();
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                  }}
-                >
-                  <PlusIcon
-                    className="size-icon-xs pointer-events-none"
-                    weight="bold"
-                  />
-                </button>
-              )}
             </div>
           </div>
+          {onNewTab && (
+            <button
+              type="button"
+              title="New terminal"
+              aria-label="New terminal"
+              className="flex items-center self-start px-1.5 h-7 text-low hover:text-normal shrink-0 border-l border-border cursor-pointer"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onNewTab();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+              }}
+            >
+              <PlusIcon
+                className="size-icon-xs pointer-events-none"
+                weight="bold"
+              />
+            </button>
+          )}
         </div>
       )}
       <div className="flex-1 min-h-0 w-full relative">
