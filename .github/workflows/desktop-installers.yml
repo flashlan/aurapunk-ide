@@ -143,9 +143,25 @@ jobs:
           name: aurapunk-frontend-dist
           path: packages/local-web/dist
 
+      - name: Build Intel app
+        working-directory: crates/tauri-app
+        run: npx --yes $TAURI_CLI build --config tauri.build.conf.json --bundles app --no-sign
+
+      - name: Seal Intel app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=$(find \
+            "$GITHUB_WORKSPACE/target/release/bundle/macos" \
+            "$GITHUB_WORKSPACE/crates/tauri-app/target/release/bundle/macos" \
+            -type d -name '*.app' -print -quit 2>/dev/null || true)
+          [ -n "$app" ] || { echo 'macOS Intel app bundle was not found.' >&2; exit 1; }
+          codesign --force --deep --sign - --timestamp=none "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+
       - name: Build Intel DMG
         working-directory: crates/tauri-app
-        run: npx --yes $TAURI_CLI build --config tauri.build.conf.json --bundles dmg
+        run: npx --yes $TAURI_CLI bundle --config tauri.build.conf.json --bundles dmg --no-sign
 
       - name: Collect installer
         shell: bash
@@ -205,9 +221,25 @@ jobs:
           name: aurapunk-frontend-dist
           path: packages/local-web/dist
 
+      - name: Build Apple Silicon app
+        working-directory: crates/tauri-app
+        run: npx --yes $TAURI_CLI build --config tauri.build.conf.json --bundles app --no-sign
+
+      - name: Seal Apple Silicon app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=$(find \
+            "$GITHUB_WORKSPACE/target/release/bundle/macos" \
+            "$GITHUB_WORKSPACE/crates/tauri-app/target/release/bundle/macos" \
+            -type d -name '*.app' -print -quit 2>/dev/null || true)
+          [ -n "$app" ] || { echo 'macOS Apple Silicon app bundle was not found.' >&2; exit 1; }
+          codesign --force --deep --sign - --timestamp=none "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+
       - name: Build Apple Silicon DMG
         working-directory: crates/tauri-app
-        run: npx --yes $TAURI_CLI build --config tauri.build.conf.json --bundles dmg
+        run: npx --yes $TAURI_CLI bundle --config tauri.build.conf.json --bundles dmg --no-sign
 
       - name: Collect installer
         shell: bash
