@@ -1068,6 +1068,27 @@ async function memoryStore(
   return { stored, ids, entities: entities.length, relations: relations.length, graph: pushed };
 }
 
+/**
+ * Store one already-structured fact without invoking an LLM or the graph
+ * extractor. This is intentionally separate from `memoryStore`: callers must
+ * supply a self-contained fact that is ready to be embedded and recalled.
+ */
+async function memoryIndex(
+  content: string,
+  userId: string,
+  commitSha?: string,
+): Promise<{ stored: string; id: string }> {
+  const uid = userId || config.defaultUser;
+  await ensureCollection();
+  const embedding = await getEmbedding(content);
+  const id = randomUUID();
+  await upsertPoint(id, content, uid, embedding, {
+    source: "direct_index",
+    ...(commitSha ? { commit_sha: commitSha } : {}),
+  });
+  return { stored: content, id };
+}
+
 // ── Durable memory-store queue (BullMQ/Redis) ───────────────────────────────
 // `POST /api/memories` used to run `memoryStore` inline — LLM extraction +
 // embedding on the request/response path — which blocks the calling agent
@@ -1482,6 +1503,7 @@ app.get("/", (c) => c.json({
     mcp: "/mcp",
     rest: {
       store: "POST /api/memories",
+      index: "POST /api/memories/index (vector-only; no LLM extraction)",
       search: "POST /api/search",
       recall: "GET /api/memories/:user_id",
       update: "PATCH /api/memories/:id",
@@ -1526,6 +1548,22 @@ app.post("/api/memories", async (c) => {
     commitSha: commit_sha,
   });
   return c.json({ ok: true, queued: true, job_id: job.id }, 202);
+});
+
+// Direct vector indexing for callers that already have a self-contained fact.
+// Unlike POST /api/memories, this does not queue or invoke LLM extraction and
+// it never writes to the graph.
+app.post("/api/memories/index", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const content: string = body?.content;
+  const user_id: string = scopedMemoryUserId(c, body?.user_id || "");
+  const commit_sha: string | undefined =
+    typeof body?.commit_sha === "string" && body.commit_sha ? body.commit_sha : undefined;
+  if (!content || typeof content !== "string") {
+    return c.json({ error: "missing string field 'content'" }, 400);
+  }
+  const indexed = await memoryIndex(content, user_id, commit_sha);
+  return c.json({ ok: true, vector_only: true, ...indexed }, 201);
 });
 
 // Best-effort status lookup for a queued save — mainly for debugging/tests;
