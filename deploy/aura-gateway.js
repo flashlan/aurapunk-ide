@@ -66,7 +66,16 @@ function proxyRequest(request, response, origin) {
     // Node fetch transparently decodes gzip/br responses. Do not forward the
     // original encoding metadata, or browsers will attempt to decode the body
     // a second time and report an invalid content-encoding error.
-    const headers = Object.fromEntries(upstreamResponse.headers);
+    const headers = {};
+    for (const [name, value] of upstreamResponse.headers) {
+      // Headers.get() may combine multiple Set-Cookie values into one comma-
+      // separated string, which changes cookie semantics in the browser.
+      if (name !== 'set-cookie') headers[name] = value;
+    }
+    const setCookies = typeof upstreamResponse.headers.getSetCookie === 'function'
+      ? upstreamResponse.headers.getSetCookie()
+      : [];
+    if (setCookies.length) headers['set-cookie'] = setCookies;
     delete headers['content-encoding'];
     delete headers['content-length'];
     response.writeHead(upstreamResponse.status, headers);
