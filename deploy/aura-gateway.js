@@ -42,6 +42,7 @@ function isCloudApiRequest(pathname) {
     '/api/admin',
     '/api/billing',
     '/api/cloud-contract',
+    '/api/cloud-workspace',
     '/api/dashboard',
     '/api/dashboard-api',
     '/api/deployment',
