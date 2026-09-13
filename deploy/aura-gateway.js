@@ -173,6 +173,10 @@ function proxyRequest(request, response, origin, options = {}) {
     headers: proxyHeaders(request, target, options),
     body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request,
     duplex: 'half',
+    // Preserve authentication redirects and their Location header. Following
+    // a 303 here would turn the launch handoff into a rendered login page and
+    // hide the response that the browser must follow.
+    redirect: 'manual',
   });
 
   upstream.then(async (upstreamResponse) => {
