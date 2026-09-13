@@ -77,12 +77,17 @@ function cloudIdeTenantFromHost(hostHeader) {
   return tenant;
 }
 
-function proxyHeaders(request, target, { forwardCookie = false } = {}) {
+function proxyHeaders(
+  request,
+  target,
+  { forwardCookie = false, forwardAuthorization = false } = {},
+) {
   const headers = {};
   for (const [name, value] of Object.entries(request.headers)) {
     const lower = name.toLowerCase();
     if (value === undefined || lower === 'connection' || lower === 'content-length' || lower === 'host') continue;
-    if (!forwardCookie && (lower === 'cookie' || lower === 'authorization')) continue;
+    if (!forwardCookie && lower === 'cookie') continue;
+    if (!forwardAuthorization && lower === 'authorization') continue;
     headers[name] = Array.isArray(value) ? value.join(', ') : value;
   }
   headers.host = target.host;
@@ -148,11 +153,11 @@ async function proxyCloudIde(request, response, tenant) {
   }
 }
 
-function proxyRequest(request, response, origin) {
+function proxyRequest(request, response, origin, options = {}) {
   const target = new URL(request.url ?? '/', origin);
   const upstream = fetch(target, {
     method: request.method,
-    headers: proxyHeaders(request, target),
+    headers: proxyHeaders(request, target, options),
     body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request,
     duplex: 'half',
   });
@@ -225,11 +230,17 @@ const server = createServer((request, response) => {
   }
 
   if (isVibeApiRequest(pathname) && !isCloudApiRequest(pathname)) {
-    proxyRequest(request, response, vibeOrigin);
+    proxyRequest(request, response, vibeOrigin, {
+      forwardCookie: true,
+      forwardAuthorization: true,
+    });
     return;
   }
 
-  proxyRequest(request, response, websiteOrigin);
+  proxyRequest(request, response, websiteOrigin, {
+    forwardCookie: true,
+    forwardAuthorization: true,
+  });
 });
 
 server.on('upgrade', (request, socket, head) => {
