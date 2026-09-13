@@ -15,6 +15,9 @@ const cloudIdeBaseDomain = (process.env.CLOUD_IDE_BASE_DOMAIN ?? '')
   .toLowerCase()
   .replace(/^\*\./, '')
   .replace(/\.$/, '');
+const cloudIdeAuthOrigin = (process.env.CLOUD_IDE_AUTH_ORIGIN ?? `https://${cloudIdeBaseDomain}`)
+  .trim()
+  .replace(/\/+$/, '');
 const cloudIdeGatewayKey = process.env.CLOUD_IDE_GATEWAY_KEY?.trim() ?? '';
 const cloudIdeAllowedUpstreamHosts = new Set(
   (process.env.CLOUD_IDE_ALLOWED_UPSTREAM_HOSTS ?? '')
@@ -142,6 +145,16 @@ async function proxyCloudIde(request, response, tenant) {
   try {
     const resolved = await resolveCloudIde(request, tenant);
     if (resolved.status !== 200) {
+      if (resolved.status === 401 && cloudIdeAuthOrigin) {
+        const loginUrl = new URL('/api/cloud-ide/launch', cloudIdeAuthOrigin);
+        loginUrl.searchParams.set('tenant', tenant);
+        response.writeHead(303, {
+          'Cache-Control': 'no-store',
+          Location: loginUrl.toString(),
+        });
+        response.end();
+        return;
+      }
       writeJson(response, resolved.status, resolved.body);
       return;
     }
