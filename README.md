@@ -81,14 +81,14 @@ At its core it's a kanban board that plans and tracks agent work, plus a workspa
 > GitHub release. The desktop application runs locally and does not require an
 > AuraPunk Cloud account.
 
-The current installers are published in [release `v0.3.0`](https://github.com/flashlan/aurapunk-ide/releases/tag/v0.3.0).
-The release also includes [`SHA256SUMS`](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.0/SHA256SUMS)
+The current installers are published in [release `v0.3.1`](https://github.com/flashlan/aurapunk-ide/releases/tag/v0.3.1).
+The release also includes [`SHA256SUMS`](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.1/SHA256SUMS)
 for integrity verification.
 
 ### macOS
 
-- [Apple Silicon — DMG](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.0/Aurapunk-IDE-macos-apple-silicon.dmg)
-- [Intel — DMG](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.0/Aurapunk-IDE-macos-intel.dmg)
+- [Apple Silicon — DMG](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.1/Aurapunk-IDE-macos-apple-silicon.dmg)
+- [Intel — DMG](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.1/Aurapunk-IDE-macos-intel.dmg)
 
 Open the DMG and drag **Aurapunk IDE** to **Applications**. If macOS shows
 “Apple cannot verify the developer”, open **System Settings → Privacy &
@@ -107,9 +107,9 @@ brew install --cask aurapunk-ide
 
 ### Linux
 
-- [AppImage — x86_64](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.0/Aurapunk-IDE-linux-x64.AppImage)
-- [Debian/Ubuntu — `.deb`](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.0/Aurapunk-IDE-linux-x64.deb)
-- [Fedora — `.rpm`](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.0/Aurapunk-IDE-linux-x64.rpm)
+- [AppImage — x86_64](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.1/Aurapunk-IDE-linux-x64.AppImage)
+- [Debian/Ubuntu — `.deb`](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.1/Aurapunk-IDE-linux-x64.deb)
+- [Fedora — `.rpm`](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.1/Aurapunk-IDE-linux-x64.rpm)
 
 Make the AppImage executable before launching it:
 
@@ -123,7 +123,7 @@ or the RPM package with `sudo dnf install ./Aurapunk-IDE-linux-x64.rpm`.
 
 ### Windows
 
-- [Windows x64 — NSIS installer](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.0/Aurapunk-IDE-windows-x64.exe)
+- [Windows x64 — NSIS installer](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.1/Aurapunk-IDE-windows-x64.exe)
 
 Run the installer and follow the setup wizard. The current published Windows
 installer targets x64 systems.

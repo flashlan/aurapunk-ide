@@ -53,9 +53,9 @@ first release is partly manual.
 
 ```bash
 git checkout main
-# Ensure npx-cli/package.json "version" is the version you want (e.g. 0.3.0).
-git tag v0.3.0
-git push origin v0.3.0
+# Ensure npx-cli/package.json "version" is the version you want (e.g. 0.3.1).
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 `release-alternative.yml` runs. The **build** and **release** jobs create the GitHub
@@ -88,7 +88,7 @@ npm publish --access public
 
 Verify:
 ```bash
-cd /tmp && npx aurapunk-ide@0.3.0   # downloads binaries from the release
+cd /tmp && npx aurapunk-ide@0.3.1   # downloads binaries from the release
 ```
 
 ### 3. Configure the trusted publisher (enables automation)
@@ -158,10 +158,10 @@ betas land on their own channel and never touch `@latest`:
 
 | `npx-cli/package.json` version | npm dist-tag | install with                       |
 | ------------------------------ | ------------ | ---------------------------------- |
- | `0.3.0`                        | `latest`     | `npx aurapunk-ide`            |
- | `0.3.0-beta.1`                 | `beta`       | `npx aurapunk-ide@beta`       |
- | `0.3.0-rc.1`                   | `rc`         | `npx aurapunk-ide@rc`         |
- | `0.3.0-alpha.1`                | `alpha`      | `npx aurapunk-ide@alpha`      |
+ | `0.3.1`                        | `latest`     | `npx aurapunk-ide`            |
+ | `0.3.1-beta.1`                 | `beta`       | `npx aurapunk-ide@beta`       |
+ | `0.3.1-rc.1`                   | `rc`         | `npx aurapunk-ide@rc`         |
+ | `0.3.1-alpha.1`                | `alpha`      | `npx aurapunk-ide@alpha`      |
 
 (The tag is the prerelease identifier before the first dot — `X.Y.Z-<id>.N` → `@<id>`.)
 
@@ -176,7 +176,7 @@ CI publishes `0.2.8-beta.1` to the `@beta` dist-tag and creates a GitHub
 **pre-release** (so the CLI's `releases/latest` manifest pointer stays on the
 last stable build and beta users don't advertise themselves to stable users).
 `@latest` is left untouched. Install the channel with `npx aurapunk-ide@beta`
-or pin exactly with `npx aurapunk-ide@0.3.0-beta.1`.
+or pin exactly with `npx aurapunk-ide@0.3.1-beta.1`.
 
 **Promote to stable** by releasing the matching final version — bump
 `npx-cli/package.json` to `0.2.8`, tag `v0.2.8`. With no prerelease suffix it
