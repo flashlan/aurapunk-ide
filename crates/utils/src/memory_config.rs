@@ -115,7 +115,11 @@ pub fn load() -> MemoryConfig {
             .map(|value| value.trim().eq_ignore_ascii_case("cloud"))
             .unwrap_or(false)
     {
+        // A cloud instance starts before the browser account handoff. Keep
+        // hosted Mem0 fail-closed until the signed-in account writes its
+        // gateway URL and device-scoped token through /api/usage.
         config.source = "cloud".to_string();
+        config.enabled = false;
     }
 
     if let Some(value) = env::var("MEM0_ENABLED")

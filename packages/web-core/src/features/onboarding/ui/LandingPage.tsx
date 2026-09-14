@@ -95,6 +95,32 @@ const SOCIAL_LINKS = [
   },
 ];
 
+const AGENT_DOWNLOAD_LINKS: Partial<Record<BaseCodingAgent, string>> = {
+  [BaseCodingAgent.CLAUDE_CODE]:
+    'https://docs.anthropic.com/en/docs/claude-code/overview',
+  [BaseCodingAgent.CLAUDE_CODE_HEADED]:
+    'https://docs.anthropic.com/en/docs/claude-code/overview',
+  [BaseCodingAgent.CODEX]: 'https://github.com/openai/codex',
+  [BaseCodingAgent.OPENCODE]: 'https://opencode.ai/docs/',
+  [BaseCodingAgent.OPENCODE_HEADED]: 'https://opencode.ai/docs/',
+  [BaseCodingAgent.GEMINI]: 'https://github.com/google-gemini/gemini-cli',
+  [BaseCodingAgent.AMP]: 'https://ampcode.com/',
+  [BaseCodingAgent.CURSOR_AGENT]: 'https://www.cursor.com/downloads',
+  [BaseCodingAgent.QWEN_CODE]: 'https://github.com/QwenLM/Qwen3-Coder',
+  [BaseCodingAgent.COPILOT]: 'https://github.com/features/copilot',
+  [BaseCodingAgent.DROID]: 'https://www.factory.ai/',
+};
+
+const EDITOR_DOWNLOAD_LINKS: Partial<Record<EditorType, string>> = {
+  [EditorType.VS_CODE]: 'https://code.visualstudio.com/download',
+  [EditorType.VS_CODE_INSIDERS]: 'https://code.visualstudio.com/insiders/',
+  [EditorType.CURSOR]: 'https://www.cursor.com/downloads',
+  [EditorType.WINDSURF]: 'https://windsurf.com/download',
+  [EditorType.INTELLI_J]: 'https://www.jetbrains.com/idea/download/',
+  [EditorType.ZED]: 'https://zed.dev/download',
+  [EditorType.XCODE]: 'https://developer.apple.com/xcode/',
+};
+
 function randomDefaultSoundFile(): SoundFile {
   const randomIndex = Math.floor(Math.random() * SOUND_OPTIONS.length);
   return SOUND_OPTIONS[randomIndex]?.value ?? SoundFile.COW_MOOING;
@@ -417,6 +443,18 @@ export function LandingPage() {
                       <span className="text-sm text-normal flex-1 truncate">
                         {getAgentName(agent)}
                       </span>
+                      {AGENT_DOWNLOAD_LINKS[agent] && (
+                        <a
+                          href={AGENT_DOWNLOAD_LINKS[agent]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(event) => event.stopPropagation()}
+                          className="shrink-0 text-xs text-brand hover:underline"
+                          aria-label={`Download ${getAgentName(agent)}`}
+                        >
+                          Download
+                        </a>
+                      )}
                       {selected && (
                         <CheckIcon
                           className="size-icon-xs text-brand shrink-0"
@@ -433,6 +471,9 @@ export function LandingPage() {
                   </p>
                 )}
               </div>
+              <p className="text-xs text-low">
+                Download links open the official CLI or installation guide.
+              </p>
             </section>
 
             {/* Column 2: Code Editor */}
@@ -466,6 +507,18 @@ export function LandingPage() {
                       <span className="text-sm text-normal flex-1 truncate">
                         {getIdeName(editor)}
                       </span>
+                      {EDITOR_DOWNLOAD_LINKS[editor] && (
+                        <a
+                          href={EDITOR_DOWNLOAD_LINKS[editor]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(event) => event.stopPropagation()}
+                          className="shrink-0 text-xs text-brand hover:underline"
+                          aria-label={`Download ${getIdeName(editor)}`}
+                        >
+                          Download
+                        </a>
+                      )}
                       {selected && (
                         <CheckIcon
                           className="size-icon-xs text-brand shrink-0"
@@ -498,6 +551,10 @@ export function LandingPage() {
                   />
                 </div>
               )}
+              <p className="text-xs text-low">
+                Graphical editors are installed on your local machine; cloud
+                workspaces remain CLI-first.
+              </p>
             </section>
 
             {/* Column 3: Notification Sound */}
