@@ -38,12 +38,14 @@ use deployment::Deployment;
 use executors::model_selector::PermissionPolicy;
 use executors::{
     executors::BaseCodingAgent,
+    logs::{NormalizedEntry, NormalizedEntryType, utils::patch::ConversationPatch},
     profile::{ExecutorConfig, ExecutorConfigs},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use services::services::pipelines::load_pipelines;
 use sqlx::Row;
+use utils::log_msg::LogMsg;
 use utils::path::pipelines_dir;
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -136,6 +138,65 @@ pub struct CloudImportRecord {
 struct CloudIssueWorkspacePayload {
     issue_id: Uuid,
     workspace_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+struct CloudSessionPayload {
+    id: Uuid,
+    workspace_id: Uuid,
+    name: Option<String>,
+    executor: Option<String>,
+    agent_working_dir: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CloudExecutionPayload {
+    id: Uuid,
+    session_id: Uuid,
+    run_reason: String,
+    status: String,
+    exit_code: Option<i64>,
+    started_at: chrono::DateTime<chrono::Utc>,
+    completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CloudTurnPayload {
+    id: Uuid,
+    execution_process_id: Uuid,
+    agent_session_id: Option<String>,
+    agent_message_id: Option<String>,
+    seen: bool,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CloudWorkspaceContextPayload {
+    workspace_id: Uuid,
+    #[serde(default)]
+    sessions: Vec<CloudSessionPayload>,
+    #[serde(default)]
+    executions: Vec<CloudExecutionPayload>,
+    #[serde(default)]
+    turns: Vec<CloudTurnPayload>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CloudChatPayload {
+    id: Uuid,
+    workspace_id: Uuid,
+    prompt: Option<String>,
+    summary: Option<String>,
+    agent_session_id: Option<String>,
+    agent_message_id: Option<String>,
+    seen: bool,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Serialize)]
@@ -973,6 +1034,8 @@ async fn import_cloud_context(
     let mut issues = Vec::new();
     let mut workspaces = Vec::new();
     let mut links = Vec::new();
+    let mut workspace_contexts = Vec::new();
+    let mut chats = Vec::new();
     let mut skipped = 0;
 
     for record in request.records {
@@ -995,6 +1058,12 @@ async fn import_cloud_context(
                 serde_json::from_value::<CloudIssueWorkspacePayload>(record.payload)
                     .map(|value| links.push(value))
             }
+            "workspace_context" => {
+                serde_json::from_value::<CloudWorkspaceContextPayload>(record.payload)
+                    .map(|value| workspace_contexts.push(value))
+            }
+            "chat" => serde_json::from_value::<CloudChatPayload>(record.payload)
+                .map(|value| chats.push(value)),
             _ => continue,
         };
         if parsed.is_err() {
@@ -1186,6 +1255,216 @@ async fn import_cloud_context(
         .await?;
     }
 
+    // Materialize the conversation index that belongs to the imported
+    // workspaces. The cloud snapshot already contains the board rows, but the
+    // workspace page needs sessions and execution processes before it can
+    // request the historical conversation stream.
+    let chats_by_id: HashMap<Uuid, &CloudChatPayload> =
+        chats.iter().map(|chat| (chat.id, chat)).collect();
+    let mut imported_context_records = 0usize;
+
+    for context in &workspace_contexts {
+        for session in &context.sessions {
+            sqlx::query(
+                r#"INSERT INTO sessions (
+                        id, workspace_id, name, executor, agent_working_dir,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        workspace_id = excluded.workspace_id,
+                        name = excluded.name,
+                        executor = excluded.executor,
+                        agent_working_dir = excluded.agent_working_dir,
+                        created_at = excluded.created_at,
+                        updated_at = excluded.updated_at"#,
+            )
+            .bind(session.id)
+            .bind(session.workspace_id)
+            .bind(&session.name)
+            .bind(&session.executor)
+            .bind(&session.agent_working_dir)
+            .bind(session.created_at)
+            .bind(session.updated_at)
+            .execute(&mut *transaction)
+            .await?;
+            imported_context_records += 1;
+        }
+
+        for execution in &context.executions {
+            if execution.run_reason != "codingagent" {
+                continue;
+            }
+
+            let turn = context
+                .turns
+                .iter()
+                .find(|turn| turn.execution_process_id == execution.id);
+            let chat = turn
+                .and_then(|turn| chats_by_id.get(&turn.id).copied())
+                .filter(|chat| chat.workspace_id == context.workspace_id);
+            let prompt = chat
+                .and_then(|chat| chat.prompt.clone())
+                .unwrap_or_default();
+            let executor = context
+                .sessions
+                .iter()
+                .find(|session| session.id == execution.session_id)
+                .and_then(|session| session.executor.as_deref())
+                .map(|value| value.replace('-', "_").to_ascii_uppercase())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "CODEX".to_string());
+            let executor_action = serde_json::json!({
+                "typ": {
+                    "type": "CodingAgentInitialRequest",
+                    "prompt": prompt,
+                    "executor_config": { "executor": executor }
+                },
+                "next_action": null
+            });
+
+            sqlx::query(
+                r#"INSERT INTO execution_processes (
+                        id, session_id, run_reason, executor_action, status,
+                        exit_code, dropped, started_at, completed_at,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        session_id = excluded.session_id,
+                        run_reason = excluded.run_reason,
+                        executor_action = excluded.executor_action,
+                        status = excluded.status,
+                        exit_code = excluded.exit_code,
+                        started_at = excluded.started_at,
+                        completed_at = excluded.completed_at,
+                        created_at = excluded.created_at,
+                        updated_at = excluded.updated_at"#,
+            )
+            .bind(execution.id)
+            .bind(execution.session_id)
+            .bind(&execution.run_reason)
+            .bind(executor_action.to_string())
+            .bind(&execution.status)
+            .bind(execution.exit_code)
+            .bind(execution.started_at)
+            .bind(execution.completed_at)
+            .bind(execution.created_at)
+            .bind(execution.updated_at)
+            .execute(&mut *transaction)
+            .await?;
+
+            if let Some(turn) = turn {
+                let chat = chat;
+                let turn_created_at = chat.map(|chat| chat.created_at).unwrap_or(turn.created_at);
+                sqlx::query(
+                    r#"INSERT INTO coding_agent_turns (
+                            id, execution_process_id, agent_session_id,
+                            agent_message_id, prompt, summary, seen,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            execution_process_id = excluded.execution_process_id,
+                            agent_session_id = excluded.agent_session_id,
+                            agent_message_id = excluded.agent_message_id,
+                            prompt = excluded.prompt,
+                            summary = excluded.summary,
+                            seen = excluded.seen,
+                            created_at = excluded.created_at,
+                            updated_at = excluded.updated_at"#,
+                )
+                .bind(turn.id)
+                .bind(turn.execution_process_id)
+                .bind(
+                    chat.and_then(|chat| chat.agent_session_id.clone())
+                        .or_else(|| turn.agent_session_id.clone()),
+                )
+                .bind(
+                    chat.and_then(|chat| chat.agent_message_id.clone())
+                        .or_else(|| turn.agent_message_id.clone()),
+                )
+                .bind(chat.and_then(|chat| chat.prompt.clone()))
+                .bind(chat.and_then(|chat| chat.summary.clone()))
+                .bind(chat.map(|chat| chat.seen).unwrap_or(turn.seen))
+                .bind(turn_created_at)
+                .bind(turn.updated_at)
+                .execute(&mut *transaction)
+                .await?;
+
+                // Cloud snapshots carry the durable prompt/summary rather
+                // than the potentially huge raw executor transcript. Store a
+                // compact normalized transcript so the existing workspace
+                // WebSocket can render imported history immediately.
+                let mut logs = Vec::new();
+                if !prompt.is_empty() {
+                    logs.push(LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(
+                        0,
+                        NormalizedEntry {
+                            timestamp: None,
+                            entry_type: NormalizedEntryType::UserMessage,
+                            content: prompt.clone(),
+                            metadata: None,
+                        },
+                    )));
+                }
+                if let Some(summary) = chat.and_then(|chat| chat.summary.clone()) {
+                    if !summary.is_empty() {
+                        logs.push(LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(
+                            logs.len(),
+                            NormalizedEntry {
+                                timestamp: None,
+                                entry_type: NormalizedEntryType::AssistantMessage,
+                                content: summary,
+                                metadata: None,
+                            },
+                        )));
+                    }
+                }
+                let log_json = logs
+                    .iter()
+                    .map(serde_json::to_string)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|error| ApiError::BadRequest(error.to_string()))?
+                    .join("\n");
+                sqlx::query(
+                    r#"INSERT INTO execution_process_logs (
+                            execution_id, logs, byte_size, inserted_at
+                        ) VALUES (?, ?, ?, ?)
+                        ON CONFLICT(execution_id) DO UPDATE SET
+                            logs = excluded.logs,
+                            byte_size = excluded.byte_size,
+                            inserted_at = excluded.inserted_at"#,
+                )
+                .bind(execution.id)
+                .bind(&log_json)
+                .bind(log_json.len() as i64)
+                .bind(execution.updated_at)
+                .execute(&mut *transaction)
+                .await?;
+                imported_context_records += 1;
+            }
+        }
+    }
+
+    // A chat record can arrive independently of workspace_context. Upsert its
+    // durable text when the corresponding turn already exists, which makes
+    // repeated snapshot imports safe and order-independent.
+    for chat in &chats {
+        sqlx::query(
+            r#"UPDATE coding_agent_turns
+               SET prompt = ?, summary = ?, agent_session_id = ?,
+                   agent_message_id = ?, seen = ?, updated_at = ?
+               WHERE id = ?"#,
+        )
+        .bind(&chat.prompt)
+        .bind(&chat.summary)
+        .bind(&chat.agent_session_id)
+        .bind(&chat.agent_message_id)
+        .bind(chat.seen)
+        .bind(chat.updated_at)
+        .bind(chat.id)
+        .execute(&mut *transaction)
+        .await?;
+    }
+
     for link in &links {
         sqlx::query(
             r#"INSERT INTO issue_workspaces (id, issue_id, workspace_id)
@@ -1201,7 +1480,13 @@ async fn import_cloud_context(
 
     transaction.commit().await?;
     Ok(ResponseJson(ApiResponse::success(CloudImportSummary {
-        imported: projects.len() + statuses.len() + issues.len() + workspaces.len() + links.len(),
+        imported: projects.len()
+            + statuses.len()
+            + issues.len()
+            + workspaces.len()
+            + links.len()
+            + imported_context_records
+            + chats.len(),
         skipped,
     })))
 }

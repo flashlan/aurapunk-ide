@@ -291,7 +291,7 @@ export function CloudAuthActions() {
 
       try {
         const response = await fetch(
-          `${cloudUrl.replace(/\/$/, '')}/api/sync?view=snapshot&exclude=workspace_context,chat,chat_command,job,executor_options,pipeline,instance`,
+          `${cloudUrl.replace(/\/$/, '')}/api/sync?view=snapshot&exclude=chat_command,job,executor_options,pipeline,instance`,
           {
             headers: {
               Accept: 'application/json',
@@ -325,7 +325,9 @@ export function CloudAuthActions() {
                 event.entityType === 'status' ||
                 event.entityType === 'issue' ||
                 event.entityType === 'workspace' ||
-                event.entityType === 'issue_workspace') &&
+                event.entityType === 'issue_workspace' ||
+                event.entityType === 'workspace_context' ||
+                event.entityType === 'chat') &&
               typeof event.entityId === 'string' &&
               event.operation === 'upsert'
           )
