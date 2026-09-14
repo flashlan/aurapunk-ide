@@ -53,9 +53,9 @@ first release is partly manual.
 
 ```bash
 git checkout main
-# Ensure npx-cli/package.json "version" is the version you want (e.g. 0.3.1).
-git tag v0.3.1
-git push origin v0.3.1
+# Ensure npx-cli/package.json "version" is the version you want (e.g. 0.3.2).
+git tag v0.3.2
+git push origin v0.3.2
 ```
 
 `release-alternative.yml` runs. The **build** and **release** jobs create the GitHub
