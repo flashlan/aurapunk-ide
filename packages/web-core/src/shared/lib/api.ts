@@ -1304,6 +1304,16 @@ export const configApi = {
     );
     return handleApiResponse<AvailabilityInfo>(response);
   },
+  installTool: async (
+    kind: 'agent' | 'editor',
+    id: BaseCodingAgent | EditorType
+  ): Promise<{ installed: boolean; message: string }> => {
+    const response = await makeRequest('/api/tools/install', {
+      method: 'POST',
+      body: JSON.stringify({ kind, id }),
+    });
+    return handleApiResponse<{ installed: boolean; message: string }>(response);
+  },
   getAgentModels: async (
     executor: string
   ): Promise<Array<{ id: string; name: string; provider?: string }>> => {

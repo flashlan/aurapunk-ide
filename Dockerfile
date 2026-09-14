@@ -95,11 +95,12 @@ COPY --from=fe-builder /app/packages/local-web/dist packages/local-web/dist
 RUN cargo build --locked --release --bin server \
  && cp /app/target/release/server /usr/local/bin/server
 
-FROM debian:bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     git \
     openssh-client \
     tini \
