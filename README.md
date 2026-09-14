@@ -132,10 +132,34 @@ installer targets x64 systems.
 
 - [Download AuraPunk Mobile beta APK](https://pub-80572bbc4ab94346be24d128e6b22a0f.r2.dev/aurapunk-mobile/aurapunk-mobile-beta.apk)
 
-AuraPunk Mobile is currently distributed as a beta APK. Install it manually,
-sign in with the same AuraPunk account, and use it to manage models, cards,
-chats, and connected Desktop or Cloud instances. The mobile app and Cloud
-features are still in beta and may change before production.
+AuraPunk Mobile is a phone-based control cockpit for the same AuraPunk account:
+
+- **Account and device pairing** — sign in through the browser, store the
+  device credential in Android Keystore, and pair with AuraPunk Cloud or a
+  Desktop instance using a short-lived QR code.
+- **AutoSync** — synchronize projects, cards, statuses, workspace links, chat
+  history, jobs, models, providers, pipelines, and project prompt settings
+  without copying the Desktop database to the phone.
+- **Project-first Kanban** — browse the project hierarchy, open cards, follow
+  execution activity, and move from a card to its associated workspace.
+- **Workspace creation and control** — create a workspace from the phone when
+  the connected Desktop/API permits it, choosing the executor, provider,
+  model, pipeline, permissions, and initial prompt.
+- **Workspace chat** — view synchronized messages and send new prompts through
+  the normal Desktop session, with model/CLI selection, effort, agent mode,
+  permissions, text files, and image attachments.
+- **Desktop and Cloud visibility** — inspect connection health, recent jobs,
+  memory gateway status, and available Cloud instances; Cloud remains a
+  transport/fallback path when the Desktop is offline.
+- **Console and Android testing** — open a local Android shell or a paired
+  Desktop terminal, select an APK, install it on the phone, and open the
+  installed package for testing. ADB devices and privileged commands remain
+  behind the paired Desktop bridge and its audit/allowlist controls.
+
+The beta is distributed as a manually installed APK. Cloud-container terminal
+execution and parts of the direct P2P bridge still depend on their respective
+backend endpoints and are marked as unavailable when they are not deployed.
+The mobile app and Cloud features may change before production.
 
 The [website download page](https://aurapunk.dev/#download) provides the same
 platform selector and first-launch instructions.
