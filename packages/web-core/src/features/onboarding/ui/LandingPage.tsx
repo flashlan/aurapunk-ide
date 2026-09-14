@@ -133,7 +133,7 @@ function isAgentInstalled(info: AvailabilityInfo | undefined): boolean {
 
 export function LandingPage() {
   const appNavigation = useAppNavigation();
-  const { config, updateAndSaveConfig, loading } = useUserSystem();
+  const { config, environment, updateAndSaveConfig, loading } = useUserSystem();
 
   const [initialized, setInitialized] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -251,6 +251,10 @@ export function LandingPage() {
 
   const editorOptions = useMemo(() => [...Object.values(EditorType)], []);
 
+  const isLinuxEnvironment =
+    environment?.os_type?.toLowerCase().includes('linux') === true;
+  const supportsGraphicalEditorInstall = !isLinuxEnvironment;
+
   useEffect(() => {
     if (!availabilityReady) return;
 
@@ -327,7 +331,9 @@ export function LandingPage() {
     editorType !== EditorType.CUSTOM || customCommand.trim() !== '';
   const hasInstalledAgent = isAgentInstalled(agentAvailability[selectedAgent]);
   const hasInstalledEditor =
-    editorType === EditorType.CUSTOM || editorAvailability[editorType] === true;
+    isLinuxEnvironment ||
+    editorType === EditorType.CUSTOM ||
+    editorAvailability[editorType] === true;
   const canContinue =
     !saving && isCustomEditorValid && hasInstalledAgent && hasInstalledEditor;
 
@@ -563,29 +569,34 @@ export function LandingPage() {
                       <span className="text-sm text-normal flex-1 truncate">
                         {getIdeName(editor)}
                       </span>
-                      {EDITOR_DOWNLOAD_LINKS[editor] && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void installTool(
-                              'editor',
-                              editor,
-                              getIdeName(editor)
-                            );
-                          }}
-                          disabled={installingTool !== null}
-                          className="inline-flex shrink-0 items-center gap-1 text-xs text-brand hover:underline disabled:cursor-wait disabled:opacity-60"
-                          aria-label={`${installed ? 'Reinstall' : 'Install'} ${getIdeName(editor)}`}
-                        >
-                          <DownloadSimpleIcon className="size-icon-xs" />
-                          {installingTool === toolKey
-                            ? 'Installing...'
-                            : installed
-                              ? 'Installed'
-                              : 'Install'}
-                        </button>
-                      )}
+                      {EDITOR_DOWNLOAD_LINKS[editor] &&
+                        supportsGraphicalEditorInstall && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void installTool(
+                                'editor',
+                                editor,
+                                getIdeName(editor)
+                              );
+                            }}
+                            disabled={installingTool !== null}
+                            className="inline-flex shrink-0 items-center gap-1 text-xs text-brand hover:underline disabled:cursor-wait disabled:opacity-60"
+                            aria-label={`${installed ? 'Reinstall' : 'Install'} ${getIdeName(editor)}`}
+                          >
+                            <DownloadSimpleIcon className="size-icon-xs" />
+                            {installingTool === toolKey
+                              ? 'Installing...'
+                              : installed
+                                ? 'Installed'
+                                : 'Install'}
+                          </button>
+                        )}
+                      {EDITOR_DOWNLOAD_LINKS[editor] &&
+                        !supportsGraphicalEditorInstall && (
+                          <span className="text-xs text-low">CLI-first</span>
+                        )}
                       {selected && (
                         <CheckIcon
                           className="size-icon-xs text-brand shrink-0"
@@ -619,8 +630,9 @@ export function LandingPage() {
                 </div>
               )}
               <p className="text-xs text-low">
-                Graphical editors are installed on this machine when a supported
-                package manager is available; cloud workspaces remain CLI-first.
+                {isLinuxEnvironment
+                  ? 'Cloud/Linux workspaces are CLI-first; graphical editors are optional and are not installed automatically.'
+                  : 'Graphical editors are installed on this machine when a supported package manager is available.'}
               </p>
               {installError && (
                 <p className="rounded-sm border border-warning/60 bg-warning/10 p-base text-xs text-warning">
