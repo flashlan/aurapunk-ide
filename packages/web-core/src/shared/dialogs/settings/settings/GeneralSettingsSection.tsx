@@ -21,7 +21,6 @@ import {
   getExecutorVariantKeys,
   getSortedExecutorVariantKeys,
 } from '@/shared/lib/executor';
-import { useTheme } from '@/shared/hooks/useTheme';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { TagManager } from '@/shared/components/TagManager';
 import { useUiPreferencesStore } from '@/shared/stores/useUiPreferencesStore';
@@ -74,7 +73,6 @@ export function GeneralSettingsSection() {
   const [allowedOriginsError, setAllowedOriginsError] = useState<string | null>(
     null
   );
-  const { setTheme } = useTheme();
 
   // Executor options for the default coding agent dropdown
   const executorOptions = profiles
@@ -151,7 +149,6 @@ export function GeneralSettingsSection() {
 
     try {
       await updateAndSaveConfig(draft);
-      setTheme(draft.theme);
       setDirty(false);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);

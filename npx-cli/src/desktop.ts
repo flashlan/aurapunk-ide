@@ -207,7 +207,7 @@ async function installAndLaunchWindows(
 
   const sentinel = readSentinel(dir);
   if (sentinel?.appPath) {
-    const appExe = path.join(sentinel.appPath, 'Vibe Kanban.exe');
+    const appExe = path.join(sentinel.appPath, 'Aurapunk IDE.exe');
     if (fs.existsSync(appExe)) {
       return launchWindowsApp(appExe, args);
     }
@@ -227,7 +227,7 @@ async function installAndLaunchWindows(
   const installerPath = path.join(dir, installer);
   const installDir = path.join(dir, 'app');
 
-  console.error('Installing Vibe Kanban...');
+  console.error('Installing AuraPunk IDE...');
   try {
     // NSIS supports /S for silent install and /D= for install directory
     execSync(`"${installerPath}" /S /D="${installDir}"`, {
@@ -243,36 +243,36 @@ async function installAndLaunchWindows(
     // For interactive install, the default location is used
     const defaultDir = path.join(
       process.env.LOCALAPPDATA || '',
-      'vibe-kanban'
+      'aurapunk-ide'
     );
-    if (fs.existsSync(path.join(defaultDir, 'Vibe Kanban.exe'))) {
+    if (fs.existsSync(path.join(defaultDir, 'Aurapunk IDE.exe'))) {
       writeSentinel(dir, {
         type: 'nsis-exe',
         appPath: defaultDir,
       });
-      return launchWindowsApp(path.join(defaultDir, 'Vibe Kanban.exe'), args);
+      return launchWindowsApp(path.join(defaultDir, 'Aurapunk IDE.exe'), args);
     }
     console.error(
-      'Installation complete. Please launch Vibe Kanban from your Start menu.'
+      'Installation complete. Please launch AuraPunk IDE from your Start menu.'
     );
     return 0;
   }
 
   writeSentinel(dir, { type: 'nsis-exe', appPath: installDir });
 
-  const appExe = path.join(installDir, 'Vibe Kanban.exe');
+  const appExe = path.join(installDir, 'Aurapunk IDE.exe');
   if (fs.existsSync(appExe)) {
     return launchWindowsApp(appExe, args);
   }
 
   console.error(
-    'Installation complete. Please launch Vibe Kanban from your Start menu.'
+    'Installation complete. Please launch AuraPunk IDE from your Start menu.'
   );
   return 0;
 }
 
 function launchWindowsApp(appExe: string, args: string[]): number {
-  console.error('Launching Vibe Kanban...');
+  console.error('Launching AuraPunk IDE...');
   spawn(appExe, args, { detached: true, stdio: 'ignore' }).unref();
   return 0;
 }

@@ -1,17 +1,17 @@
-# Publishing `vibe-kanban-alternative`
+# Publishing `aurapunk-ide`
 
 How releases work for this fork, and the exact steps for the **first** publish
 (manual) and **every release after** (automated via GitHub Actions).
 
 ## How distribution works
 
-`vibe-kanban-alternative` is a tiny npm package (`npx-cli/`) — just `bin/cli.js`, no
+`aurapunk-ide` is a tiny npm package (`npx-cli/`) — just `bin/cli.js`, no
 binaries. At runtime the CLI downloads the prebuilt Rust binaries for the user's
 platform from this repo's **GitHub Releases**:
 
 ```
-https://github.com/flashlan/vibe-kanban-alternative/releases/download/<tag>/<binary>-<platform>.zip
-https://github.com/flashlan/vibe-kanban-alternative/releases/download/<tag>/manifest.json   (sha256 + sizes)
+https://github.com/flashlan/aurapunk-ide/releases/download/<tag>/<binary>-<platform>.zip
+https://github.com/flashlan/aurapunk-ide/releases/download/<tag>/manifest.json   (sha256 + sizes)
 ```
 
 Two invariants keep everything in lockstep (enforced by CI):
@@ -38,7 +38,7 @@ stored). macOS binaries are unsigned — see [Notes](#notes).
 2. `npm login` locally.
 3. Confirm the name is free (first time only):
    ```bash
-   npm view vibe-kanban-alternative    # expect: 404 / "not found"
+   npm view aurapunk-ide    # verify the package metadata before the first publish
    ```
 
 ---
@@ -53,9 +53,9 @@ first release is partly manual.
 
 ```bash
 git checkout main
-# Ensure npx-cli/package.json "version" is the version you want (e.g. 0.1.0).
-git tag v0.1.0
-git push origin v0.1.0
+# Ensure npx-cli/package.json "version" is the version you want (e.g. 0.3.2).
+git tag v0.3.2
+git push origin v0.3.2
 ```
 
 `release-alternative.yml` runs. The **build** and **release** jobs create the GitHub
@@ -88,18 +88,18 @@ npm publish --access public
 
 Verify:
 ```bash
-cd /tmp && npx vibe-kanban-alternative@0.1.0   # downloads binaries from the release
+cd /tmp && npx aurapunk-ide@0.3.1   # downloads binaries from the release
 ```
 
 ### 3. Configure the trusted publisher (enables automation)
 
-On npmjs.com → the **`vibe-kanban-alternative`** package → **Settings → Trusted
+On npmjs.com → the **`aurapunk-ide`** package → **Settings → Trusted
 Publisher → GitHub Actions**, enter:
 
 | Field            | Value                     |
 | ---------------- | ------------------------- |
 | Organization/user| `flashlan`                |
-| Repository       | `vibe-kanban-alternative` |
+| Repository       | `aurapunk-ide` |
 | Workflow filename| `release-alternative.yml`       |
 | Environment      | *(leave blank)*           |
 
@@ -143,7 +143,7 @@ build → GitHub Release (binaries + manifest) → `npm publish` via OIDC (with
 automatic build provenance). When it's green:
 
 ```bash
-npx vibe-kanban-alternative@latest
+npx aurapunk-ide@latest
 ```
 
 The `publish-npm` job has a guard that fails fast if the tag and
@@ -158,10 +158,10 @@ betas land on their own channel and never touch `@latest`:
 
 | `npx-cli/package.json` version | npm dist-tag | install with                       |
 | ------------------------------ | ------------ | ---------------------------------- |
-| `0.2.8`                        | `latest`     | `npx vibe-kanban-alternative`            |
-| `0.2.8-beta.1`                 | `beta`       | `npx vibe-kanban-alternative@beta`       |
-| `0.2.8-rc.1`                   | `rc`         | `npx vibe-kanban-alternative@rc`         |
-| `0.2.8-alpha.1`                | `alpha`      | `npx vibe-kanban-alternative@alpha`      |
+ | `0.3.1`                        | `latest`     | `npx aurapunk-ide`            |
+ | `0.3.1-beta.1`                 | `beta`       | `npx aurapunk-ide@beta`       |
+ | `0.3.1-rc.1`                   | `rc`         | `npx aurapunk-ide@rc`         |
+ | `0.3.1-alpha.1`                | `alpha`      | `npx aurapunk-ide@alpha`      |
 
 (The tag is the prerelease identifier before the first dot — `X.Y.Z-<id>.N` → `@<id>`.)
 
@@ -175,8 +175,8 @@ git tag v0.2.8-beta.1 && git push origin v0.2.8-beta.1
 CI publishes `0.2.8-beta.1` to the `@beta` dist-tag and creates a GitHub
 **pre-release** (so the CLI's `releases/latest` manifest pointer stays on the
 last stable build and beta users don't advertise themselves to stable users).
-`@latest` is left untouched. Install the channel with `npx vibe-kanban-alternative@beta`
-or pin exactly with `npx vibe-kanban-alternative@0.2.8-beta.1`.
+`@latest` is left untouched. Install the channel with `npx aurapunk-ide@beta`
+or pin exactly with `npx aurapunk-ide@0.3.1-beta.1`.
 
 **Promote to stable** by releasing the matching final version — bump
 `npx-cli/package.json` to `0.2.8`, tag `v0.2.8`. With no prerelease suffix it
@@ -193,7 +193,7 @@ publishes to `@latest` as usual.
 - **Unsigned macOS binaries.** They aren't notarized, so first launch may be
   blocked by Gatekeeper. Clear the quarantine attribute once:
   ```bash
-  xattr -dr com.apple.quarantine ~/.vibe-kanban/bin
+  xattr -dr com.apple.quarantine ~/.aurapunk-ide/bin
   ```
 - **Linux is built static (musl).** If a future dependency fails to build on
   musl, switch the two `*-unknown-linux-musl` matrix targets to

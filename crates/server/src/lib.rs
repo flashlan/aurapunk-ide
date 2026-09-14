@@ -1,4 +1,5 @@
 pub mod error;
+pub mod fcm;
 pub mod middleware;
 pub mod routes;
 pub mod runtime;

@@ -1,13 +1,13 @@
-# vibe-kanban-alternative
+# AuraPunk IDE
 
-> The independent, self-hosted fork of vibe-kanban — drive a crew of coding agents from the terminal or your phone.
+> AuraPunk IDE — the independent, self-hosted coding workspace for driving a crew of agents from the terminal or your phone.
 
 ## Quick Start
 
-Run vibe-kanban-alternative instantly without installation:
+Run AuraPunk IDE instantly without installation:
 
 ```bash
-npx vibe-kanban-alternative
+npx aurapunk-ide
 ```
 
 This will launch the application locally and open it in your browser automatically.
@@ -15,15 +15,15 @@ This will launch the application locally and open it in your browser automatical
 Helpful entrypoints:
 
 ```bash
-npx vibe-kanban-alternative --help
-npx vibe-kanban-alternative --version
-npx vibe-kanban-alternative review --help
-npx vibe-kanban-alternative mcp --help
+npx aurapunk-ide --help
+npx aurapunk-ide --version
+npx aurapunk-ide review --help
+npx aurapunk-ide mcp --help
 ```
 
-## What is vibe-kanban-alternative?
+## What is AuraPunk IDE?
 
-vibe-kanban-alternative is a modern project management tool designed specifically for solo developers. It helps you organize your coding projects with kanban-style task management while providing powerful integrations with git repositories and AI coding agents — entirely local, no cloud, no auth.
+AuraPunk IDE is a modern coding workspace designed specifically for solo developers. It helps you organize coding projects with kanban-style task management while providing powerful integrations with Git repositories and AI coding agents — entirely local, no cloud, no auth.
 
 ### ✨ Key Features
 
@@ -76,7 +76,7 @@ vibe-kanban-alternative is a modern project management tool designed specificall
 
 ## Core Functionality
 
-Vibe Kanban provides a complete project management experience with these key capabilities:
+AuraPunk IDE provides a complete project management experience with these key capabilities:
 
 **Project Repository Management**
 
@@ -116,7 +116,7 @@ Vibe Kanban provides a complete project management experience with these key cap
 
 ## Configuration
 
-Vibe Kanban supports customization through its configuration system:
+AuraPunk IDE supports customization through its configuration system:
 
 - **Editor Integration**: Choose your preferred code editor
 - **Sound Notifications**: Customize completion sounds
@@ -176,7 +176,7 @@ Vibe Kanban supports customization through its configuration system:
 **Ready to supercharge your development workflow?**
 
 ```bash
-npx vibe-kanban-alternative
+npx aurapunk-ide
 ```
 
 _Start managing your projects with the power of AI coding agents today!_

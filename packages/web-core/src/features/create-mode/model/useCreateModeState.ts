@@ -444,7 +444,8 @@ export function useCreateModeState({
         // Repositories) when no workspace/project-scoped branch preference
         // exists — otherwise the branch field is left unselected and blocks
         // Create with an easy-to-miss validation error.
-        targetBranch: repo.target_branch || repo.default_target_branch || null,
+        targetBranch:
+          repo.target_branch || repo.default_target_branch || 'main',
       })),
     });
   }, [
@@ -521,7 +522,7 @@ export function useCreateModeState({
                 d.target_branch ||
                 repo.default_target_branch ||
                 lastUsedBranch ||
-                null,
+                'main',
             },
           ];
         });
@@ -657,8 +658,11 @@ export function useCreateModeState({
   }, []);
 
   const addRepo = useCallback((repo: Repo) => {
-    // Branch is always selected manually by the user.
-    dispatch({ type: 'ADD_REPO', repo, targetBranch: null });
+    dispatch({
+      type: 'ADD_REPO',
+      repo,
+      targetBranch: repo.default_target_branch || 'main',
+    });
   }, []);
 
   const removeRepo = useCallback((repoId: string) => {

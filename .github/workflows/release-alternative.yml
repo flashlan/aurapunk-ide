@@ -1,4 +1,4 @@
-name: Release alternative (npm + GitHub binaries)
+name: AuraPunk IDE release (npm + GitHub binaries)
 
 # Builds and publishes ONLY when a version tag is pushed (e.g. `v0.1.0`).
 # Ordinary commits/pushes do nothing. The release tag must equal the npm version
@@ -109,11 +109,11 @@ jobs:
 
       - name: Build (zigbuild)
         if: matrix.zig
-        run: cargo zigbuild --release --target ${{ matrix.target }} --bin server --bin vibe-kanban-mcp --bin review
+        run: cargo zigbuild --release --target ${{ matrix.target }} --bin server --bin vibe-kanban-mcp --bin review --bin vibe-tui
 
       - name: Build (native)
         if: ${{ !matrix.zig }}
-        run: cargo build --release --target ${{ matrix.target }} --bin server --bin vibe-kanban-mcp --bin review
+        run: cargo build --release --target ${{ matrix.target }} --bin server --bin vibe-kanban-mcp --bin review --bin vibe-tui
 
       # Package each binary as <base>-<platform>.zip, where the entry inside the
       # zip is the bare binary name the CLI extracts and runs.
@@ -124,12 +124,14 @@ jobs:
           set -euo pipefail
           T="${{ matrix.target }}"; P="${{ matrix.platform }}"
           mkdir -p dist-assets
-          cp "target/$T/release/server" vibe-kanban
-          zip -q "dist-assets/vibe-kanban-$P.zip" vibe-kanban && rm vibe-kanban
-          cp "target/$T/release/vibe-kanban-mcp" vibe-kanban-mcp
-          zip -q "dist-assets/vibe-kanban-mcp-$P.zip" vibe-kanban-mcp && rm vibe-kanban-mcp
-          cp "target/$T/release/review" vibe-kanban-review
-          zip -q "dist-assets/vibe-kanban-review-$P.zip" vibe-kanban-review && rm vibe-kanban-review
+          cp "target/$T/release/server" aurapunk
+          zip -q "dist-assets/aurapunk-$P.zip" aurapunk && rm aurapunk
+          cp "target/$T/release/vibe-kanban-mcp" aurapunk-mcp
+          zip -q "dist-assets/aurapunk-mcp-$P.zip" aurapunk-mcp && rm aurapunk-mcp
+          cp "target/$T/release/review" aurapunk-review
+          zip -q "dist-assets/aurapunk-review-$P.zip" aurapunk-review && rm aurapunk-review
+          cp "target/$T/release/vibe-tui" aurapunk-tui
+          zip -q "dist-assets/aurapunk-tui-$P.zip" aurapunk-tui && rm aurapunk-tui
           ls -la dist-assets
 
       - name: Package (windows)
@@ -138,15 +140,18 @@ jobs:
         run: |
           $T = "${{ matrix.target }}"; $P = "${{ matrix.platform }}"
           New-Item -ItemType Directory -Force -Path dist-assets | Out-Null
-          Copy-Item "target/$T/release/server.exe" "vibe-kanban.exe"
-          Compress-Archive -Force -Path "vibe-kanban.exe" -DestinationPath "dist-assets/vibe-kanban-$P.zip"
-          Remove-Item "vibe-kanban.exe"
-          Copy-Item "target/$T/release/vibe-kanban-mcp.exe" "vibe-kanban-mcp.exe"
-          Compress-Archive -Force -Path "vibe-kanban-mcp.exe" -DestinationPath "dist-assets/vibe-kanban-mcp-$P.zip"
-          Remove-Item "vibe-kanban-mcp.exe"
-          Copy-Item "target/$T/release/review.exe" "vibe-kanban-review.exe"
-          Compress-Archive -Force -Path "vibe-kanban-review.exe" -DestinationPath "dist-assets/vibe-kanban-review-$P.zip"
-          Remove-Item "vibe-kanban-review.exe"
+          Copy-Item "target/$T/release/server.exe" "aurapunk.exe"
+          Compress-Archive -Force -Path "aurapunk.exe" -DestinationPath "dist-assets/aurapunk-$P.zip"
+          Remove-Item "aurapunk.exe"
+          Copy-Item "target/$T/release/vibe-kanban-mcp.exe" "aurapunk-mcp.exe"
+          Compress-Archive -Force -Path "aurapunk-mcp.exe" -DestinationPath "dist-assets/aurapunk-mcp-$P.zip"
+          Remove-Item "aurapunk-mcp.exe"
+          Copy-Item "target/$T/release/review.exe" "aurapunk-review.exe"
+          Compress-Archive -Force -Path "aurapunk-review.exe" -DestinationPath "dist-assets/aurapunk-review-$P.zip"
+          Remove-Item "aurapunk-review.exe"
+          Copy-Item "target/$T/release/vibe-tui.exe" "aurapunk-tui.exe"
+          Compress-Archive -Force -Path "aurapunk-tui.exe" -DestinationPath "dist-assets/aurapunk-tui-$P.zip"
+          Remove-Item "aurapunk-tui.exe"
 
       - uses: actions/upload-artifact@v4
         with:

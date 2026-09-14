@@ -31,6 +31,7 @@ function useEffectiveExecutor(
   userSelections: Partial<ExecutorConfig>,
   profiles: Record<string, ExecutorProfile> | null,
   scratchConfig: ExecutorConfig | null | undefined,
+  workspaceDefaults: Partial<ExecutorConfig> | null | undefined,
   lastUsedConfig: ExecutorConfig | null,
   configExecutorProfile: ExecutorProfileId | null | undefined
 ) {
@@ -42,6 +43,7 @@ function useEffectiveExecutor(
   const effective = useMemo(
     () =>
       userSelections.executor ??
+      workspaceDefaults?.executor ??
       scratchConfig?.executor ??
       lastUsedConfig?.executor ??
       configExecutorProfile?.executor ??
@@ -49,6 +51,7 @@ function useEffectiveExecutor(
       null,
     [
       userSelections.executor,
+      workspaceDefaults?.executor,
       scratchConfig,
       lastUsedConfig,
       configExecutorProfile,
@@ -69,6 +72,7 @@ function useEffectiveVariant(
   effectiveExecutor: BaseCodingAgent | null,
   profiles: Record<string, ExecutorProfile> | null,
   scratchConfig: ExecutorConfig | null | undefined,
+  workspaceDefaults: Partial<ExecutorConfig> | null | undefined,
   lastUsedConfig: ExecutorConfig | null,
   configExecutorProfile: ExecutorProfileId | null | undefined
 ) {
@@ -90,6 +94,13 @@ function useEffectiveVariant(
       return scratchConfig.variant ?? null;
     }
 
+    if (
+      workspaceDefaults?.executor === effectiveExecutor &&
+      workspaceDefaults?.variant !== undefined
+    ) {
+      return workspaceDefaults.variant ?? null;
+    }
+
     if (lastUsedConfig?.executor === effectiveExecutor) {
       return lastUsedConfig.variant ?? null;
     }
@@ -103,6 +114,7 @@ function useEffectiveVariant(
     wasUserSelected,
     userSelections.variant,
     scratchConfig,
+    workspaceDefaults,
     effectiveExecutor,
     lastUsedConfig,
     configExecutorProfile,
@@ -121,6 +133,7 @@ function useEffectiveOverrides(
   resolvedVariant: string | null,
   userSelections: Partial<ExecutorConfig>,
   scratchConfig: ExecutorConfig | null | undefined,
+  workspaceDefaults: Partial<ExecutorConfig> | null | undefined,
   lastUsedConfig: ExecutorConfig | null,
   presetOptions: ExecutorConfig | null | undefined
 ) {
@@ -131,6 +144,12 @@ function useEffectiveOverrides(
     const scratchMatches = scratchConfig
       ? getProfileKey(scratchConfig.executor, scratchConfig.variant ?? null) ===
         profileKey
+      : false;
+    const workspaceMatches = workspaceDefaults
+      ? getProfileKey(
+          workspaceDefaults.executor ?? effectiveExecutor,
+          workspaceDefaults.variant ?? null
+        ) === profileKey
       : false;
     const lastUsedMatches = lastUsedConfig
       ? getProfileKey(
@@ -148,6 +167,8 @@ function useEffectiveOverrides(
       const modelMustMatch = field === 'reasoning_id';
       const scratchModelMatches =
         !modelMustMatch || scratchConfig?.model_id === resolved.model_id;
+      const workspaceModelMatches =
+        !modelMustMatch || workspaceDefaults?.model_id === resolved.model_id;
       const lastUsedModelMatches =
         !modelMustMatch || lastUsedConfig?.model_id === resolved.model_id;
 
@@ -156,6 +177,9 @@ function useEffectiveOverrides(
           ? userSelections[field]
           : ((scratchMatches && scratchModelMatches
               ? scratchConfig?.[field]
+              : undefined) ??
+            (workspaceMatches && workspaceModelMatches
+              ? workspaceDefaults?.[field]
               : undefined) ??
             (lastUsedMatches && lastUsedModelMatches
               ? lastUsedConfig?.[field]
@@ -172,6 +196,7 @@ function useEffectiveOverrides(
     resolvedVariant,
     userSelections,
     scratchConfig,
+    workspaceDefaults,
     lastUsedConfig,
     presetOptions,
   ]);
@@ -181,6 +206,8 @@ interface UseExecutorConfigOptions {
   profiles: Record<string, ExecutorProfile> | null;
   lastUsedConfig: ExecutorConfig | null;
   scratchConfig?: ExecutorConfig | null;
+  /** Defaults do workspace (salvos pelo app/Mobile): perdem só para escolha explícita. */
+  workspaceDefaults?: Partial<ExecutorConfig> | null;
   configExecutorProfile?: ExecutorProfileId | null;
   onPersist?: (config: ExecutorConfig) => void;
 }
@@ -202,6 +229,7 @@ export function useExecutorConfig({
   profiles,
   lastUsedConfig,
   scratchConfig,
+  workspaceDefaults,
   configExecutorProfile,
   onPersist,
 }: UseExecutorConfigOptions): UseExecutorConfigResult {
@@ -213,6 +241,7 @@ export function useExecutorConfig({
     userSelections,
     profiles,
     scratchConfig,
+    workspaceDefaults,
     lastUsedConfig,
     configExecutorProfile
   );
@@ -222,6 +251,7 @@ export function useExecutorConfig({
     executor.effective,
     profiles,
     scratchConfig,
+    workspaceDefaults,
     lastUsedConfig,
     configExecutorProfile
   );
@@ -236,6 +266,7 @@ export function useExecutorConfig({
     variant.resolved,
     userSelections,
     scratchConfig,
+    workspaceDefaults,
     lastUsedConfig,
     presetOptions
   );

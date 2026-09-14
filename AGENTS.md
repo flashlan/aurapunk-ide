@@ -29,6 +29,7 @@ Rules:
 - [x] **Done** — Imagem Docker Hub all-in-one do mem0 (`vk/dockerhub-mem0-all-in-one`)
 - [x] **Done** — Protected terminal completion with Integration Guard and Mem0 (`main`)
 - [x] **Done** — Settings: Appearance & Typography, custom theme editor, backgrounds, gradients, fonts, and theme export/import (`vk/8381-settings-fonts-s`)
+- [~] **In Progress** — Gate hosted Mem0 behind Cloud login and plan quotas (`vk/cloud-mem0-login-gate`)
 
 ## Card Pipeline Protocol (MCP)
 

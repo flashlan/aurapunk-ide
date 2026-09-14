@@ -144,10 +144,9 @@ export function CreateChatBoxContainer({
     if (repos.length === 1) {
       const repo = repos[0];
       if (!repo) return '0 repositories selected';
-      const selectedBranch = targetBranches[repo.id];
-      const branch = selectedBranch
-        ? truncateBranchLabel(selectedBranch)
-        : 'Select branch';
+      const selectedBranch =
+        targetBranches[repo.id] || repo.default_target_branch || 'main';
+      const branch = truncateBranchLabel(selectedBranch);
       return `${getRepoDisplayName(repo)} · ${branch}`;
     }
 
@@ -158,7 +157,8 @@ export function CreateChatBoxContainer({
     () =>
       repos
         .map((repo) => {
-          const branch = targetBranches[repo.id] ?? 'Select branch';
+          const branch =
+            targetBranches[repo.id] || repo.default_target_branch || 'main';
           return `${getRepoDisplayName(repo)} (${branch})`;
         })
         .join('\n'),
@@ -166,7 +166,8 @@ export function CreateChatBoxContainer({
   );
 
   const hasSelectedBranchesForAllRepos = repos.every(
-    (repo) => !!targetBranches[repo.id]
+    (repo) =>
+      !!(targetBranches[repo.id] || repo.default_target_branch || 'main')
   );
 
   // Determine if we can submit
@@ -237,7 +238,8 @@ export function CreateChatBoxContainer({
       prompt: message,
       repos: repos.map((r) => ({
         repo_id: r.id,
-        target_branch: targetBranches[r.id]!,
+        target_branch:
+          targetBranches[r.id] || r.default_target_branch || 'main',
       })),
       linked_issue: linkedIssue
         ? {

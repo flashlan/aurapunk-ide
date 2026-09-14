@@ -639,36 +639,115 @@ pub struct DiscoveredModelEntry {
     pub provider: Option<String>,
 }
 
-async fn get_agent_models(
-    State(deployment): State<DeploymentImpl>,
-    Query(query): Query<AgentModelsQuery>,
-) -> ResponseJson<ApiResponse<Vec<DiscoveredModelEntry>>> {
-    use std::str::FromStr;
+/// Full discovered selector for an executor (models + reasoning, providers,
+/// agents, permissions, default model). Consumes the same discovery stream as
+/// the `/api/agents/discovered-options/ws` endpoint, merging the initial
+/// `/options` snapshot with incremental patches. Used by the mobile sync
+/// catalog so the APK can render the same CLI -> provider -> model -> effort
+/// hierarchy (plus agent modes) as the Desktop workspace.
+pub async fn discover_selector_for_agent(
+    deployment: &DeploymentImpl,
+    base_agent: BaseCodingAgent,
+) -> Option<executors::executor_discovery::ExecutorDiscoveredOptions> {
+    use futures_util::StreamExt;
 
-    let base_agent = match BaseCodingAgent::from_str(&query.executor.to_uppercase()) {
-        Ok(a) => a,
-        Err(_) => {
-            match query
-                .executor
-                .to_lowercase()
-                .replace(['-', '_'], "")
-                .as_str()
-            {
-                "antigravity" => BaseCodingAgent::Antigravity,
-                "gemini" => BaseCodingAgent::Gemini,
-                "claude" | "claudecode" => BaseCodingAgent::ClaudeCode,
-                "codex" => BaseCodingAgent::Codex,
-                "opencode" => BaseCodingAgent::Opencode,
-                "qwen" | "qwencode" => BaseCodingAgent::QwenCode,
-                "droid" => BaseCodingAgent::Droid,
-                "cursor" | "cursoragent" => BaseCodingAgent::CursorAgent,
-                "copilot" => BaseCodingAgent::Copilot,
-                "amp" => BaseCodingAgent::Amp,
-                _ => return ResponseJson(ApiResponse::success(Vec::new())),
+    let profile_id = ExecutorProfileId::new(base_agent);
+    let mut selector: Option<executors::executor_discovery::ExecutorDiscoveredOptions> = None;
+
+    if let Ok(Some(mut stream)) = deployment
+        .container()
+        .discover_executor_options(profile_id, None, None, None)
+        .await
+    {
+        while let Some(patch) = stream.next().await {
+            for op in patch.0 {
+                let value_opt = match &op {
+                    json_patch::PatchOperation::Add(op) => Some((&op.path, &op.value)),
+                    json_patch::PatchOperation::Replace(op) => Some((&op.path, &op.value)),
+                    _ => None,
+                };
+                let (path, val) = match value_opt {
+                    Some(v) => v,
+                    None => continue,
+                };
+                if path == "/options" {
+                    if let Ok(opts) = serde_json::from_value::<
+                        executors::executor_discovery::ExecutorDiscoveredOptions,
+                    >(val.clone())
+                    {
+                        selector = Some(opts);
+                    }
+                } else if path == "/options/model_selector/models" {
+                    if let Ok(models) = serde_json::from_value::<
+                        Vec<executors::model_selector::ModelInfo>,
+                    >(val.clone())
+                    {
+                        match selector.as_mut() {
+                            Some(opts) => opts.model_selector.models = models,
+                            None => {
+                                let mut opts =
+                                    executors::executor_discovery::ExecutorDiscoveredOptions::default(
+                                    );
+                                opts.model_selector.models = models;
+                                selector = Some(opts);
+                            }
+                        }
+                    }
+                } else if path == "/options/model_selector/providers" {
+                    if let Ok(providers) = serde_json::from_value::<
+                        Vec<executors::model_selector::ModelProvider>,
+                    >(val.clone())
+                    {
+                        match selector.as_mut() {
+                            Some(opts) => opts.model_selector.providers = providers,
+                            None => {
+                                let mut opts =
+                                    executors::executor_discovery::ExecutorDiscoveredOptions::default(
+                                    );
+                                opts.model_selector.providers = providers;
+                                selector = Some(opts);
+                            }
+                        }
+                    }
+                } else if path == "/options/model_selector/agents" {
+                    if let Ok(agents) = serde_json::from_value::<
+                        Vec<executors::model_selector::AgentInfo>,
+                    >(val.clone())
+                    {
+                        match selector.as_mut() {
+                            Some(opts) => opts.model_selector.agents = agents,
+                            None => {
+                                let mut opts =
+                                    executors::executor_discovery::ExecutorDiscoveredOptions::default(
+                                    );
+                                opts.model_selector.agents = agents;
+                                selector = Some(opts);
+                            }
+                        }
+                    }
+                } else if path == "/options/model_selector/default_model" {
+                    let default_model: Option<String> =
+                        serde_json::from_value(val.clone()).unwrap_or(None);
+                    match selector.as_mut() {
+                        Some(opts) => opts.model_selector.default_model = default_model,
+                        None => {
+                            let mut opts =
+                                executors::executor_discovery::ExecutorDiscoveredOptions::default();
+                            opts.model_selector.default_model = default_model;
+                            selector = Some(opts);
+                        }
+                    }
+                }
             }
         }
-    };
+    }
+    selector
+}
 
+pub async fn discover_models_for_agent(
+    deployment: &DeploymentImpl,
+    base_agent: BaseCodingAgent,
+) -> Vec<DiscoveredModelEntry> {
     let profile_id = ExecutorProfileId::new(base_agent);
     let mut models_out = Vec::new();
 
@@ -741,8 +820,41 @@ async fn get_agent_models(
             }
         }
     }
+    models_out
+}
 
-    ResponseJson(ApiResponse::success(models_out))
+async fn get_agent_models(
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<AgentModelsQuery>,
+) -> ResponseJson<ApiResponse<Vec<DiscoveredModelEntry>>> {
+    use std::str::FromStr;
+
+    let base_agent = match BaseCodingAgent::from_str(&query.executor.to_uppercase()) {
+        Ok(a) => a,
+        Err(_) => {
+            match query
+                .executor
+                .to_lowercase()
+                .replace(['-', '_'], "")
+                .as_str()
+            {
+                "antigravity" => BaseCodingAgent::Antigravity,
+                "gemini" => BaseCodingAgent::Gemini,
+                "claude" | "claudecode" => BaseCodingAgent::ClaudeCode,
+                "codex" => BaseCodingAgent::Codex,
+                "opencode" => BaseCodingAgent::Opencode,
+                "qwen" | "qwencode" => BaseCodingAgent::QwenCode,
+                "droid" => BaseCodingAgent::Droid,
+                "cursor" | "cursoragent" => BaseCodingAgent::CursorAgent,
+                "copilot" => BaseCodingAgent::Copilot,
+                "amp" => BaseCodingAgent::Amp,
+                _ => return ResponseJson(ApiResponse::success(Vec::new())),
+            }
+        }
+    };
+
+    let models = discover_models_for_agent(&deployment, base_agent).await;
+    ResponseJson(ApiResponse::success(models))
 }
 
 #[derive(Debug, Deserialize)]

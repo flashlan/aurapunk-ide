@@ -28,6 +28,8 @@ env:
   PROXMOX_CONTROLLER_USER: aurapunk-vm-controller
   PROXMOX_CONTROLLER_KEY: /run/secrets/aurapunk-vm-controller
   GITEA_REPOSITORY_URL: http://192.168.1.119:3000/datapoint/aurapunk-desktop.git
+  MACOS_RUNNER_HOST: 192.168.1.116
+  WINDOWS_RUNNER_HOST: 192.168.1.63
 
 jobs:
   wake-macos:
@@ -55,6 +57,13 @@ jobs:
               exit 1
             fi
           fi
+          if ! command -v nc >/dev/null 2>&1; then
+            if command -v apt-get >/dev/null 2>&1; then
+              apt-get update && apt-get install -y netcat-openbsd
+            elif command -v apk >/dev/null 2>&1; then
+              apk add --no-cache netcat-openbsd
+            fi
+          fi
           control() {
             ssh -i "$PROXMOX_CONTROLLER_KEY" -o BatchMode=yes \
               -o ConnectTimeout=8 \
@@ -65,9 +74,15 @@ jobs:
           if ! control status 116 | grep -q 'running'; then
             control start 116
           fi
-          for _ in $(seq 1 30); do
-            control status 116 | grep -q 'running' && exit 0
-            sleep 2
+          for _ in $(seq 1 60); do
+            if control status 116 | grep -q 'running' && \
+              nc -z -w 2 "$MACOS_RUNNER_HOST" 22; then
+              # The runner is a user LaunchAgent and needs a short interval
+              # after SSH comes online to register with Gitea.
+              sleep 15
+              exit 0
+            fi
+            sleep 5
           done
           exit 1
 
@@ -96,6 +111,13 @@ jobs:
               exit 1
             fi
           fi
+          if ! command -v nc >/dev/null 2>&1; then
+            if command -v apt-get >/dev/null 2>&1; then
+              apt-get update && apt-get install -y netcat-openbsd
+            elif command -v apk >/dev/null 2>&1; then
+              apk add --no-cache netcat-openbsd
+            fi
+          fi
           control() {
             ssh -i "$PROXMOX_CONTROLLER_KEY" -o BatchMode=yes \
               -o ConnectTimeout=8 \
@@ -106,9 +128,13 @@ jobs:
           if ! control status 135 | grep -q 'running'; then
             control start 135
           fi
-          for _ in $(seq 1 30); do
-            control status 135 | grep -q 'running' && exit 0
-            sleep 2
+          for _ in $(seq 1 60); do
+            if control status 135 | grep -q 'running' && \
+              nc -z -w 2 "$WINDOWS_RUNNER_HOST" 22; then
+              sleep 10
+              exit 0
+            fi
+            sleep 5
           done
           exit 1
 
@@ -119,7 +145,7 @@ jobs:
       - name: Checkout from Gitea
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch main "$GITEA_REPOSITORY_URL" .
+          git clone --depth 1 --branch "${GITHUB_REF_NAME:-main}" "$GITEA_REPOSITORY_URL" .
       - name: Build AuraPunk IDE Desktop
         run: |
           set -euo pipefail
@@ -131,6 +157,7 @@ jobs:
             exit 1
           fi
           corepack enable
+          pnpm config set store-dir "$HOME/gitea-runner/pnpm-store"
           pnpm install --frozen-lockfile
           pnpm app:build
           test -d target/release/bundle
@@ -138,6 +165,33 @@ jobs:
           rm -rf "$HOME/gitea-runner/build-output/macos"
           mkdir -p "$HOME/gitea-runner/build-output/macos"
           cp -R target/release/bundle/. "$HOME/gitea-runner/build-output/macos/"
+
+  build-macos-arm64:
+    runs-on: macos-arm64
+    steps:
+      - name: Checkout from Gitea
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "${GITHUB_REF_NAME:-main}" "$GITEA_REPOSITORY_URL" .
+      - name: Build AuraPunk IDE Desktop for Apple Silicon
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/tools/node/bin:$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
+          if [ -f "$HOME/gitea-runner/aurapunk-ide.key" ]; then
+            export TAURI_SIGNING_PRIVATE_KEY="$(cat "$HOME/gitea-runner/aurapunk-ide.key")"
+          else
+            echo 'Tauri signing key is missing from the macOS Apple Silicon builder' >&2
+            exit 1
+          fi
+          command -v pnpm
+          pnpm config set store-dir "$HOME/gitea-runner/pnpm-store"
+          pnpm install --frozen-lockfile
+          pnpm app:build
+          test -d target/release/bundle
+          find target/release/bundle -maxdepth 2 -type f -print
+          rm -rf "$HOME/gitea-runner/build-output/macos-arm64"
+          mkdir -p "$HOME/gitea-runner/build-output/macos-arm64"
+          cp -R target/release/bundle/. "$HOME/gitea-runner/build-output/macos-arm64/"
 
   build-windows-x64:
     needs: wake-windows
@@ -147,13 +201,16 @@ jobs:
         shell: cmd
         run: |
           @echo on
-          git clone --depth 1 --branch main "%GITEA_REPOSITORY_URL%" .
+          if not defined GITHUB_REF_NAME set "GITHUB_REF_NAME=main"
+          git clone --depth 1 --branch "%GITHUB_REF_NAME%" "%GITEA_REPOSITORY_URL%" .
           if errorlevel 1 exit /b 1
       - name: Build AuraPunk IDE Desktop
         shell: cmd
         run: |
           @echo on
           call corepack.cmd enable
+          if errorlevel 1 exit /b 1
+          call pnpm.cmd config set store-dir C:\AuraPunk\gitea-runner\pnpm-store
           if errorlevel 1 exit /b 1
           call pnpm.cmd install --frozen-lockfile
           if errorlevel 1 exit /b 1
@@ -207,12 +264,25 @@ jobs:
           dir /s /b "C:\AuraPunk\gitea-runner\build-output\windows"
 
   build-linux-x64:
-    runs-on: ubuntu-latest
+    # SD is configured with host labels so Linux builds use its installed
+    # toolchain directly instead of requiring Docker/iptables.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout from Gitea
         run: |
           set -euo pipefail
-          git clone --depth 1 --branch main "$GITEA_REPOSITORY_URL" .
+          git clone --depth 1 --branch "${GITHUB_REF_NAME:-main}" "$GITEA_REPOSITORY_URL" .
+      - name: Restore Linux build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /root/.cargo/git
+            /root/.cargo/registry
+            /var/cache/aurapunk/pnpm-store
+            target
+          key: linux-x64-desktop-${{ hashFiles('Cargo.lock', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            linux-x64-desktop-
       - name: Build AuraPunk IDE Linux
         run: |
           set -euo pipefail
@@ -223,7 +293,7 @@ jobs:
           done
           apt-get install -y \
             clang \
-            libappindicator3-dev \
+            libayatana-appindicator3-dev \
             libclang-dev \
             librsvg2-dev \
             libssl-dev \
@@ -233,19 +303,34 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
           fi
           export PATH="$HOME/.cargo/bin:$PATH"
+          # Four parallel release rustc processes exceed this runner's 4 GiB
+          # memory limit. Two jobs plus stripped debug info stay below it.
+          export CARGO_BUILD_JOBS=2
+          export CARGO_PROFILE_RELEASE_DEBUG=0
           export CARGO_NET_RETRY=10
           export CARGO_HTTP_MULTIPLEXING=false
           corepack enable
+          pnpm config set store-dir /var/cache/aurapunk/pnpm-store
           pnpm install --frozen-lockfile
           pnpm app:build
           test -d target/release/bundle/appimage
+          test -d target/release/bundle/deb
           find target/release/bundle/appimage -maxdepth 1 -type f -print
+          find target/release/bundle/deb -maxdepth 1 -type f -print
+      - name: Upload Linux installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurapunk-ide-linux-x64
+          path: |
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/deb/*.deb
+          if-no-files-found: error
 
   shutdown-builders:
-    needs: [wake-macos, wake-windows, build-macos-x64, build-windows-x64, build-linux-x64]
+    needs: [wake-macos, wake-windows, build-macos-x64, build-macos-arm64, build-windows-x64, build-linux-x64]
     # Keep failed builders online for diagnosis and toolchain repair. A
     # successful build still shuts both VMs down automatically.
-    if: ${{ always() && needs.build-macos-x64.result == 'success' && needs.build-windows-x64.result == 'success' }}
+    if: ${{ always() && needs.build-macos-x64.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.build-windows-x64.result == 'success' }}
     runs-on: release-controller
     steps:
       - name: Stop native builder VMs

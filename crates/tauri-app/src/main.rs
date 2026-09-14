@@ -26,8 +26,6 @@ use utils::assets::config_path;
 use uuid::Uuid;
 
 const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
-const DEFAULT_CLOUD_MEM0_URL: &str = "http://192.168.1.168:8000";
-
 #[cfg(target_os = "linux")]
 mod linux_notifications;
 #[cfg(target_os = "macos")]
@@ -94,9 +92,29 @@ fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
         return Err("Only HTTP(S) URLs can be opened externally".to_string());
     }
 
-    app.opener()
-        .open_url(&url, None::<&str>)
-        .map_err(|error| error.to_string())
+    match app.opener().open_url(&url, None::<&str>) {
+        Ok(()) => Ok(()),
+        Err(opener_error) => {
+            #[cfg(target_os = "macos")]
+            let fallback = std::process::Command::new("/usr/bin/open")
+                .arg(&url)
+                .spawn();
+            #[cfg(target_os = "windows")]
+            let fallback = std::process::Command::new("cmd")
+                .args(["/C", "start", "", &url])
+                .spawn();
+            #[cfg(target_os = "linux")]
+            let fallback = std::process::Command::new("xdg-open").arg(&url).spawn();
+
+            fallback
+                .map(|_| ())
+                .map_err(|fallback_error| {
+                    format!(
+                        "Could not open the external browser: {opener_error}; fallback failed: {fallback_error}"
+                    )
+                })
+        }
+    }
 }
 
 const CLOUD_ACCOUNT_FILE: &str = "cloud-account.json";
@@ -139,6 +157,13 @@ fn clear_cloud_account(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
+#[tauri::command]
+async fn start_lan_server(
+    control: tauri::State<'_, server::startup::LanServerControl>,
+) -> Result<server::startup::LanServerInfo, String> {
+    control.start().await.map_err(|error| error.to_string())
+}
+
 #[async_trait]
 impl PushNotifier for TauriNotifier {
     async fn send(&self, title: &str, message: &str, workspace_id: Option<Uuid>) {
@@ -169,19 +194,38 @@ fn main() {
     // Local browser/dev launches remain local because they do not pass through
     // this Tauri entrypoint. `--local` is an explicit escape hatch for
     // diagnostics on a packaged build.
-    let local_mode = std::env::args().any(|arg| arg == "--local");
+    let args = std::env::args().collect::<Vec<_>>();
+    let local_mode = args.iter().any(|arg| arg == "--local");
+    if args.iter().any(|arg| arg == "--lan") {
+        // LAN mode is opt-in because it exposes the local API beyond the
+        // loopback interface. Pairing still requires a short-lived invite and
+        // a separate per-instance bearer token.
+        unsafe { std::env::set_var("AURAPUNK_LAN_SYNC", "1") };
+    }
     if !local_mode {
+        let memory = utils::memory_config::load();
+        let operator_configured_local_memory = memory.source == "local"
+            && (memory.mem0_url.is_some()
+                || memory.local_url.is_some()
+                || std::env::var_os("MEM0_URL").is_some());
+
         // Environment mutation is process-wide and intentionally happens
         // before the backend is started; this is safe during single-threaded
         // application initialization.
         unsafe { std::env::set_var("VIBE_KANBAN_MODE", "cloud") };
 
-        // Keep an explicit MEM0_URL override for deployments that use another
-        // host while giving the packaged Cloud client a useful default.
-        if std::env::var_os("MEM0_URL").is_none() {
-            let mem0_url = std::env::var("AURAPUNK_CLOUD_MEM0_URL")
-                .unwrap_or_else(|_| DEFAULT_CLOUD_MEM0_URL.to_string());
-            unsafe { std::env::set_var("MEM0_URL", mem0_url) };
+        // Hosted memory is fail-closed. The authenticated Cloud handoff
+        // supplies a device-scoped gateway URL and token after login; a
+        // packaged client must never contact a baked-in Mem0 address during
+        // startup, including when an older memory.toml still exists.
+        if !operator_configured_local_memory {
+            unsafe {
+                std::env::remove_var("MEM0_URL");
+                std::env::remove_var("AURAPUNK_CLOUD_MEM0_URL");
+                std::env::remove_var("MEM0_API_TOKEN");
+                std::env::remove_var("AURAPUNK_MEM0_TOKEN");
+                std::env::set_var("MEM0_ENABLED", "false");
+            }
         }
     }
 
@@ -231,7 +275,8 @@ fn main() {
             open_external_url,
             read_cloud_account,
             write_cloud_account,
-            clear_cloud_account
+            clear_cloud_account,
+            start_lan_server
         ]);
 
     // Unlock WKWebView's native refresh rate on macOS ProMotion / high-Hz displays.
@@ -300,9 +345,18 @@ fn main() {
                 }
                 let _ = window;
             } else {
-                // Production: start the Axum server first, then open the window
-                // once it's ready so the user never sees a blank/error page.
+                // Production: show the packaged splash immediately while the
+                // Axum server initializes SQLite, migrations, and startup
+                // reconciliation. Navigate the same window to the app once
+                // the server is ready instead of leaving the user with a blank
+                // 15–20 second gap before the window exists.
                 let app_handle = app.handle().clone();
+
+                let splash_window = create_window(
+                    app,
+                    tauri::WebviewUrl::App("startup-splash.html".into()),
+                )?;
+                let _ = splash_window;
 
                 // Register native Tauri notifications before the server starts.
                 set_global_push_notifier(Arc::new(TauriNotifier {
@@ -314,6 +368,14 @@ fn main() {
                     match server::startup::start().await {
                         Ok(server_handle) => {
                             let url = server_handle.url();
+                            let lan_ctrl = server_handle.lan_control();
+                            let lan_for_start = lan_ctrl.clone();
+                            tauri::async_runtime::spawn(async move {
+                                if let Err(e) = lan_for_start.start().await {
+                                    tracing::warn!("Auto-starting LAN mobile server: {e}");
+                                }
+                            });
+                            app_handle.manage(lan_ctrl);
 
                             // Create the window on the main thread — macOS
                             // silently drops windows created from async tasks.
@@ -322,16 +384,22 @@ fn main() {
                             let _ = app_handle.run_on_main_thread(move || {
                                 let webview_url =
                                     tauri::WebviewUrl::External(url_clone.parse().unwrap());
-                                match create_window(&create_handle, webview_url) {
-                                    Ok(window) => {
-                                        #[cfg(target_os = "macos")]
-                                        {
-                                            disable_pinch_zoom(&window);
-                                            optimize_webview_performance(&window);
-                                        }
-                                        let _ = window;
+                                if let Some(window) =
+                                    create_handle.get_webview_window("main")
+                                {
+                                    if let Err(e) = window.navigate(match webview_url {
+                                        tauri::WebviewUrl::External(url) => url,
+                                        _ => unreachable!("production URL must be external"),
+                                    }) {
+                                        tracing::error!("Failed to navigate splash window: {e}");
                                     }
-                                    Err(e) => tracing::error!("Failed to create window: {e}"),
+                                    #[cfg(target_os = "macos")]
+                                    {
+                                        disable_pinch_zoom(&window);
+                                        optimize_webview_performance(&window);
+                                    }
+                                } else {
+                                    tracing::error!("Splash window disappeared before server was ready");
                                 }
                             });
                             tracing::info!("Window opened at {url}");

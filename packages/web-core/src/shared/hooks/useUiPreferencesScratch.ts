@@ -16,6 +16,12 @@ import {
   type WorkspacePanelState,
   type KanbanProjectViewSelection,
   type KanbanProjectViewPreferences,
+  type CodeFontFamily,
+  type CodeFontSize,
+  type CustomThemeConfig,
+  type UiFontFamily,
+  type UiFontScale,
+  hasStoredCustomTheme,
 } from '@/shared/stores/useUiPreferencesStore';
 import type { RepoAction } from '@vibe/ui/components/RepoCard';
 
@@ -46,6 +52,12 @@ function storeToScratchData(state: {
     Record<string, KanbanProjectViewPreferences>
   >;
   autoMoveCardsEnabled: boolean;
+  uiFontFamily: UiFontFamily;
+  codeFontFamily: CodeFontFamily;
+  uiFontScale: UiFontScale;
+  codeFontSize: CodeFontSize;
+  customThemeEnabled: boolean;
+  customTheme: CustomThemeConfig;
 }): UiPreferencesData {
   const workspacePanelStates: { [key: string]: WorkspacePanelStateData } = {};
   for (const [key, value] of Object.entries(state.workspacePanelStates)) {
@@ -86,6 +98,12 @@ function storeToScratchData(state: {
     kanban_project_view_preferences:
       state.kanbanProjectViewPreferences as Record<string, JsonValue>,
     auto_move_cards_enabled: state.autoMoveCardsEnabled,
+    ui_font_family: state.uiFontFamily,
+    code_font_family: state.codeFontFamily,
+    ui_font_scale: state.uiFontScale,
+    code_font_size: state.codeFontSize,
+    custom_theme_enabled: state.customThemeEnabled,
+    custom_theme: state.customTheme as unknown as JsonValue,
   };
 }
 
@@ -111,6 +129,12 @@ function scratchDataToStore(data: UiPreferencesData): {
     Record<string, KanbanProjectViewPreferences>
   >;
   autoMoveCardsEnabled: boolean;
+  uiFontFamily?: UiFontFamily;
+  codeFontFamily?: CodeFontFamily;
+  uiFontScale?: UiFontScale;
+  codeFontSize?: CodeFontSize;
+  customThemeEnabled?: boolean;
+  customTheme?: CustomThemeConfig;
 } {
   const workspacePanelStates: Record<string, WorkspacePanelState> = {};
   if (data.workspace_panel_states) {
@@ -138,6 +162,12 @@ function scratchDataToStore(data: UiPreferencesData): {
       ? Object.values(legacyFileSearchRepoByProject)[0]
       : null;
 
+  const customTheme = data.custom_theme;
+  const hasCustomTheme =
+    customTheme !== null &&
+    typeof customTheme === 'object' &&
+    !Array.isArray(customTheme);
+
   return {
     repoActions: (data.repo_actions ?? {}) as Record<string, RepoAction>,
     expanded: (data.expanded ?? {}) as Record<string, boolean>,
@@ -161,6 +191,17 @@ function scratchDataToStore(data: UiPreferencesData): {
     autoMoveCardsEnabled:
       (data as { auto_move_cards_enabled?: boolean }).auto_move_cards_enabled ??
       true,
+    uiFontFamily: data.ui_font_family as UiFontFamily | undefined,
+    codeFontFamily: data.code_font_family as CodeFontFamily | undefined,
+    uiFontScale: data.ui_font_scale as UiFontScale | undefined,
+    codeFontSize:
+      typeof data.code_font_size === 'number'
+        ? (data.code_font_size as CodeFontSize)
+        : undefined,
+    customThemeEnabled: data.custom_theme_enabled ?? undefined,
+    customTheme: hasCustomTheme
+      ? (customTheme as unknown as CustomThemeConfig)
+      : undefined,
   };
 }
 
@@ -226,6 +267,12 @@ export function useUiPreferencesScratch() {
       kanbanProjectViewSelections: currentState.kanbanProjectViewSelections,
       kanbanProjectViewPreferences: currentState.kanbanProjectViewPreferences,
       autoMoveCardsEnabled: currentState.autoMoveCardsEnabled,
+      uiFontFamily: currentState.uiFontFamily,
+      codeFontFamily: currentState.codeFontFamily,
+      uiFontScale: currentState.uiFontScale,
+      codeFontSize: currentState.codeFontSize,
+      customThemeEnabled: currentState.customThemeEnabled,
+      customTheme: currentState.customTheme,
     });
 
     try {
@@ -254,8 +301,13 @@ export function useUiPreferencesScratch() {
       // Server has data - apply it to store
       isApplyingServerDataRef.current = true;
       const serverState = scratchDataToStore(scratchData);
+      const shouldRestoreServerTheme =
+        !hasStoredCustomTheme() && serverState.customTheme !== undefined;
 
-      // Merge server state into the store
+      // Merge layout state from the server. Appearance is intentionally kept
+      // in local storage when it exists. If the packaged WebView lost its
+      // origin storage, restore the server copy instead of silently falling
+      // back to the default palette.
       useUiPreferencesStore.setState({
         repoActions: serverState.repoActions,
         expanded: serverState.expanded,
@@ -273,14 +325,36 @@ export function useUiPreferencesScratch() {
         kanbanProjectViewSelections: serverState.kanbanProjectViewSelections,
         kanbanProjectViewPreferences: serverState.kanbanProjectViewPreferences,
         autoMoveCardsEnabled: serverState.autoMoveCardsEnabled,
+        ...(shouldRestoreServerTheme
+          ? {
+              customTheme: serverState.customTheme,
+              customThemeEnabled: serverState.customThemeEnabled ?? true,
+            }
+          : {}),
       });
+
+      if (shouldRestoreServerTheme && serverState.customTheme) {
+        // Also seed localStorage so the recovered preference remains available
+        // if the server is temporarily offline on the next launch.
+        useUiPreferencesStore
+          .getState()
+          .setCustomTheme(serverState.customTheme);
+        useUiPreferencesStore
+          .getState()
+          .setCustomThemeEnabled(serverState.customThemeEnabled ?? true);
+      }
 
       // Allow a brief delay for state to settle
       setTimeout(() => {
         isApplyingServerDataRef.current = false;
+        void saveToServer();
       }, 100);
+    } else {
+      // Create the record on first run so appearance preferences survive the
+      // next desktop launch even before another UI preference changes.
+      void saveToServer();
     }
-  }, [isLoading, isConnected, scratchData]);
+  }, [isLoading, isConnected, saveToServer, scratchData]);
 
   // Subscribe to store changes and save to server
   useEffect(() => {

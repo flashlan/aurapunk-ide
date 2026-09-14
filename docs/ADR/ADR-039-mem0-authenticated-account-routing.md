@@ -24,8 +24,9 @@ All application and MCP requests to Mem0 use one REST contract:
   service. `GET /health` remains available for health probes.
 - `X-AuraPunk-Account-Id` identifies the signed-in AuraPunk account when using
   hosted Mem0.
-- Hosted Mem0 calls a private license endpoint and caches a positive result for
-  30 seconds. License failures are closed: memory operations are rejected.
+- Hosted calls terminate at the AuraPunk Cloud memory gateway. It validates a
+  revocable device token, resolves the current plan, applies monthly and
+  stored-memory quotas, and then forwards to internal Mem0.
 - Hosted user namespaces are prefixed with the account ID before reaching
   Qdrant, preventing two accounts from sharing a repo/user namespace.
 - The desktop backend stores the current account identity in process state after
@@ -48,5 +49,5 @@ the API token and license-check endpoint/token.
   requires a logout/login cycle and clears the previous identity.
 - The hosted account service must apply the `memory_backend` migration before
   account preference and license endpoints can be used.
-- A paid account with an expired or missing subscription receives a controlled
-  denial instead of silently falling back to another account's memory.
+- Accounts without an active subscription use the bounded Free quota. An
+  expired subscription returns to that quota instead of retaining paid limits.

@@ -1,8 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { handleApiResponse, makeRequest } from '@/shared/lib/api';
 
-export const DEFAULT_AURAPUNK_CLOUD_URL =
-  'https://aurapunk-cloud.datapoint.chatgpt.site';
+export const DEFAULT_AURAPUNK_CLOUD_URL = 'https://aurapunk.dev';
 export const AURAPUNK_CLOUD_CONTRACT_VERSION = 1;
 
 export interface AppModeResponse {

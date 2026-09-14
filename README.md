@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/vibe-kanban-alternative"><img alt="npm" src="https://img.shields.io/npm/v/vibe-kanban-alternative?style=flat-square" /></a>
+  <a href="https://www.npmjs.com/package/aurapunk-ide"><img alt="npm" src="https://img.shields.io/npm/v/aurapunk-ide?style=flat-square" /></a>
   <a href="https://github.com/flashlan/aurapunk-ide/actions"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/flashlan/aurapunk-ide/main.yml" /></a>
   <a href="https://deepwiki.com/BloopAI/vibe-kanban"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square" /></a>
@@ -25,6 +25,7 @@
 - [Background and Credits](#background-and-credits)
 - [What This Fork Adds](#what-this-fork-adds)
 - [Overview](#overview)
+- [Download Aurapunk IDE](#download-aurapunk-ide)
 - [Getting Started](#getting-started)
 - [Project Memory (mem0)](#project-memory-mem0)
 - [Supported Coding Agents](#supported-coding-agents)
@@ -40,9 +41,9 @@
 
 Following the [shutdown of Bloop's hosted servers](https://vibekanban.com/blog/shutdown), developers were left with orphaned workspaces and broken dependencies.
 
-**Aurapunk IDE** (formerly `vibe-kanban-alternative`) is an actively maintained, independent evolution built upon the foundations of [BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban) and [dexloom/vibe-kanban-indie](https://github.com/dexloom/vibe-kanban-indie). It is built for a single-developer workflow: no cloud accounts, no team auth, no remote telemetry. Everything runs on your own machine, and you orchestrate a fleet of coding agents from the browser, a terminal (TUI), or a phone (Telegram).
+**AuraPunk IDE** is an actively maintained, independent evolution built upon the foundations of [BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban) and [dexloom/vibe-kanban-indie](https://github.com/dexloom/vibe-kanban-indie). It is built for a single-developer workflow: no cloud accounts, no team auth, no remote telemetry. Everything runs on your own machine, and you orchestrate a fleet of coding agents from the browser, a terminal (TUI), or a phone (Telegram).
 
-![Kanban board overview in vibe-kanban-alternative, showing columns of cards with agent status](packages/public/vibe-kanban-alternative-screenshot-overview.png)
+![AuraPunk IDE kanban board overview, showing columns of cards with agent status](packages/public/vibe-kanban-alternative-screenshot-overview.png)
 
 ## What This Fork Adds
 
@@ -60,7 +61,7 @@ Following the [shutdown of Bloop's hosted servers](https://vibekanban.com/blog/s
 
 ## Overview
 
-Software engineering increasingly means directing coding agents — planning work, spawning a model to implement it, reviewing its diff, and shipping. The bottleneck is no longer typing code; it's orchestrating, reviewing, and keeping many agent sessions coherent. `vibe-kanban-alternative` is built to make that process fast, local, and personal: a single developer, entirely on their own machine, with no team, cloud, or account required.
+Software engineering increasingly means directing coding agents — planning work, spawning a model to implement it, reviewing its diff, and shipping. The bottleneck is no longer typing code; it's orchestrating, reviewing, and keeping many agent sessions coherent. `AuraPunk IDE` is built to make that process fast, local, and personal: a single developer, entirely on their own machine, with no team, cloud, or account required.
 
 At its core it's a kanban board that plans and tracks agent work, plus a workspace runtime that turns each card into a real branch, terminal, and dev server where any of 10+ coding agents (Claude Code, OpenCode, Qwen Code, Codex, Gemini CLI, Antigravity, Copilot, Amp, Cursor, Droid, CCR) executes the plan:
 
@@ -74,6 +75,95 @@ At its core it's a kanban board that plans and tracks agent work, plus a workspa
 
 ![Workspace view showing an agent session, terminal, and diff review panel](packages/public/vibe-kanban-screenshot-workspace.png)
 
+## Download Aurapunk IDE
+
+> **Recommended for end users:** download a native installer from the latest
+> GitHub release. The desktop application runs locally and does not require an
+> AuraPunk Cloud account.
+
+The current installers are published in [release `v0.3.2`](https://github.com/flashlan/aurapunk-ide/releases/tag/v0.3.2).
+The release also includes [`SHA256SUMS`](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/SHA256SUMS)
+for integrity verification.
+
+### macOS
+
+- [Apple Silicon — DMG](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/Aurapunk-IDE-macos-apple-silicon.dmg)
+- [Intel — DMG](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/Aurapunk-IDE-macos-intel.dmg)
+
+Open the DMG and drag **Aurapunk IDE** to **Applications**. If macOS shows
+“Apple cannot verify the developer”, open **System Settings → Privacy &
+Security → Open Anyway**. Alternatively, run:
+
+```bash
+xattr -cr "/Applications/Aurapunk IDE.app"
+```
+
+For Homebrew users:
+
+```bash
+brew tap flashlan/tap
+brew install --cask aurapunk-ide
+```
+
+### Linux
+
+- [AppImage — x86_64](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/Aurapunk-IDE-linux-x64.AppImage)
+- [Debian/Ubuntu — `.deb`](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/Aurapunk-IDE-linux-x64.deb)
+- [Fedora — `.rpm`](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/Aurapunk-IDE-linux-x64.rpm)
+
+Make the AppImage executable before launching it:
+
+```bash
+chmod +x Aurapunk-IDE-linux-x64.AppImage
+./Aurapunk-IDE-linux-x64.AppImage
+```
+
+Install the Debian package with `sudo apt install ./Aurapunk-IDE-linux-x64.deb`
+or the RPM package with `sudo dnf install ./Aurapunk-IDE-linux-x64.rpm`.
+
+### Windows
+
+- [Windows x64 — NSIS installer](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/Aurapunk-IDE-windows-x64.exe)
+
+Run the installer and follow the setup wizard. The current published Windows
+installer targets x64 systems.
+
+### Android (Beta)
+
+- [Download AuraPunk Mobile beta APK](https://pub-80572bbc4ab94346be24d128e6b22a0f.r2.dev/aurapunk-mobile/aurapunk-mobile-beta.apk)
+
+AuraPunk Mobile is a phone-based control cockpit for the same AuraPunk account:
+
+- **Account and device pairing** — sign in through the browser, store the
+  device credential in Android Keystore, and pair with AuraPunk Cloud or a
+  Desktop instance using a short-lived QR code.
+- **AutoSync** — synchronize projects, cards, statuses, workspace links, chat
+  history, jobs, models, providers, pipelines, and project prompt settings
+  without copying the Desktop database to the phone.
+- **Project-first Kanban** — browse the project hierarchy, open cards, follow
+  execution activity, and move from a card to its associated workspace.
+- **Workspace creation and control** — create a workspace from the phone when
+  the connected Desktop/API permits it, choosing the executor, provider,
+  model, pipeline, permissions, and initial prompt.
+- **Workspace chat** — view synchronized messages and send new prompts through
+  the normal Desktop session, with model/CLI selection, effort, agent mode,
+  permissions, text files, and image attachments.
+- **Desktop and Cloud visibility** — inspect connection health, recent jobs,
+  memory gateway status, and available Cloud instances; Cloud remains a
+  transport/fallback path when the Desktop is offline.
+- **Console and Android testing** — open a local Android shell or a paired
+  Desktop terminal, select an APK, install it on the phone, and open the
+  installed package for testing. ADB devices and privileged commands remain
+  behind the paired Desktop bridge and its audit/allowlist controls.
+
+The beta is distributed as a manually installed APK. Cloud-container terminal
+execution and parts of the direct P2P bridge still depend on their respective
+backend endpoints and are marked as unavailable when they are not deployed.
+The mobile app and Cloud features may change before production.
+
+The [website download page](https://aurapunk.dev/#download) provides the same
+platform selector and first-launch instructions.
+
 ## Getting Started
 
 ### Quick Start
@@ -81,14 +171,14 @@ At its core it's a kanban board that plans and tracks agent work, plus a workspa
 Launch the full cockpit with a single command — no install, no account, no cloud setup:
 
 ```bash
-npx vibe-kanban-alternative
+npx aurapunk-ide
 ```
 
 This downloads prebuilt binaries and starts the local web cockpit at `http://localhost:3001` (backend on `:3002`).
 
 ## Project Memory (mem0)
 
-`vibe-kanban-alternative` ships with a first-class mem0 integration, giving every coding agent driving a workspace a durable, semantic memory of the repositories it works in.
+`AuraPunk IDE` ships with a first-class mem0 integration, giving every coding agent driving a workspace a durable, semantic memory of the repositories it works in.
 
 ### Capabilities
 
@@ -283,7 +373,7 @@ It can also be configured from the app: open **Settings → Memory** to manage t
 
 ## Supported Coding Agents
 
-`vibe-kanban-alternative` integrates natively with 10+ coding agents:
+`AuraPunk IDE` integrates natively with 10+ coding agents:
 
 1. **Google Antigravity (`agy`)** (new)
    - Full stream-JSON protocol support.
@@ -377,8 +467,8 @@ For development, custom ports, a local mem0 vector store, or custom agent config
 **1. Clone and install**
 
 ```bash
-git clone https://github.com/flashlan/vibe-kanban-alternative.git
-cd vibe-kanban-alternative
+git clone https://github.com/flashlan/aurapunk-ide.git
+cd aurapunk-ide
 pnpm i
 ```
 

@@ -1,10 +1,14 @@
 use std::{
     collections::HashSet,
     fs, io,
+    net::{Ipv4Addr, SocketAddr, UdpSocket},
     path::{Path, PathBuf},
+    process::Command,
+    sync::Arc,
 };
 
 use deployment::{Deployment, DeploymentError};
+use serde::Serialize;
 use services::services::container::ContainerService;
 use tokio_util::sync::CancellationToken;
 use tower_http::validate_request::ValidateRequestHeaderLayer;
@@ -21,6 +25,188 @@ pub struct ServerHandle {
     shutdown_token: CancellationToken,
     main_listener: tokio::net::TcpListener,
     proxy_listener: tokio::net::TcpListener,
+}
+
+#[derive(Clone)]
+pub struct LanServerControl {
+    inner: Arc<LanServerControlInner>,
+}
+
+struct LanServerControlInner {
+    deployment: DeploymentImpl,
+    shutdown_token: CancellationToken,
+    state: tokio::sync::Mutex<Option<LanServerInfo>>,
+}
+
+/// Address information needed by the QR pairing flow.
+///
+/// The listener uses one port for every interface. The endpoint list contains
+/// the addresses that a phone can try, so the user does not have to know
+/// whether the Desktop is currently reachable through Wi-Fi, Ethernet, or a
+/// private VPN/WireGuard interface.
+#[derive(Debug, Clone, Serialize)]
+pub struct LanServerInfo {
+    pub port: u16,
+    pub endpoints: Vec<String>,
+}
+
+impl LanServerControl {
+    fn new(deployment: DeploymentImpl, shutdown_token: CancellationToken) -> Self {
+        Self {
+            inner: Arc::new(LanServerControlInner {
+                deployment,
+                shutdown_token,
+                state: tokio::sync::Mutex::new(None),
+            }),
+        }
+    }
+
+    /// Start the mobile-only listener once and return its detected endpoints.
+    ///
+    /// The main Desktop server remains loopback-only unless explicitly
+    /// configured otherwise. This listener shares the same deployment and
+    /// shuts down with the Desktop process.
+    pub async fn start(&self) -> anyhow::Result<LanServerInfo> {
+        let mut state = self.inner.state.lock().await;
+        if let Some(info) = state.as_ref() {
+            return Ok(info.clone());
+        }
+
+        let requested_port = std::env::var("AURAPUNK_LAN_PORT")
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(58421);
+        let listener = match tokio::net::TcpListener::bind(("0.0.0.0", requested_port)).await {
+            Ok(l) => l,
+            Err(_) => tokio::net::TcpListener::bind(("0.0.0.0", 0)).await?,
+        };
+        let port = listener.local_addr()?.port();
+        let endpoints = detect_lan_endpoints(port);
+        if endpoints.is_empty() {
+            return Err(anyhow::anyhow!(
+                "nenhum endereço de rede local foi detectado"
+            ));
+        }
+        let app_router = routes::router(self.inner.deployment.clone());
+        let shutdown = self.inner.shutdown_token.clone();
+        tokio::spawn(async move {
+            let server = axum::serve(listener, app_router)
+                .with_graceful_shutdown(async move { shutdown.cancelled().await });
+            if let Err(error) = server.await {
+                tracing::warn!(%error, "LAN mobile server stopped with an error");
+            }
+        });
+        let info = LanServerInfo { port, endpoints };
+        tracing::info!(port, endpoints = ?info.endpoints, "LAN mobile server started on demand");
+        *state = Some(info.clone());
+        Ok(info)
+    }
+}
+
+/// Detect addresses that can plausibly reach this machine from another device
+/// on the same network. A UDP connect only asks the OS which local address it
+/// would use for a route; it does not send a packet. Interface enumeration is
+/// then used as a fallback so VPNs that do not carry the default route (such as
+/// a WireGuard peer network) are still included in the QR invite.
+fn detect_lan_endpoints(port: u16) -> Vec<String> {
+    let mut addresses = Vec::new();
+
+    for target in [
+        Ipv4Addr::new(1, 1, 1, 1),
+        Ipv4Addr::new(8, 8, 8, 8),
+        Ipv4Addr::new(192, 168, 1, 1),
+        Ipv4Addr::new(10, 0, 0, 1),
+        Ipv4Addr::new(100, 64, 0, 1),
+    ] {
+        let Ok(socket) = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)) else {
+            continue;
+        };
+        if socket.connect(SocketAddr::from((target, 80))).is_ok()
+            && let Ok(SocketAddr::V4(local)) = socket.local_addr()
+        {
+            push_candidate(&mut addresses, *local.ip());
+        }
+    }
+
+    for output in interface_command_outputs() {
+        collect_interface_addresses(&output, &mut addresses);
+    }
+
+    addresses
+        .into_iter()
+        .take(8)
+        .map(|address| format!("http://{address}:{port}"))
+        .collect()
+}
+
+fn push_candidate(addresses: &mut Vec<Ipv4Addr>, address: Ipv4Addr) {
+    if address.is_unspecified()
+        || address.is_loopback()
+        || address.is_link_local()
+        || address == Ipv4Addr::BROADCAST
+        || addresses.contains(&address)
+    {
+        return;
+    }
+
+    // Put ordinary private LAN routes before VPN/CGNAT routes. The mobile app
+    // still tries every candidate, so this is only an ordering preference.
+    let private = is_private_lan(address);
+    let insertion_index = addresses
+        .iter()
+        .position(|existing| private && !is_private_lan(*existing))
+        .unwrap_or(addresses.len());
+    addresses.insert(insertion_index, address);
+}
+
+fn is_private_lan(address: Ipv4Addr) -> bool {
+    let octets = address.octets();
+    octets[0] == 10
+        || (octets[0] == 172 && (16..=31).contains(&octets[1]))
+        || (octets[0] == 192 && octets[1] == 168)
+}
+
+fn interface_command_outputs() -> Vec<String> {
+    let commands: &[(&str, &[&str])] = if cfg!(target_os = "windows") {
+        &[("ipconfig", &[])]
+    } else {
+        &[("ip", &["-4", "-o", "addr", "show"]), ("ifconfig", &["-a"])]
+    };
+
+    commands
+        .iter()
+        .filter_map(|(command, args)| {
+            Command::new(command)
+                .args(*args)
+                .output()
+                .ok()
+                .filter(|output| output.status.success())
+                .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        })
+        .collect()
+}
+
+fn collect_interface_addresses(output: &str, addresses: &mut Vec<Ipv4Addr>) {
+    for line in output.lines() {
+        let lower = line.to_ascii_lowercase();
+        let is_unix_inet_line = lower
+            .split_whitespace()
+            .any(|token| token == "inet" || token.starts_with("inet"));
+        let is_windows_ipv4_line = lower.contains("ipv4") && lower.contains("address");
+        if !is_unix_inet_line && !is_windows_ipv4_line {
+            continue;
+        }
+
+        for token in line.split(|character: char| {
+            character.is_whitespace() || matches!(character, ':' | ',' | '(' | ')')
+        }) {
+            let token = token.split('/').next().unwrap_or_default();
+            if let Ok(address) = token.parse::<Ipv4Addr>() {
+                push_candidate(addresses, address);
+                break;
+            }
+        }
+    }
 }
 
 impl ServerHandle {
@@ -87,6 +273,10 @@ impl ServerHandle {
     pub fn shutdown_token(&self) -> CancellationToken {
         self.shutdown_token.clone()
     }
+
+    pub fn lan_control(&self) -> LanServerControl {
+        LanServerControl::new(self.deployment.clone(), self.shutdown_token.clone())
+    }
 }
 
 /// Initialize the deployment, bind listeners on `localhost` with OS-assigned
@@ -97,7 +287,17 @@ impl ServerHandle {
 /// resolves to `::1` (IPv6) first — binding to `127.0.0.1` (IPv4) while
 /// the browser connects via `::1` causes "connection refused".
 pub async fn start() -> anyhow::Result<ServerHandle> {
-    start_with_bind("localhost:0", "localhost:0", CancellationToken::new()).await
+    let host = if std::env::var("AURAPUNK_LAN_SYNC").as_deref() == Ok("1") {
+        "0.0.0.0"
+    } else {
+        "localhost"
+    };
+    start_with_bind(
+        &format!("{host}:0"),
+        &format!("{host}:0"),
+        CancellationToken::new(),
+    )
+    .await
 }
 
 /// Like [`start`], but lets the caller specify the bind addresses for the main
@@ -477,5 +677,36 @@ mod tests {
 
         assert_eq!(fs::read_to_string(dst.join(".gitignore")).unwrap(), "*\n");
         assert!(dst.join("file.pdf").exists());
+    }
+
+    #[test]
+    fn collects_private_addresses_from_unix_interface_output() {
+        let mut addresses = Vec::new();
+        collect_interface_addresses(
+            "2: en0 inet 192.168.1.20/24 brd 192.168.1.255\n3: wg0 inet 10.8.0.2/24",
+            &mut addresses,
+        );
+
+        assert_eq!(
+            addresses,
+            vec![Ipv4Addr::new(192, 168, 1, 20), Ipv4Addr::new(10, 8, 0, 2)]
+        );
+    }
+
+    #[test]
+    fn collects_private_addresses_from_windows_interface_output() {
+        let mut addresses = Vec::new();
+        collect_interface_addresses(
+            "   IPv4 Address. . . . . . . . . . . : 192.168.1.20\n   IPv4 Address. . . . . . . . . . . : 100.121.87.65",
+            &mut addresses,
+        );
+
+        assert_eq!(
+            addresses,
+            vec![
+                Ipv4Addr::new(192, 168, 1, 20),
+                Ipv4Addr::new(100, 121, 87, 65)
+            ]
+        );
     }
 }

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aurapunk IDE</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 28px;
+        height: 100vh;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #121212;
+        color: #888;
+      }
+      img {
+        width: 210px;
+        height: 210px;
+        object-fit: contain;
+        filter: drop-shadow(0 10px 30px rgba(0, 200, 255, 0.2));
+        animation: pulse 1.6s ease-in-out infinite;
+      }
+      .spinner {
+        width: 22px;
+        height: 22px;
+        border: 2px solid rgba(255,255,255,0.18);
+        border-top-color: rgba(255,255,255,0.7);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.92; transform: scale(1.03); }
+      }
+    </style>
+  </head>
+  <body>
+    <img src="vk-icon-app.png" alt="Aurapunk IDE" width="192" height="192" />
+    <div class="spinner" aria-hidden="true"></div>
+  </body>
+</html>

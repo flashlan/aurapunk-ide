@@ -35,7 +35,7 @@ async fn app_mode() -> Json<ApiResponse<AppModeResponse>> {
     let cloud_url = std::env::var("AURAPUNK_CLOUD_URL")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "https://aurapunk-cloud.datapoint.chatgpt.site".to_string());
+        .unwrap_or_else(|| "https://aurapunk.dev".to_string());
 
     Json(ApiResponse::success(AppModeResponse {
         mode: if cloud { "cloud" } else { "local" },

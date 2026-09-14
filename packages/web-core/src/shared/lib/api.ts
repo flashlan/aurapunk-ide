@@ -113,6 +113,16 @@ import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 
 export type { AgentActivity, AgentWorkDeclaration };
 
+/** Default chat config do workspace (salva pelo app/Mobile). */
+export interface WorkspaceChatConfig {
+  executor?: string | null;
+  model_id?: string | null;
+  reasoning_id?: string | null;
+  agent_id?: string | null;
+  permission_policy?: string | null;
+  preset?: string | null;
+}
+
 export class ApiError<E = unknown> extends Error {
   public status?: number;
   public error_data?: E;
@@ -496,6 +506,20 @@ export const workspacesApi = {
       `/api/workspaces/${workspaceId}/agent-work`
     );
     return handleApiResponse<AgentActivity[]>(response);
+  },
+
+  /**
+   * Default chat config do workspace (salva pelo app/Mobile: executor,
+   * modelo, effort, agent, permission, preset). O seletor usa como padrão
+   * quando o usuário não escolheu nada.
+   */
+  getWorkspaceChatConfig: async (
+    workspaceId: string
+  ): Promise<WorkspaceChatConfig | null> => {
+    const response = await makeRequest(
+      `/api/workspaces/${workspaceId}/chat-config`
+    );
+    return handleApiResponse<WorkspaceChatConfig | null>(response);
   },
 
   /** Run an issue in an existing workspace: dispatches its title + description

@@ -144,12 +144,27 @@ const loadCustomTheme = (): CustomThemeConfig => {
   return DEFAULT_CUSTOM_THEME;
 };
 
+/**
+ * Tauri/WebView storage can be recreated when the packaged app origin changes.
+ * The scratch record is therefore a fallback, but an explicitly saved local
+ * theme must win over an older server snapshot for this machine.
+ */
+export function hasStoredCustomTheme(): boolean {
+  try {
+    return localStorage.getItem(CUSTOM_THEME_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 const loadCustomThemeEnabled = (): boolean => {
   try {
     const stored = localStorage.getItem(CUSTOM_THEME_ENABLED_KEY);
-    if (stored !== null) return stored === 'true';
+    // The legacy enable/disable switch was removed. Custom palettes are now
+    // the only theme system and are always active.
+    if (stored !== null) return true;
   } catch {}
-  return false;
+  return true;
 };
 
 const loadSavedCustomThemes = (): CustomThemeConfig[] => {
@@ -159,14 +174,6 @@ const loadSavedCustomThemes = (): CustomThemeConfig[] => {
   } catch {}
   return [];
 };
-
-// Theme variant ("skin") is a client-side visual preference applied on top
-// of the Light/Dark/System mode. 'default' means no extra theme (the built-in
-// look). Other values map to a drop-in CSS file under /themes/<id>.css.
-export type ThemeVariant = string;
-export const DEFAULT_THEME_VARIANT: ThemeVariant = 'default';
-
-const THEME_VARIANT_KEY = 'vk-theme-variant';
 
 // Persisted default pipeline id (single-select). Remembered so the next issue
 // created starts on the operator's last-chosen pipeline.
@@ -328,16 +335,6 @@ const loadAnimateRunningOutline = (): boolean => {
     // localStorage may be unavailable
   }
   return true;
-};
-
-const loadThemeVariant = (): ThemeVariant => {
-  try {
-    const stored = localStorage.getItem(THEME_VARIANT_KEY);
-    if (stored && stored !== DEFAULT_THEME_VARIANT) return stored;
-  } catch {
-    // localStorage may be unavailable
-  }
-  return DEFAULT_THEME_VARIANT;
 };
 
 // Persisted pane sizes (fallback to localStorage for instant hydration)
@@ -654,9 +651,6 @@ type State = {
   // Mobile font scale
   mobileFontScale: MobileFontScale;
 
-  // Theme variant ("skin"), applied on top of the light/dark mode
-  themeVariant: ThemeVariant;
-
   // Per-workspace custom colors (sidebar tree tint). `null` value clears.
   workspaceColors: Record<string, string>;
 
@@ -768,9 +762,6 @@ type State = {
   // Mobile font scale actions
   setMobileFontScale: (scale: MobileFontScale) => void;
 
-  // Theme variant actions
-  setThemeVariant: (variant: ThemeVariant) => void;
-
   // Workspace color actions
   setWorkspaceColor: (workspaceId: string, color: string | null) => void;
 
@@ -851,9 +842,6 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
   customThemeEnabled: loadCustomThemeEnabled(),
   customTheme: loadCustomTheme(),
   savedCustomThemes: loadSavedCustomThemes(),
-
-  // Theme variant
-  themeVariant: loadThemeVariant(),
 
   // Per-workspace custom colors
   workspaceColors: loadWorkspaceColors(),
@@ -951,7 +939,7 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
       codeFontFamily: DEFAULT_CODE_FONT_FAMILY,
       uiFontScale: DEFAULT_UI_FONT_SCALE,
       codeFontSize: DEFAULT_CODE_FONT_SIZE,
-      customThemeEnabled: false,
+      customThemeEnabled: true,
       customTheme: DEFAULT_CUSTOM_THEME,
     });
   },
@@ -1301,20 +1289,6 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
     set({ mobileFontScale: scale });
   },
 
-  // Theme variant actions
-  setThemeVariant: (variant) => {
-    try {
-      if (variant === DEFAULT_THEME_VARIANT) {
-        localStorage.removeItem(THEME_VARIANT_KEY);
-      } else {
-        localStorage.setItem(THEME_VARIANT_KEY, variant);
-      }
-    } catch {
-      // localStorage may be unavailable
-    }
-    set({ themeVariant: variant });
-  },
-
   // Workspace color actions
   setWorkspaceColor: (workspaceId, color) => {
     set((s) => {
@@ -1491,13 +1465,6 @@ export function useMobileFontScale() {
   const scale = useUiPreferencesStore((s) => s.mobileFontScale);
   const set = useUiPreferencesStore((s) => s.setMobileFontScale);
   return [scale, set] as const;
-}
-
-// Hook for theme variant ("skin")
-export function useThemeVariant() {
-  const variant = useUiPreferencesStore((s) => s.themeVariant);
-  const set = useUiPreferencesStore((s) => s.setThemeVariant);
-  return [variant, set] as const;
 }
 
 // Hook for the persisted default pipeline id (single-select Create Issue dialog)

@@ -391,10 +391,7 @@ export function applyCustomAppearance(state: {
     STYLE_TAG_ID
   ) as HTMLStyleElement | null;
 
-  if (!state.customThemeEnabled) {
-    if (styleEl) styleEl.remove();
-    return;
-  }
+  // The old theme toggle has been retired. A custom palette is always active.
 
   if (!styleEl) {
     styleEl = document.createElement('style');
@@ -425,7 +422,7 @@ export function applyCustomAppearance(state: {
   const gradientString = `linear-gradient(${gradientAngle}deg, ${gradientColor1} 0%, ${gradientColor2} 100%)`;
 
   const css = `
-    :root, html, .dark {
+    :root, html, .dark, .light {
       --bg-primary: ${canvasHsl} !important;
       --bg-canvas: ${canvasHsl} !important;
       --_bg-primary-default: ${canvasHsl} !important;

@@ -39,7 +39,7 @@ export async function getWorkspaceDefaults(
             target_branch:
               r.target_branch ||
               reposById.get(r.repo_id)?.default_target_branch ||
-              null,
+              'main',
           })),
         };
       }

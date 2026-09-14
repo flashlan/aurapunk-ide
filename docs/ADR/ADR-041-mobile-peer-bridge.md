@@ -36,6 +36,18 @@ The product connection order is:
 3. Encrypted DERP/relay fallback only when direct paths fail or the user
    explicitly selects relay-only mode.
 
+The first bootstrap path is a local QR invitation. Desktop creates a
+single-use invitation valid for two minutes through
+`POST /api/mobile/pairing/invite`; Mobile claims it through
+`POST /api/mobile/pairing/claim` and stores the returned instance token in the
+Android Keystore. The QR contains only the detected private LAN/VPN endpoints
+and the temporary invite secret. The packaged Desktop starts a second,
+mobile-only LAN listener only when the user clicks **Conectar celular**; the
+normal application server remains loopback-only. The listener uses the same
+deployment and shuts down with the Desktop. Mobile tries the detected Wi-Fi,
+Ethernet, and private WireGuard/Tailscale addresses automatically, so the
+user never has to select or type a network interface.
+
 The Desktop distribution includes the bridge runtime. The Android APK
 includes the corresponding native bridge/library. Neither path requires a
 separate user-installed daemon, VPN, root access, or modified routing table.

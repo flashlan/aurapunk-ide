@@ -7,6 +7,8 @@ import {
   type Session,
   type BaseCodingAgent,
   ExecutionProcessStatus,
+  PermissionPolicy,
+  type ExecutorConfig,
 } from 'shared/types';
 import { AgentIcon } from '@/shared/components/AgentIcon';
 import { useHostId } from '@/shared/providers/HostIdProvider';
@@ -26,6 +28,7 @@ import { useActions } from '@/shared/hooks/useActions';
 import { useTodos } from '../model/hooks/useTodos';
 import { getLatestConfigFromProcesses } from '@/shared/lib/executor';
 import { useExecutorConfig } from '@/shared/hooks/useExecutorConfig';
+import { useWorkspaceChatConfig } from '@/shared/hooks/useWorkspaceChatConfig';
 import { useSessionMessageEditor } from '../model/hooks/useSessionMessageEditor';
 import { useSessionQueueInteraction } from '../model/hooks/useSessionQueueInteraction';
 import { useSessionSend } from '../model/hooks/useSessionSend';
@@ -477,6 +480,40 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   const { uploadFiles, localAttachments, clearUploadedAttachments } =
     useSessionAttachments(workspaceId, sessionId, handleInsertMarkdown);
 
+  // Defaults do workspace (salvos pelo app/Mobile): valem quando o usuário
+  // não escolheu nada. O CLI só entra se não forçar troca em sessão rodada
+  // (o servidor rejeitaria com ExecutorMismatch).
+  const { data: savedChatConfig } = useWorkspaceChatConfig(workspaceId);
+  const workspaceDefaults = useMemo<Partial<ExecutorConfig> | null>(() => {
+    if (!savedChatConfig) return null;
+    const sessionExecutor = session?.executor ?? null;
+    const hasExecutions = (processes?.length ?? 0) > 0;
+    const out: Partial<ExecutorConfig> = {};
+    const savedExecutor = savedChatConfig.executor as
+      | BaseCodingAgent
+      | undefined;
+    if (
+      savedExecutor &&
+      (!profiles || savedExecutor in profiles) &&
+      (!hasExecutions || !sessionExecutor || sessionExecutor === savedExecutor)
+    ) {
+      out.executor = savedExecutor;
+    }
+    if (savedChatConfig.preset) out.variant = savedChatConfig.preset;
+    if (savedChatConfig.model_id) out.model_id = savedChatConfig.model_id;
+    if (savedChatConfig.agent_id) out.agent_id = savedChatConfig.agent_id;
+    if (savedChatConfig.reasoning_id)
+      out.reasoning_id = savedChatConfig.reasoning_id;
+    if (
+      savedChatConfig.permission_policy &&
+      savedChatConfig.permission_policy in PermissionPolicy
+    ) {
+      out.permission_policy =
+        savedChatConfig.permission_policy as PermissionPolicy;
+    }
+    return out;
+  }, [savedChatConfig, session?.executor, processes, profiles]);
+
   // Unified executor + variant + model selector options resolution
   const {
     executorConfig,
@@ -492,6 +529,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     profiles,
     lastUsedConfig: latestConfig,
     scratchConfig: scratchData?.executor_config ?? undefined,
+    workspaceDefaults,
     configExecutorProfile: config?.executor_profile,
     onPersist: (cfg) => void saveToScratch(localMessageRef.current, cfg),
   });
