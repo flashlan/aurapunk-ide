@@ -45,7 +45,9 @@ interface SidebarProjectTreeProps {
     issueId: string,
     parentIssueId?: string | null
   ) => void;
-  isLoading?: boolean;
+  /** Project rows are required before the tree can be built. Workspace
+   * streams may still be connecting and must not hide already-loaded rows. */
+  isLoadingProjects?: boolean;
   onSelectWorkspace: (id: string) => void;
   /** Collapse-by-default (2026-08-07): opens the project's kanban board when
    *  the user clicks the open-page icon on a project row or Tasks section.
@@ -97,7 +99,7 @@ export function SidebarProjectTree({
   activeIssueId = null,
   onTasksExpansionChange,
   onSelectIssue,
-  isLoading = false,
+  isLoadingProjects = false,
   onSelectWorkspace,
   onOpenProjectPage,
   onOpenWorkspacesPage,
@@ -513,7 +515,7 @@ export function SidebarProjectTree({
       aria-labelledby={ariaLabelledBy}
       className={cn('flex min-h-0 flex-1 flex-col', className)}
     >
-      {isLoading ? (
+      {isLoadingProjects ? (
         <div className="flex items-center justify-center py-2">
           <SpinnerIcon className="size-icon-sm animate-spin text-muted" />
         </div>
