@@ -128,6 +128,15 @@ or the RPM package with `sudo dnf install ./Aurapunk-IDE-linux-x64.rpm`.
 Run the installer and follow the setup wizard. The current published Windows
 installer targets x64 systems.
 
+### Android (Beta)
+
+- [Download AuraPunk Mobile beta APK](https://pub-80572bbc4ab94346be24d128e6b22a0f.r2.dev/aurapunk-mobile/aurapunk-mobile-beta.apk)
+
+AuraPunk Mobile is currently distributed as a beta APK. Install it manually,
+sign in with the same AuraPunk account, and use it to manage models, cards,
+chats, and connected Desktop or Cloud instances. The mobile app and Cloud
+features are still in beta and may change before production.
+
 The [website download page](https://aurapunk.dev/#download) provides the same
 platform selector and first-launch instructions.
 
