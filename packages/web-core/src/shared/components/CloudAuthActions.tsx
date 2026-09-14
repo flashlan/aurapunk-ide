@@ -287,7 +287,7 @@ export function CloudAuthActions() {
 
   const syncCloudSnapshot = useCallback(
     async (nextAccount: CloudAccount) => {
-      if (!nextAccount.accessToken) return;
+      if (!nextAccount.accessToken) return null;
 
       try {
         const response = await fetch(
@@ -306,10 +306,11 @@ export function CloudAuthActions() {
             response.status,
             await response.text()
           );
-          return;
+          return null;
         }
 
         const body = (await response.json()) as {
+          revision?: number;
           events?: Array<{
             entityType?: string;
             entityId?: string;
@@ -334,7 +335,12 @@ export function CloudAuthActions() {
             operation: event.operation,
             payload: event.payload ?? null,
           }));
-        if (records.length === 0) return;
+        if (records.length === 0) {
+          return {
+            revision: Number(body.revision ?? 0),
+            imported: 0,
+          };
+        }
 
         const localResponse = await makeLocalApiRequest(
           '/api/mobile/import-context',
@@ -353,9 +359,19 @@ export function CloudAuthActions() {
             localResponse.status,
             await localResponse.text()
           );
+          return null;
         }
+
+        const localBody = (await localResponse.json()) as {
+          data?: { imported?: number };
+        };
+        return {
+          revision: Number(body.revision ?? 0),
+          imported: Number(localBody.data?.imported ?? records.length),
+        };
       } catch (error) {
         console.warn('AuraPunk Cloud snapshot pull failed', error);
+        return null;
       }
     },
     [cloudUrl]
@@ -579,12 +595,18 @@ export function CloudAuthActions() {
               window.dispatchEvent(new Event('aurapunk-cloud-account-changed'));
               await persistAccount(nextAccount);
               await syncMem0Account(nextAccount);
-              await syncCloudSnapshot(nextAccount);
+              const snapshot = await syncCloudSnapshot(nextAccount);
               // The board/workspace streams are initialized while the app is
               // mounting. Reload once after the first import so those streams
               // see the materialized SQLite rows instead of their original
               // empty snapshot. The persisted account prevents a reload loop.
-              window.location.reload();
+              if (snapshot?.imported) {
+                window.sessionStorage.setItem(
+                  `${CLOUD_SNAPSHOT_RELOAD_PREFIX}:${nextAccount.userId}`,
+                  String(snapshot.revision)
+                );
+                window.location.reload();
+              }
               return;
             }
           } else {
@@ -616,7 +638,23 @@ export function CloudAuthActions() {
           window.dispatchEvent(new Event('aurapunk-cloud-account-changed'));
           void persistAccount(parsed);
           void offerCloudMemory(parsed);
-          if (isCloudMode) void syncCloudSnapshot(parsed);
+          if (isCloudMode) {
+            const snapshot = await syncCloudSnapshot(parsed);
+            if (snapshot?.imported) {
+              const reloadKey = `${CLOUD_SNAPSHOT_RELOAD_PREFIX}:${parsed.userId}`;
+              if (
+                window.sessionStorage.getItem(reloadKey) !==
+                String(snapshot.revision)
+              ) {
+                window.sessionStorage.setItem(
+                  reloadKey,
+                  String(snapshot.revision)
+                );
+                window.location.reload();
+                return;
+              }
+            }
+          }
           void syncCloudContext(parsed);
         }
       } catch {
@@ -908,4 +946,5 @@ type MobileWorkspaceRequestResult = {
 };
 
 const CLOUD_ACCOUNT_STORAGE_KEY = 'aurapunk-cloud-account';
+const CLOUD_SNAPSHOT_RELOAD_PREFIX = 'aurapunk-cloud-snapshot-reload';
 const CLOUD_COMMAND_CURSOR_PREFIX = 'aurapunk-cloud-command-cursor';
