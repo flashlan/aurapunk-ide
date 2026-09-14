@@ -107,7 +107,6 @@ export function Sidebar({
   onTasksExpansionChange,
   onSelectIssue,
   isLoadingProjects,
-  isLoadingWorkspaces,
   onSelectWorkspace,
   onOpenProjectPage,
   onOpenWorkspacesPage,
