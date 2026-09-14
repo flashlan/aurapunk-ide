@@ -251,8 +251,11 @@ export function LandingPage() {
 
   const editorOptions = useMemo(() => [...Object.values(EditorType)], []);
 
+  const environmentType = environment?.os_type?.toLowerCase() ?? '';
   const isLinuxEnvironment =
-    environment?.os_type?.toLowerCase().includes('linux') === true;
+    /linux|debian|ubuntu|fedora|arch|alpine|centos|rhel|rocky|alma|suse|opensuse|mint/.test(
+      environmentType
+    );
   const supportsGraphicalEditorInstall = !isLinuxEnvironment;
 
   useEffect(() => {
