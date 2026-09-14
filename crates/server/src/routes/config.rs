@@ -616,6 +616,19 @@ command -v {executable} >/dev/null 2>&1 || {{ echo "The package installed, but {
     )
 }
 
+fn npm_install_powershell_script(package: &str, executable: &str) -> String {
+    format!(
+        r#"$ErrorActionPreference = 'Stop'
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {{ throw 'npm is required to install this tool' }}
+$prefix = Join-Path $env:USERPROFILE '.local'
+New-Item -ItemType Directory -Force -Path $prefix | Out-Null
+npm install --prefix $prefix --global {package}
+$env:Path = "$prefix;$env:Path"
+if (-not (Get-Command {executable} -ErrorAction SilentlyContinue)) {{ throw 'The package installed, but {executable} was not found on PATH' }}
+"#
+    )
+}
+
 fn agent_install_script(agent: &BaseCodingAgent) -> Option<String> {
     let (package, executable) = match agent {
         BaseCodingAgent::ClaudeCode | BaseCodingAgent::ClaudeCodeHeaded => {
@@ -642,7 +655,11 @@ command -v cursor-agent >/dev/null 2>&1 || { echo "Cursor Agent was installed, b
         BaseCodingAgent::Droid => return None,
     };
 
-    Some(npm_install_script(package, executable))
+    if cfg!(windows) {
+        Some(npm_install_powershell_script(package, executable))
+    } else {
+        Some(npm_install_script(package, executable))
+    }
 }
 
 fn editor_install_script(editor: &EditorType) -> Option<String> {
@@ -658,6 +675,15 @@ fn editor_install_script(editor: &EditorType) -> Option<String> {
         EditorType::Zed => ("zed", "ZedIndustries.Zed"),
         EditorType::Xcode | EditorType::GoogleAntigravity | EditorType::Custom => return None,
     };
+
+    if cfg!(windows) {
+        return Some(format!(
+            r#"$ErrorActionPreference = 'Stop'
+if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {{ throw 'winget is required to install this editor' }}
+winget install --id {windows_id} --exact --accept-package-agreements --accept-source-agreements
+"#
+        ));
+    }
 
     Some(format!(
         r#"set -eu
@@ -703,10 +729,24 @@ async fn install_tool(
         )));
     };
 
+    let mut command = TokioCommand::new(if cfg!(windows) { "powershell" } else { "sh" });
+    if cfg!(windows) {
+        command.args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ]);
+    } else {
+        command.args(["-lc", &script]);
+    }
+
     let output = timeout(
         Duration::from_secs(15 * 60),
-        TokioCommand::new("sh")
-            .args(["-lc", &script])
+        command
             .env("CI", "1")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
