@@ -31,7 +31,7 @@ use db::models::{
     requests::{CreateAndStartWorkspaceRequest, LinkedIssueInfo, WorkspaceRepoInput},
     scratch::{Scratch, ScratchPayload, ScratchType, UpdateScratch, WorkspaceChatConfigData},
     session::{CreateSession, Session},
-    workspace::Workspace,
+    workspace::{Workspace, WorkspaceKind},
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
@@ -114,6 +114,34 @@ pub struct MobileWorkspaceRequest {
     pub pre_prompt: Option<String>,
     #[serde(default)]
     pub post_prompt: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CloudImportRequest {
+    #[serde(default)]
+    pub records: Vec<CloudImportRecord>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CloudImportRecord {
+    #[serde(alias = "entityType")]
+    pub entity_type: String,
+    #[serde(alias = "entityId")]
+    pub entity_id: String,
+    pub operation: String,
+    pub payload: Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct CloudIssueWorkspacePayload {
+    issue_id: Uuid,
+    workspace_id: Uuid,
+}
+
+#[derive(Debug, Serialize)]
+struct CloudImportSummary {
+    imported: usize,
+    skipped: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -924,6 +952,260 @@ async fn get_context_for(
     })))
 }
 
+/// Import the board portion of a Cloud snapshot into this instance's local
+/// SQLite database. Cloud IDE containers start with empty volumes, so pushing
+/// the local context to Cloud is not enough: the first authenticated startup
+/// must also materialize the account's projects, columns, cards and workspace
+/// links locally. Every write is an idempotent upsert keyed by the Cloud UUID.
+async fn import_cloud_context(
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<CloudImportRequest>,
+) -> Result<ResponseJson<ApiResponse<CloudImportSummary>>, ApiError> {
+    const MAX_RECORDS: usize = 5_000;
+    if request.records.len() > MAX_RECORDS {
+        return Err(ApiError::BadRequest(format!(
+            "Cloud snapshot contains more than {MAX_RECORDS} records"
+        )));
+    }
+
+    let mut projects = Vec::new();
+    let mut statuses = Vec::new();
+    let mut issues = Vec::new();
+    let mut workspaces = Vec::new();
+    let mut links = Vec::new();
+    let mut skipped = 0;
+
+    for record in request.records {
+        if record.operation != "upsert" {
+            skipped += 1;
+            continue;
+        }
+        let parsed = match record.entity_type.as_str() {
+            "project" => {
+                serde_json::from_value::<Project>(record.payload).map(|value| projects.push(value))
+            }
+            "status" => serde_json::from_value::<ProjectStatus>(record.payload)
+                .map(|value| statuses.push(value)),
+            "issue" => {
+                serde_json::from_value::<Issue>(record.payload).map(|value| issues.push(value))
+            }
+            "workspace" => serde_json::from_value::<Workspace>(record.payload)
+                .map(|value| workspaces.push(value)),
+            "issue_workspace" => {
+                serde_json::from_value::<CloudIssueWorkspacePayload>(record.payload)
+                    .map(|value| links.push(value))
+            }
+            _ => continue,
+        };
+        if parsed.is_err() {
+            tracing::warn!(
+                entity_type = %record.entity_type,
+                entity_id = %record.entity_id,
+                "skipping malformed Cloud snapshot record"
+            );
+            skipped += 1;
+        }
+    }
+
+    let pool = &deployment.db().pool;
+    let mut transaction = pool.begin().await?;
+
+    // Insert projects without parent_id first. A snapshot is sorted by update
+    // time, not by the project hierarchy, so setting the parent in a second
+    // pass avoids a foreign-key ordering failure.
+    for project in &projects {
+        sqlx::query(
+            r#"INSERT INTO projects (
+                    id, name, key, color, sort_order, parent_id,
+                    default_agent_working_dir, remote_project_id,
+                    orchestrator_prompt, archived, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    key = excluded.key,
+                    color = excluded.color,
+                    sort_order = excluded.sort_order,
+                    default_agent_working_dir = excluded.default_agent_working_dir,
+                    remote_project_id = excluded.remote_project_id,
+                    orchestrator_prompt = excluded.orchestrator_prompt,
+                    archived = excluded.archived,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at"#,
+        )
+        .bind(project.id)
+        .bind(&project.name)
+        .bind(&project.key)
+        .bind(&project.color)
+        .bind(project.sort_order)
+        .bind(&project.default_agent_working_dir)
+        .bind(project.remote_project_id)
+        .bind(&project.orchestrator_prompt)
+        .bind(project.archived)
+        .bind(project.created_at)
+        .bind(project.updated_at)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    for project in &projects {
+        if let Some(parent_id) = project.parent_id {
+            sqlx::query("UPDATE projects SET parent_id = ? WHERE id = ?")
+                .bind(parent_id)
+                .bind(project.id)
+                .execute(&mut *transaction)
+                .await?;
+        }
+    }
+
+    for status in &statuses {
+        sqlx::query(
+            r#"INSERT INTO project_statuses (
+                    id, project_id, name, color, sort_order, hidden,
+                    is_terminal, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    project_id = excluded.project_id,
+                    name = excluded.name,
+                    color = excluded.color,
+                    sort_order = excluded.sort_order,
+                    hidden = excluded.hidden,
+                    is_terminal = excluded.is_terminal,
+                    created_at = excluded.created_at"#,
+        )
+        .bind(status.id)
+        .bind(status.project_id)
+        .bind(&status.name)
+        .bind(&status.color)
+        .bind(status.sort_order)
+        .bind(status.hidden)
+        .bind(status.is_terminal)
+        .bind(status.created_at)
+        .execute(&mut *transaction)
+        .await?;
+    }
+
+    // As with projects, defer self-referencing issue parents until all cards
+    // are present. The status/project foreign keys are already available.
+    for issue in &issues {
+        let extension_metadata = serde_json::to_string(&issue.extension_metadata)
+            .map_err(|error| ApiError::BadRequest(error.to_string()))?;
+        sqlx::query(
+            r#"INSERT INTO issues (
+                    id, project_id, issue_number, simple_id, status_id, title,
+                    description, priority, start_date, target_date,
+                    completed_at, sort_order, parent_issue_id,
+                    parent_issue_sort_order, extension_metadata, archived,
+                    archived_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    project_id = excluded.project_id,
+                    issue_number = excluded.issue_number,
+                    simple_id = excluded.simple_id,
+                    status_id = excluded.status_id,
+                    title = excluded.title,
+                    description = excluded.description,
+                    priority = excluded.priority,
+                    start_date = excluded.start_date,
+                    target_date = excluded.target_date,
+                    completed_at = excluded.completed_at,
+                    sort_order = excluded.sort_order,
+                    parent_issue_sort_order = excluded.parent_issue_sort_order,
+                    extension_metadata = excluded.extension_metadata,
+                    archived = excluded.archived,
+                    archived_at = excluded.archived_at,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at"#,
+        )
+        .bind(issue.id)
+        .bind(issue.project_id)
+        .bind(issue.issue_number)
+        .bind(&issue.simple_id)
+        .bind(issue.status_id)
+        .bind(&issue.title)
+        .bind(&issue.description)
+        .bind(&issue.priority)
+        .bind(issue.start_date)
+        .bind(issue.target_date)
+        .bind(issue.completed_at)
+        .bind(issue.sort_order)
+        .bind(issue.parent_issue_sort_order)
+        .bind(extension_metadata)
+        .bind(issue.archived)
+        .bind(issue.archived_at)
+        .bind(issue.created_at)
+        .bind(issue.updated_at)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    for issue in &issues {
+        if let Some(parent_issue_id) = issue.parent_issue_id {
+            sqlx::query("UPDATE issues SET parent_issue_id = ? WHERE id = ?")
+                .bind(parent_issue_id)
+                .bind(issue.id)
+                .execute(&mut *transaction)
+                .await?;
+        }
+    }
+
+    for workspace in &workspaces {
+        let kind = workspace.kind.map(WorkspaceKind::as_sql_str);
+        sqlx::query(
+            r#"INSERT INTO workspaces (
+                    id, task_id, container_ref, branch, setup_completed_at,
+                    created_at, updated_at, archived, pinned, name,
+                    worktree_deleted, ephemeral, kind, current_pipeline_stage
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    container_ref = excluded.container_ref,
+                    branch = excluded.branch,
+                    setup_completed_at = excluded.setup_completed_at,
+                    created_at = excluded.created_at,
+                    updated_at = excluded.updated_at,
+                    archived = excluded.archived,
+                    pinned = excluded.pinned,
+                    name = excluded.name,
+                    worktree_deleted = excluded.worktree_deleted,
+                    ephemeral = excluded.ephemeral,
+                    kind = excluded.kind,
+                    current_pipeline_stage = excluded.current_pipeline_stage"#,
+        )
+        .bind(workspace.id)
+        .bind(workspace.task_id)
+        .bind(&workspace.container_ref)
+        .bind(&workspace.branch)
+        .bind(workspace.setup_completed_at)
+        .bind(workspace.created_at)
+        .bind(workspace.updated_at)
+        .bind(workspace.archived)
+        .bind(workspace.pinned)
+        .bind(&workspace.name)
+        .bind(workspace.worktree_deleted)
+        .bind(workspace.ephemeral)
+        .bind(kind)
+        .bind(workspace.current_pipeline_stage)
+        .execute(&mut *transaction)
+        .await?;
+    }
+
+    for link in &links {
+        sqlx::query(
+            r#"INSERT INTO issue_workspaces (id, issue_id, workspace_id)
+               VALUES (?, ?, ?)
+               ON CONFLICT(workspace_id) DO UPDATE SET issue_id = excluded.issue_id"#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(link.issue_id)
+        .bind(link.workspace_id)
+        .execute(&mut *transaction)
+        .await?;
+    }
+
+    transaction.commit().await?;
+    Ok(ResponseJson(ApiResponse::success(CloudImportSummary {
+        imported: projects.len() + statuses.len() + issues.len() + workspaces.len() + links.len(),
+        skipped,
+    })))
+}
+
 /// Dispatch a message received from Mobile through the local Desktop session.
 /// The local server remains the only component allowed to start an executor.
 pub async fn post_chat_command(
@@ -1416,6 +1698,7 @@ fn status_command(prompt: &str) -> Option<&'static str> {
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/mobile/context", get(get_context))
+        .route("/mobile/import-context", post(import_cloud_context))
         .route("/mobile/kanban", get(get_mobile_kanban))
         .route("/mobile/chat", post(post_chat_command))
         .route("/mobile/workspace", post(post_workspace_request))

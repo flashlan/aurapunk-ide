@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { SidebarBarButton } from '@vibe/ui/components/SidebarBarButton';
-import { useCloudUrl } from '@/shared/hooks/useAppMode';
+import { useCloudUrl, useIsCloudMode } from '@/shared/hooks/useAppMode';
 import {
   makeLocalApiRequest,
   openLocalApiWebSocket,
@@ -24,6 +24,7 @@ import { CloudMemoryDialog } from '@/shared/dialogs/auth/CloudMemoryDialog';
 export function CloudAuthActions() {
   const { t } = useTranslation('common');
   const cloudUrl = useCloudUrl();
+  const isCloudMode = useIsCloudMode();
   const [account, setAccount] = useState<CloudAccount | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -284,6 +285,82 @@ export function CloudAuthActions() {
     [cloudUrl]
   );
 
+  const syncCloudSnapshot = useCallback(
+    async (nextAccount: CloudAccount) => {
+      if (!nextAccount.accessToken) return;
+
+      try {
+        const response = await fetch(
+          `${cloudUrl.replace(/\/$/, '')}/api/sync?view=snapshot&exclude=workspace_context,chat,chat_command,job,executor_options,pipeline,instance`,
+          {
+            headers: {
+              Accept: 'application/json',
+              Authorization: `Bearer ${nextAccount.accessToken}`,
+            },
+            cache: 'no-store',
+          }
+        );
+        if (!response.ok) {
+          console.warn(
+            'AuraPunk Cloud snapshot pull failed',
+            response.status,
+            await response.text()
+          );
+          return;
+        }
+
+        const body = (await response.json()) as {
+          events?: Array<{
+            entityType?: string;
+            entityId?: string;
+            operation?: string;
+            payload?: unknown;
+          }>;
+        };
+        const records = (body.events ?? [])
+          .filter(
+            (event): event is Required<typeof event> =>
+              (event.entityType === 'project' ||
+                event.entityType === 'status' ||
+                event.entityType === 'issue' ||
+                event.entityType === 'workspace' ||
+                event.entityType === 'issue_workspace') &&
+              typeof event.entityId === 'string' &&
+              event.operation === 'upsert'
+          )
+          .map((event) => ({
+            entity_type: event.entityType,
+            entity_id: event.entityId,
+            operation: event.operation,
+            payload: event.payload ?? null,
+          }));
+        if (records.length === 0) return;
+
+        const localResponse = await makeLocalApiRequest(
+          '/api/mobile/import-context',
+          {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ records }),
+          }
+        );
+        if (!localResponse.ok) {
+          console.warn(
+            'AuraPunk Cloud snapshot import failed',
+            localResponse.status,
+            await localResponse.text()
+          );
+        }
+      } catch (error) {
+        console.warn('AuraPunk Cloud snapshot pull failed', error);
+      }
+    },
+    [cloudUrl]
+  );
+
   const syncCloudCommands = useCallback(
     async (nextAccount: CloudAccount, signal?: AbortSignal) => {
       if (!nextAccount.accessToken) return;
@@ -474,6 +551,50 @@ export function CloudAuthActions() {
         if ('__TAURI_INTERNALS__' in window) {
           saved = (await invoke<string | null>('read_cloud_account')) ?? saved;
         }
+
+        // A Cloud IDE is opened through a tenant subdomain with the Better
+        // Auth session cookie bridged by the launch redirect. Bootstrap the
+        // same device token used by Desktop so a fresh container does not
+        // wait for a second manual authorization or start disconnected.
+        if (!saved && isCloudMode) {
+          const response = await fetch(
+            `${cloudUrl.replace(/\/$/, '')}/api/cloud-ide/session`,
+            {
+              headers: { Accept: 'application/json' },
+              credentials: 'include',
+              cache: 'no-store',
+            }
+          );
+          if (response.ok) {
+            const body = (await response.json()) as {
+              account?: CloudAccount;
+            };
+            const cloudAccount = body.account;
+            if (cloudAccount?.accessToken && !cancelled) {
+              const nextAccount: CloudAccount = {
+                ...cloudAccount,
+                memoryPreference: 'cloud',
+              };
+              setAccount(nextAccount);
+              window.dispatchEvent(new Event('aurapunk-cloud-account-changed'));
+              await persistAccount(nextAccount);
+              await syncMem0Account(nextAccount);
+              await syncCloudSnapshot(nextAccount);
+              // The board/workspace streams are initialized while the app is
+              // mounting. Reload once after the first import so those streams
+              // see the materialized SQLite rows instead of their original
+              // empty snapshot. The persisted account prevents a reload loop.
+              window.location.reload();
+              return;
+            }
+          } else {
+            console.warn(
+              'AuraPunk Cloud IDE session bootstrap failed',
+              response.status
+            );
+          }
+        }
+
         if (!saved) return;
         const parsed = JSON.parse(saved) as CloudAccount;
         if (!cancelled && parsed.accessToken) {
@@ -495,6 +616,7 @@ export function CloudAuthActions() {
           window.dispatchEvent(new Event('aurapunk-cloud-account-changed'));
           void persistAccount(parsed);
           void offerCloudMemory(parsed);
+          if (isCloudMode) void syncCloudSnapshot(parsed);
           void syncCloudContext(parsed);
         }
       } catch {
@@ -506,9 +628,13 @@ export function CloudAuthActions() {
     };
   }, [
     clearPersistedAccount,
+    cloudUrl,
+    isCloudMode,
     offerCloudMemory,
     persistAccount,
     syncCloudContext,
+    syncCloudSnapshot,
+    syncMem0Account,
   ]);
 
   useEffect(() => {
