@@ -118,11 +118,13 @@ RUN mkdir -p /repos \
 USER appuser
 
 ENV HOST=0.0.0.0
-ENV PORT=3000
+ENV BACKEND_PORT=3002
+ENV PORT=3002
+ENV PREVIEW_PROXY_PORT=3003
 
-EXPOSE 3000
+EXPOSE 3002 3003
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD ["/bin/sh", "-c", "wget --spider -q http://127.0.0.1:${PORT:-3000}/health"]
+  CMD ["/bin/sh", "-c", "wget --spider -q http://127.0.0.1:${BACKEND_PORT:-${PORT:-3002}}/health"]
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/server"]
