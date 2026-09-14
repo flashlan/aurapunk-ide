@@ -18,11 +18,11 @@ import {
   BaseCodingAgent,
   EditorType,
   SoundFile,
-  ThemeMode,
+  type AvailabilityInfo,
   type EditorConfig,
 } from 'shared/types';
+import { configApi } from '@/shared/lib/api';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
-import { useTheme } from '@/shared/hooks/useTheme';
 import { AgentIcon, getAgentName } from '@/shared/components/AgentIcon';
 import { IdeIcon } from '@/shared/components/IdeIcon';
 import { getIdeName } from '@/shared/lib/ideName';
@@ -100,19 +100,13 @@ function randomDefaultSoundFile(): SoundFile {
   return SOUND_OPTIONS[randomIndex]?.value ?? SoundFile.COW_MOOING;
 }
 
-function resolveTheme(theme: ThemeMode): 'light' | 'dark' {
-  if (theme === ThemeMode.SYSTEM) {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
-      ? 'dark'
-      : 'light';
-  }
-  return theme === ThemeMode.DARK ? 'dark' : 'light';
+function isAgentInstalled(info: AvailabilityInfo | undefined): boolean {
+  return info?.type === 'LOGIN_DETECTED' || info?.type === 'INSTALLATION_FOUND';
 }
 
 export function LandingPage() {
   const appNavigation = useAppNavigation();
-  const { theme } = useTheme();
-  const { config, profiles, updateAndSaveConfig, loading } = useUserSystem();
+  const { config, updateAndSaveConfig, loading } = useUserSystem();
 
   const [initialized, setInitialized] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -123,12 +117,68 @@ export function LandingPage() {
   const [customCommand, setCustomCommand] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [soundFile, setSoundFile] = useState<SoundFile>(randomDefaultSoundFile);
+  const [agentAvailability, setAgentAvailability] = useState<
+    Partial<Record<BaseCodingAgent, AvailabilityInfo>>
+  >({});
+  const [editorAvailability, setEditorAvailability] = useState<
+    Partial<Record<EditorType, boolean>>
+  >({});
+  const [availabilityReady, setAvailabilityReady] = useState(false);
   const hasRedirectedToRootRef = useRef(false);
 
-  const logoSrc =
-    resolveTheme(theme) === 'dark'
-      ? '/vibe-kanban-logo-dark.svg'
-      : '/vibe-kanban-logo.svg';
+  const logoSrc = '/aurapunk-ide-logo.png';
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refreshAvailability = async () => {
+      const agents = Object.values(BaseCodingAgent);
+      const editors = Object.values(EditorType).filter(
+        (editor) => editor !== EditorType.CUSTOM
+      );
+
+      const [agentResults, editorResults] = await Promise.all([
+        Promise.all(
+          agents.map(async (agent) => {
+            try {
+              return [
+                agent,
+                await configApi.checkAgentAvailability(agent),
+              ] as const;
+            } catch {
+              return [agent, undefined] as const;
+            }
+          })
+        ),
+        Promise.all(
+          editors.map(async (editor) => {
+            try {
+              const result = await configApi.checkEditorAvailability(editor);
+              return [editor, result.available] as const;
+            } catch {
+              return [editor, false] as const;
+            }
+          })
+        ),
+      ]);
+
+      if (cancelled) return;
+
+      setAgentAvailability(Object.fromEntries(agentResults));
+      setEditorAvailability(Object.fromEntries(editorResults));
+      setAvailabilityReady(true);
+    };
+
+    void refreshAvailability();
+    const interval = window.setInterval(() => {
+      void refreshAvailability();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     if (!config || initialized) return;
@@ -167,13 +217,46 @@ export function LandingPage() {
       return getAgentName(a).localeCompare(getAgentName(b));
     };
 
-    if (profiles) {
-      return (Object.keys(profiles) as BaseCodingAgent[]).sort(compareAgents);
-    }
-    return [...Object.values(BaseCodingAgent)].sort(compareAgents);
-  }, [profiles]);
+    return [...Object.values(BaseCodingAgent)]
+      .filter(
+        (agent) =>
+          !availabilityReady || isAgentInstalled(agentAvailability[agent])
+      )
+      .sort(compareAgents);
+  }, [agentAvailability, availabilityReady]);
 
-  const editorOptions = useMemo(() => Object.values(EditorType), []);
+  const editorOptions = useMemo(
+    () => [
+      ...Object.values(EditorType).filter(
+        (editor) =>
+          editor === EditorType.CUSTOM ||
+          !availabilityReady ||
+          editorAvailability[editor]
+      ),
+    ],
+    [availabilityReady, editorAvailability]
+  );
+
+  useEffect(() => {
+    if (!availabilityReady) return;
+
+    if (
+      executorOptions.length > 0 &&
+      !executorOptions.includes(selectedAgent)
+    ) {
+      setSelectedAgent(executorOptions[0]);
+    }
+
+    if (editorOptions.length > 0 && !editorOptions.includes(editorType)) {
+      setEditorType(editorOptions[0]);
+    }
+  }, [
+    availabilityReady,
+    editorOptions,
+    editorType,
+    executorOptions,
+    selectedAgent,
+  ]);
 
   const previewSound = async (value: SoundFile) => {
     try {
@@ -195,7 +278,10 @@ export function LandingPage() {
 
   const isCustomEditorValid =
     editorType !== EditorType.CUSTOM || customCommand.trim() !== '';
-  const canContinue = !saving && isCustomEditorValid;
+  const hasInstalledAgent = executorOptions.includes(selectedAgent);
+  const hasInstalledEditor = editorOptions.includes(editorType);
+  const canContinue =
+    !saving && isCustomEditorValid && hasInstalledAgent && hasInstalledEditor;
 
   const handleContinue = async () => {
     if (!config || !canContinue) return;
@@ -302,7 +388,12 @@ export function LandingPage() {
           <div className="grid grid-cols-3 gap-double">
             {/* Column 1: Coding Agent */}
             <section className="space-y-half">
-              <h2 className="text-sm font-medium text-high">Coding Agent</h2>
+              <div className="flex items-center justify-between gap-base">
+                <h2 className="text-sm font-medium text-high">Coding Agent</h2>
+                <span className="text-xs text-low">
+                  {availabilityReady ? 'Installed' : 'Detecting...'}
+                </span>
+              </div>
               <div className="grid gap-1.5">
                 {executorOptions.map((agent) => {
                   const selected = selectedAgent === agent;
@@ -335,12 +426,23 @@ export function LandingPage() {
                     </button>
                   );
                 })}
+                {availabilityReady && executorOptions.length === 0 && (
+                  <p className="rounded-sm border border-border bg-panel p-base text-xs text-low">
+                    No supported coding-agent CLI was detected. Install one and
+                    it will appear automatically.
+                  </p>
+                )}
               </div>
             </section>
 
             {/* Column 2: Code Editor */}
             <section className="space-y-half">
-              <h2 className="text-sm font-medium text-high">Code Editor</h2>
+              <div className="flex items-center justify-between gap-base">
+                <h2 className="text-sm font-medium text-high">Code Editor</h2>
+                <span className="text-xs text-low">
+                  {availabilityReady ? 'Installed' : 'Detecting...'}
+                </span>
+              </div>
               <div className="grid gap-1.5">
                 {editorOptions.map((editor) => {
                   const selected = editorType === editor;

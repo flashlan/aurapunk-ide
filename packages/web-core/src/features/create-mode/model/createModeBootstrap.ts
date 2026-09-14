@@ -82,9 +82,7 @@ export async function resolveBootstrapRepos(
         // useCreateModeState.ts skips re-deriving a branch (it only fills in
         // repo-less drafts), so an empty string here would stick forever —
         targetBranch:
-          preferredRepo.target_branch ||
-          repo.default_target_branch ||
-          'main',
+          preferredRepo.target_branch || repo.default_target_branch || 'main',
       },
     ];
   });

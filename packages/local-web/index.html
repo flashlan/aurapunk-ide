@@ -53,26 +53,6 @@
         50% { opacity: 0.92; transform: scale(1.03); }
       }
     </style>
-    <script>
-      // Apply the persisted theme variant ("skin") before first paint to avoid
-      // a flash of the default theme. Mirrors applyThemeVariant() in
-      // shared/lib/themeVariant.ts; the React effect keeps it in sync after.
-      (function () {
-        try {
-          var v = localStorage.getItem('vk-theme-variant');
-          if (v && v !== 'default') {
-            document.documentElement.dataset.themeVariant = v;
-            var link = document.createElement('link');
-            link.id = 'vk-theme-variant';
-            link.rel = 'stylesheet';
-            link.href = '/themes/' + v + '.css';
-            document.head.appendChild(link);
-          }
-        } catch (e) {
-          /* localStorage may be unavailable */
-        }
-      })();
-    </script>
 </head>
 
 <body>
@@ -122,17 +102,11 @@
           }, 320);
         }
         window.__vkHideStartupBanner = hideVkStartupBanner;
-        // Fallback: hide after 2.5s if React fails to mount
-        setTimeout(hideVkStartupBanner, 2500);
-        // Also hide once React root has children
-        var obs = new MutationObserver(function () {
-          var root = document.getElementById('root');
-          if (root && root.children.length > 0) {
-            hideVkStartupBanner();
-            obs.disconnect();
-          }
-        });
-        obs.observe(document.documentElement, { childList: true, subtree: true });
+        // Keep the banner through backend startup/config hydration. The
+        // mounted root can still be a loading placeholder, so React signals
+        // readiness explicitly from the root route. This timeout is only a
+        // last-resort escape if the app cannot mount at all.
+        setTimeout(hideVkStartupBanner, 30000);
       })();
     </script>
     <script type="module" src="/src/app/entry/Bootstrap.tsx"></script>

@@ -49,10 +49,3 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </React.StrictMode>
 );
-
-// Hide the startup banner immediately after React paints
-requestAnimationFrame(() => {
-  (
-    window as unknown as { __vkHideStartupBanner?: () => void }
-  ).__vkHideStartupBanner?.();
-});

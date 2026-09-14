@@ -288,7 +288,13 @@ async fn run_session_inner(
         })
         .await?;
 
-    let model = config.model.as_deref().and_then(parse_model);
+    let model = resolve_prompt_model(
+        &client,
+        &config.base_url,
+        &config.directory,
+        config.model.as_deref(),
+    )
+    .await;
 
     let (control_tx, mut control_rx) = mpsc::unbounded_channel::<ControlEvent>();
     let pending_approvals = PendingApprovals::new();
@@ -1074,18 +1080,6 @@ pub(super) async fn send_abort(
     .await;
 }
 
-fn parse_model(model: &str) -> Option<ModelSpec> {
-    let (provider_id, model_id) = match model.split_once('/') {
-        Some((provider, rest)) => (provider.to_string(), rest.to_string()),
-        None => (model.to_string(), String::new()),
-    };
-
-    Some(ModelSpec {
-        provider_id,
-        model_id,
-    })
-}
-
 fn parse_model_strict(model: &str) -> Option<ModelSpec> {
     let (provider_id, model_id) = model.split_once('/')?;
     let model_id = model_id.trim();
@@ -1098,18 +1092,101 @@ fn parse_model_strict(model: &str) -> Option<ModelSpec> {
     })
 }
 
+pub(super) async fn resolve_prompt_model(
+    client: &reqwest::Client,
+    base_url: &str,
+    directory: &str,
+    requested_model: Option<&str>,
+) -> Option<ModelSpec> {
+    let raw = requested_model?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    // Attempt to query OpenCode configured providers to resolve accurately
+    if let Ok(providers) = list_config_providers(client, base_url, directory).await {
+        // 1. Direct match: If raw begins with "provider_id/" where provider_id is a known provider
+        for provider in &providers.providers {
+            if let Some(rest) = raw.strip_prefix(&format!("{}/", provider.id)) {
+                let model_id = rest.trim();
+                if !model_id.is_empty() {
+                    return Some(ModelSpec {
+                        provider_id: provider.id.clone(),
+                        model_id: model_id.to_string(),
+                    });
+                }
+            }
+        }
+
+        // 2. Exact match against model IDs across all providers
+        for provider in &providers.providers {
+            for (model_id, _info) in &provider.models {
+                if model_id.eq_ignore_ascii_case(raw) {
+                    return Some(ModelSpec {
+                        provider_id: provider.id.clone(),
+                        model_id: model_id.clone(),
+                    });
+                }
+            }
+        }
+
+        // 3. Suffix match: e.g. raw is "gpt-5.6-sol" and provider model is "openai/gpt-5.6-sol"
+        for provider in &providers.providers {
+            for (model_id, _info) in &provider.models {
+                if model_id.ends_with(&format!("/{raw}")) || raw.ends_with(&format!("/{model_id}"))
+                {
+                    return Some(ModelSpec {
+                        provider_id: provider.id.clone(),
+                        model_id: model_id.clone(),
+                    });
+                }
+            }
+        }
+
+        // 4. Match against model display names or fuzzy case-insensitive substring
+        for provider in &providers.providers {
+            for (model_id, info) in &provider.models {
+                if info.name.eq_ignore_ascii_case(raw)
+                    || info
+                        .name
+                        .to_ascii_lowercase()
+                        .contains(&raw.to_ascii_lowercase())
+                {
+                    return Some(ModelSpec {
+                        provider_id: provider.id.clone(),
+                        model_id: model_id.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    // 5. Fallback: parse strictly if formatted as provider/model
+    if let Some(model) = parse_model_strict(raw) {
+        return Some(model);
+    }
+
+    tracing::warn!(
+        target: "opencode",
+        "Could not resolve model '{raw}' to an available OpenCode provider; falling back to default model"
+    );
+    None
+}
+
 pub(super) async fn resolve_compaction_model(
     client: &reqwest::Client,
     base_url: &str,
     directory: &str,
     configured_model: Option<&str>,
 ) -> Result<ModelSpec, ExecutorError> {
-    if let Some(model) = configured_model.and_then(parse_model_strict) {
+    if let Some(model) = resolve_prompt_model(client, base_url, directory, configured_model).await {
         return Ok(model);
     }
 
     let config = config_get(client, base_url, directory).await?;
-    if let Some(model) = config.model.as_deref().and_then(parse_model_strict) {
+    if let Some(model) =
+        resolve_prompt_model(client, base_url, directory, config.model.as_deref()).await
+    {
         return Ok(model);
     }
 

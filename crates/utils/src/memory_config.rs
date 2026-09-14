@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 pub const DEFAULT_LOCAL_MEM0_URL: &str = "http://localhost:8000";
 pub const DEFAULT_CLOUD_MEM0_URL: &str = "http://192.168.1.168:8000";
 pub const DEFAULT_MEM0_PLATFORM_URL: &str = "https://api.mem0.ai";
+pub const DEFAULT_AURAPUNK_CLOUD_MEM0_URL: &str = "https://aurapunk.dev/api/memory/v1";
 pub const DEFAULT_EMBEDDING_DIMENSIONS: u32 = 384;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -158,6 +159,22 @@ pub fn load() -> MemoryConfig {
         config.embedding_dimensions = value;
     }
 
+    // Older packaged builds saved the hosted choice as Mem0 Platform without
+    // an explicit URL. In the AuraPunk Cloud client that legacy default would
+    // silently point at api.mem0.ai and could never use the account gateway.
+    // Normalize only that unambiguous shape; an explicit Platform URL remains
+    // an operator choice and is left untouched.
+    if config.source == "cloud"
+        && config.adapter == MemoryAdapter::Mem0Platform
+        && config.mem0_url.is_none()
+        && env::var("VIBE_KANBAN_MODE")
+            .map(|value| value.trim().eq_ignore_ascii_case("cloud"))
+            .unwrap_or(false)
+    {
+        config.adapter = MemoryAdapter::Mem0Vk;
+        config.mem0_url = Some(DEFAULT_AURAPUNK_CLOUD_MEM0_URL.to_string());
+    }
+
     config
 }
 
@@ -191,15 +208,19 @@ impl MemoryConfig {
         match self.adapter {
             MemoryAdapter::Mem0Platform => DEFAULT_MEM0_PLATFORM_URL.to_string(),
             MemoryAdapter::Mem0Vk => {
-                let source_url = if self.source == "cloud" {
-                    self.cloud_url.as_deref()
+                if self.source == "cloud" {
+                    self.cloud_url
+                        .as_deref()
+                        .filter(|url| !url.trim().is_empty())
+                        .unwrap_or(DEFAULT_CLOUD_MEM0_URL)
+                        .to_string()
                 } else {
-                    self.local_url.as_deref()
-                };
-                source_url
-                    .filter(|url| !url.trim().is_empty())
-                    .unwrap_or(DEFAULT_LOCAL_MEM0_URL)
-                    .to_string()
+                    self.local_url
+                        .as_deref()
+                        .filter(|url| !url.trim().is_empty())
+                        .unwrap_or(DEFAULT_LOCAL_MEM0_URL)
+                        .to_string()
+                }
             }
         }
     }
@@ -255,6 +276,17 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(config.active_url(), DEFAULT_MEM0_PLATFORM_URL);
+    }
+
+    #[test]
+    fn aura_punk_cloud_gateway_is_the_packaged_cloud_default() {
+        let config = MemoryConfig {
+            adapter: MemoryAdapter::Mem0Vk,
+            source: "cloud".to_string(),
+            mem0_url: Some(DEFAULT_AURAPUNK_CLOUD_MEM0_URL.to_string()),
+            ..Default::default()
+        };
+        assert_eq!(config.active_url(), DEFAULT_AURAPUNK_CLOUD_MEM0_URL);
     }
 
     #[test]

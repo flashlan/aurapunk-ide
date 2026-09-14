@@ -177,7 +177,33 @@ kanban_project_view_preferences: { [key in string]?: JsonValue },
  * When true, cards auto-move between columns on workspace create / pipeline done / merge.
  * True by default; disabled via Settings → General toggle.
  */
-auto_move_cards_enabled: boolean, };
+auto_move_cards_enabled: boolean, 
+/**
+ * Persisted UI font family. Optional for backwards compatibility with
+ * scratch records created before appearance preferences were server-side.
+ */
+ui_font_family: string | null, 
+/**
+ * Persisted code/terminal font family.
+ */
+code_font_family: string | null, 
+/**
+ * Persisted UI scale preference.
+ */
+ui_font_scale: string | null, 
+/**
+ * Persisted code/diff font size.
+ */
+code_font_size: number | null, 
+/**
+ * Whether the custom palette is enabled.
+ */
+custom_theme_enabled: boolean | null, 
+/**
+ * Custom palette payload. Kept as JSON so the web appearance model can
+ * evolve without a database migration for every new color token.
+ */
+custom_theme: JsonValue | null, };
 
 export type ProjectRepoDefaultsData = { repos: Array<DraftWorkspaceRepo>, };
 

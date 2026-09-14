@@ -50,6 +50,11 @@ impl<T, E> ApiResponse<T, E> {
         self.success
     }
 
+    /// Returns a reference to the data payload if present.
+    pub fn data(&self) -> Option<&T> {
+        self.data.as_ref()
+    }
+
     /// Returns a reference to the error message if present.
     pub fn message(&self) -> Option<&str> {
         self.message.as_deref()

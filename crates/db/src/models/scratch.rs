@@ -69,6 +69,24 @@ pub struct WorkspaceNotesData {
     pub content: String,
 }
 
+/// Default chat overrides per workspace (executor/model/effort/agent/
+/// permission/preset), saved by web or Mobile and applied to follow-ups.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+pub struct WorkspaceChatConfigData {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
+}
+
 /// Workspace-specific panel state
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct WorkspacePanelStateData {
@@ -181,6 +199,26 @@ pub struct UiPreferencesData {
     /// True by default; disabled via Settings → General toggle.
     #[serde(default = "default_auto_move_cards_enabled")]
     pub auto_move_cards_enabled: bool,
+    /// Persisted UI font family. Optional for backwards compatibility with
+    /// scratch records created before appearance preferences were server-side.
+    #[serde(default)]
+    pub ui_font_family: Option<String>,
+    /// Persisted code/terminal font family.
+    #[serde(default)]
+    pub code_font_family: Option<String>,
+    /// Persisted UI scale preference.
+    #[serde(default)]
+    pub ui_font_scale: Option<String>,
+    /// Persisted code/diff font size.
+    #[serde(default)]
+    pub code_font_size: Option<u32>,
+    /// Whether the custom palette is enabled.
+    #[serde(default)]
+    pub custom_theme_enabled: Option<bool>,
+    /// Custom palette payload. Kept as JSON so the web appearance model can
+    /// evolve without a database migration for every new color token.
+    #[serde(default)]
+    pub custom_theme: Option<serde_json::Value>,
 }
 
 /// Linked issue data for draft workspace scratch
@@ -271,6 +309,7 @@ pub enum ScratchPayload {
     WorkspaceNotes(WorkspaceNotesData),
     UiPreferences(UiPreferencesData),
     ProjectRepoDefaults(ProjectRepoDefaultsData),
+    WorkspaceChatConfig(WorkspaceChatConfigData),
 }
 
 impl ScratchPayload {

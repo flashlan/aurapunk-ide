@@ -46,6 +46,17 @@ pub async fn get_workspace(
     Ok(ResponseJson(ApiResponse::success(workspace)))
 }
 
+/// Default chat config do workspace (salva pelo app/Mobile): o frontend usa
+/// como padrão do seletor quando o usuário não escolheu nada.
+pub async fn get_chat_config(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<db::models::scratch::WorkspaceChatConfigData>>, ApiError> {
+    let config =
+        crate::routes::mobile_sync::read_chat_config(&deployment.db().pool, workspace.id).await?;
+    Ok(ResponseJson(ApiResponse::success(config)))
+}
+
 /// Open (creating if needed) a persistent workspace-level tmux session in the
 /// user's configured terminal emulator, so the workspace's working directory
 /// pops up in a real terminal window.

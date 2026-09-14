@@ -2,7 +2,13 @@
 //! sync path. The local server never trusts a browser-supplied account id for
 //! authorization and remains the only component allowed to start an executor.
 
-use api_types::UpdateIssueRequest;
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use api_types::{CreateIssueRequest, IssuePriority, UpdateIssueRequest};
 use axum::{
     Json, Router,
     extract::{Path, State, ws::Message},
@@ -17,22 +23,28 @@ use db::models::{
     file::WorkspaceAttachment,
     issue::Issue,
     issue_workspace::IssueWorkspace,
+    kanban_tag::{IssueTag as DbIssueTag, KanbanTag},
     project::Project,
     project_repo::ProjectRepo,
     project_status::ProjectStatus,
     repo::Repo,
     requests::{CreateAndStartWorkspaceRequest, LinkedIssueInfo, WorkspaceRepoInput},
-    scratch::{Scratch, ScratchPayload, ScratchType},
+    scratch::{Scratch, ScratchPayload, ScratchType, UpdateScratch, WorkspaceChatConfigData},
     session::{CreateSession, Session},
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
 use executors::model_selector::PermissionPolicy;
-use executors::{executors::BaseCodingAgent, profile::ExecutorConfig};
+use executors::{
+    executors::BaseCodingAgent,
+    profile::{ExecutorConfig, ExecutorConfigs},
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use services::services::pipelines::load_pipelines;
 use sqlx::Row;
+use utils::path::pipelines_dir;
 use utils::response::ApiResponse;
 use uuid::Uuid;
 
@@ -84,6 +96,541 @@ pub struct MobileChatAttachment {
 pub struct MobileWorkspaceRequest {
     pub issue_id: Uuid,
     pub executor: Option<String>,
+    #[serde(default)]
+    pub model_id: Option<String>,
+    #[serde(default)]
+    pub reasoning_id: Option<String>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub permission_policy: Option<PermissionPolicy>,
+    #[serde(default)]
+    pub prompt: Option<String>,
+    #[serde(default)]
+    pub pipeline_id: Option<String>,
+    #[serde(default)]
+    pub pipeline_stage_ids: Vec<String>,
+    #[serde(default)]
+    pub pre_prompt: Option<String>,
+    #[serde(default)]
+    pub post_prompt: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LocalPairingInviteRequest {
+    /// LAN-reachable base URLs, for example Wi-Fi, Ethernet, or WireGuard
+    /// addresses. The Desktop detects these before creating the invite.
+    #[serde(default)]
+    pub endpoints: Vec<String>,
+    /// Kept for compatibility with older Desktop clients that sent one URL.
+    #[serde(default)]
+    pub endpoint: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalPairingInviteResponse {
+    pub pairing_url: String,
+    pub invite_id: Uuid,
+    pub instance_id: String,
+    pub endpoint: String,
+    pub endpoints: Vec<String>,
+    pub expires_at: u64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LocalPairingClaimRequest {
+    pub invite_id: Uuid,
+    pub secret: String,
+    /// The endpoint that successfully reached this Desktop. This lets the
+    /// response preserve the working Wi-Fi/LAN/WireGuard route when the QR
+    /// contains more than one candidate.
+    #[serde(default)]
+    pub endpoint: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LocalPairingClaimResponse {
+    pub instance_id: String,
+    pub name: String,
+    pub endpoint: String,
+    pub direct_token: String,
+    pub transport: &'static str,
+}
+
+#[derive(Debug, Clone)]
+struct LocalPairingInvite {
+    secret: String,
+    instance_id: String,
+    endpoints: Vec<String>,
+    expires_at: u64,
+}
+
+static LOCAL_PAIRING_INVITES: OnceLock<Mutex<HashMap<Uuid, LocalPairingInvite>>> = OnceLock::new();
+
+fn local_pairing_invites() -> &'static Mutex<HashMap<Uuid, LocalPairingInvite>> {
+    LOCAL_PAIRING_INVITES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn now_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default()
+}
+
+static BOARD_EVENTS: OnceLock<tokio::sync::broadcast::Sender<String>> = OnceLock::new();
+
+fn board_events() -> &'static tokio::sync::broadcast::Sender<String> {
+    BOARD_EVENTS.get_or_init(|| {
+        let (tx, _) = tokio::sync::broadcast::channel(256);
+        tx
+    })
+}
+
+pub fn broadcast_board_event(event: Value) {
+    if let Ok(json_str) = serde_json::to_string(&event) {
+        let _ = board_events().send(json_str);
+    }
+}
+
+fn parse_rules_pre_post(raw: &str) -> (String, String) {
+    const PRE_START: &str = "<!-- vk:rules:pre:start -->";
+    const PRE_END: &str = "<!-- vk:rules:pre:end -->";
+    const POST_START: &str = "<!-- vk:rules:post:start -->";
+    const POST_END: &str = "<!-- vk:rules:post:end -->";
+
+    let mut pre = String::new();
+    let mut post = String::new();
+
+    if let (Some(pre_s), Some(pre_e)) = (raw.find(PRE_START), raw.find(PRE_END))
+        && pre_s + PRE_START.len() <= pre_e
+    {
+        pre = raw[pre_s + PRE_START.len()..pre_e].trim().to_string();
+    }
+
+    if let (Some(post_s), Some(post_e)) = (raw.find(POST_START), raw.find(POST_END))
+        && post_s + POST_START.len() <= post_e
+    {
+        post = raw[post_s + POST_START.len()..post_e].trim().to_string();
+    }
+
+    if pre.is_empty() && post.is_empty() && !raw.trim().is_empty() {
+        pre = raw.trim().to_string();
+    }
+
+    (pre, post)
+}
+
+/// Ultra-fast batch fetch for the Kanban board and mobile cockpit.
+/// Avoids N+1 queries across sessions/execution processes/turns and
+/// packages pipelines, pre/post prompt rules, and available models.
+pub async fn get_kanban_context(
+    deployment: &DeploymentImpl,
+) -> Result<ResponseJson<ApiResponse<MobileContextResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let mut records = Vec::new();
+
+    // 1. Instance descriptor
+    let node = instance::describe(deployment);
+    records.push(MobileSyncRecord {
+        entity_type: "instance",
+        entity_id: node.instance_id.clone(),
+        operation: "upsert",
+        payload: serde_json::to_value(node)
+            .map_err(|error| ApiError::BadRequest(error.to_string()))?,
+    });
+
+    // 2. Pipelines catalog
+    for pipeline in load_pipelines(&pipelines_dir()) {
+        records.push(MobileSyncRecord {
+            entity_type: "pipeline",
+            entity_id: pipeline.id.clone(),
+            operation: "upsert",
+            payload: serde_json::json!({
+                "id": pipeline.id,
+                "name": pipeline.name,
+                "description": pipeline.description,
+                "stages": pipeline.stages.iter().map(|stage| serde_json::json!({
+                    "id": stage.id,
+                    "label": stage.label,
+                    "default_enabled": stage.default_enabled,
+                    "prompt_fragment": stage.prompt_fragment,
+                })).collect::<Vec<_>>(),
+            }),
+        });
+    }
+
+    // 3. Executor & model options catalog
+    let (global_pre, global_post) = {
+        let config = deployment.config().read().await;
+        (
+            config.general_rules_pre.clone().unwrap_or_default(),
+            config.general_rules_post.clone().unwrap_or_default(),
+        )
+    };
+
+    let executors_catalog = vec![
+        (
+            "CODEX",
+            BaseCodingAgent::Codex,
+            vec![
+                ("gpt-4o", "GPT-4o", "OpenAI"),
+                ("gpt-4.5-preview", "GPT-4.5 Preview", "OpenAI"),
+                ("o1", "o1 (Reasoning)", "OpenAI"),
+                ("o3-mini", "o3-mini", "OpenAI"),
+            ],
+        ),
+        (
+            "CLAUDE_CODE",
+            BaseCodingAgent::ClaudeCode,
+            vec![
+                (
+                    "claude-3-7-sonnet",
+                    "Claude 3.7 Sonnet (Hybrid)",
+                    "Anthropic",
+                ),
+                ("claude-3-5-sonnet", "Claude 3.5 Sonnet", "Anthropic"),
+                ("claude-3-5-haiku", "Claude 3.5 Haiku", "Anthropic"),
+            ],
+        ),
+        (
+            "GEMINI",
+            BaseCodingAgent::Gemini,
+            vec![
+                ("gemini-2.5-pro", "Gemini 2.5 Pro", "Google"),
+                ("gemini-2.5-flash", "Gemini 2.5 Flash", "Google"),
+                ("gemini-2.0-pro-exp", "Gemini 2.0 Pro Exp", "Google"),
+                ("gemini-2.0-flash", "Gemini 2.0 Flash", "Google"),
+            ],
+        ),
+        (
+            "OPENCODE",
+            BaseCodingAgent::Opencode,
+            vec![
+                ("deepseek-r1", "DeepSeek R1", "DeepSeek"),
+                ("deepseek-v3", "DeepSeek V3", "DeepSeek"),
+                ("qwen-2.5-coder-32b", "Qwen 2.5 Coder 32B", "Alibaba"),
+                ("llama-3.3-70b", "Llama 3.3 70B", "Meta"),
+            ],
+        ),
+        (
+            "ANTIGRAVITY",
+            BaseCodingAgent::Antigravity,
+            vec![
+                ("gemini-2.5-pro", "Gemini 2.5 Pro (Thinking)", "Google"),
+                ("gemini-2.5-flash", "Gemini 2.5 Flash", "Google"),
+                ("claude-3-7-sonnet", "Claude 3.7 Sonnet", "Anthropic"),
+            ],
+        ),
+        (
+            "AMP",
+            BaseCodingAgent::Amp,
+            vec![("amp-default", "AMP Agent Default", "AMP")],
+        ),
+    ];
+
+    for (exec_id, agent_kind, fallback_models) in executors_catalog {
+        // Full discovered selector (models + reasoning, providers, agent
+        // modes, permissions, default model) so mobile can render the same
+        // CLI -> provider -> model -> effort hierarchy as Desktop.
+        let selector =
+            crate::routes::config::discover_selector_for_agent(deployment, agent_kind).await;
+        // Preset variants (DEFAULT, PLAN, ...) registered for this executor.
+        let presets: Vec<String> = ExecutorConfigs::get_cached()
+            .executors
+            .get(&agent_kind)
+            .map(|profile| {
+                let mut keys: Vec<String> = profile.configurations.keys().cloned().collect();
+                keys.sort();
+                keys
+            })
+            .unwrap_or_default();
+
+        let (models_json, providers_json, agents_json, permissions_json, default_model_json) =
+            match selector.filter(|s| {
+                !s.model_selector.models.is_empty()
+                    || !s.model_selector.agents.is_empty()
+                    || !s.model_selector.providers.is_empty()
+            }) {
+                Some(opts) => {
+                    let models: Vec<Value> = opts
+                        .model_selector
+                        .models
+                        .into_iter()
+                        .map(|m| {
+                            serde_json::json!({
+                                "id": m.id,
+                                "name": m.name,
+                                "provider": m.provider_id.unwrap_or_else(|| "Default".to_string()),
+                                "reasoning_options": m.reasoning_options.iter().map(|r| serde_json::json!({
+                                    "id": r.id,
+                                    "label": r.label,
+                                    "is_default": r.is_default,
+                                })).collect::<Vec<_>>(),
+                            })
+                        })
+                        .collect();
+                    (
+                        models,
+                        serde_json::to_value(&opts.model_selector.providers)
+                            .unwrap_or(Value::Array(vec![])),
+                        serde_json::to_value(&opts.model_selector.agents)
+                            .unwrap_or(Value::Array(vec![])),
+                        serde_json::to_value(&opts.model_selector.permissions)
+                            .unwrap_or(Value::Array(vec![])),
+                        opts.model_selector
+                            .default_model
+                            .map(Value::String)
+                            .unwrap_or(Value::Null),
+                    )
+                }
+                None => (
+                    fallback_models
+                        .into_iter()
+                        .map(|(mid, mname, mprov)| {
+                            serde_json::json!({
+                                "id": mid,
+                                "name": mname,
+                                "provider": mprov,
+                                "reasoning_options": [],
+                            })
+                        })
+                        .collect(),
+                    Value::Array(vec![]),
+                    Value::Array(vec![]),
+                    Value::Array(vec![]),
+                    Value::Null,
+                ),
+            };
+
+        records.push(MobileSyncRecord {
+            entity_type: "executor_options",
+            entity_id: exec_id.to_string(),
+            operation: "upsert",
+            payload: serde_json::json!({
+                "executor": exec_id,
+                "models": models_json,
+                "providers": providers_json,
+                "agents": agents_json,
+                "permissions": permissions_json,
+                "default_model": default_model_json,
+                "presets": presets,
+            }),
+        });
+    }
+
+    // 4. Batch query projects and their pre/post prompt rules
+    let projects = Project::find_all(pool).await?;
+    for project in &projects {
+        let (pre, post) = parse_rules_pre_post(&project.orchestrator_prompt);
+        let eff_pre = if pre.is_empty() {
+            global_pre.clone()
+        } else {
+            pre
+        };
+        let eff_post = if post.is_empty() {
+            global_post.clone()
+        } else {
+            post
+        };
+
+        records.push(MobileSyncRecord {
+            entity_type: "project",
+            entity_id: project.id.to_string(),
+            operation: "upsert",
+            payload: serde_json::json!({
+                "id": project.id,
+                "name": project.name,
+                "color": project.color,
+                "pre_prompt": eff_pre,
+                "post_prompt": eff_post,
+            }),
+        });
+
+        records.push(MobileSyncRecord {
+            entity_type: "project_rules",
+            entity_id: project.id.to_string(),
+            operation: "upsert",
+            payload: serde_json::json!({
+                "project_id": project.id,
+                "pre_prompt": eff_pre,
+                "post_prompt": eff_post,
+                "global_pre_prompt": global_pre,
+                "global_post_prompt": global_post,
+            }),
+        });
+
+        // 4b. Project tags and card<->tag links for the mobile create-card dialog.
+        for tag in KanbanTag::list_by_project(pool, project.id).await? {
+            records.push(MobileSyncRecord {
+                entity_type: "tag",
+                entity_id: tag.id.to_string(),
+                operation: "upsert",
+                payload: serde_json::json!({
+                    "id": tag.id,
+                    "project_id": tag.project_id,
+                    "name": tag.name,
+                    "color": tag.color,
+                }),
+            });
+        }
+        for link in DbIssueTag::list_by_project(pool, project.id).await? {
+            records.push(MobileSyncRecord {
+                entity_type: "issue_tag",
+                entity_id: link.id.to_string(),
+                operation: "upsert",
+                payload: serde_json::json!({
+                    "id": link.id,
+                    "issue_id": link.issue_id,
+                    "tag_id": link.tag_id,
+                }),
+            });
+        }
+    }
+
+    // 5. Batch query project statuses in single SQL call
+    let status_rows = sqlx::query(
+        r#"SELECT id, project_id, name, color, sort_order, hidden, is_terminal
+           FROM project_statuses
+           WHERE COALESCE(hidden, 0) = 0
+           ORDER BY sort_order ASC"#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    for row in status_rows {
+        let id: Uuid = row.try_get("id")?;
+        let project_id: Uuid = row.try_get("project_id")?;
+        let name: String = row.try_get("name")?;
+        let color: String = row.try_get("color")?;
+        let sort_order: i64 = row
+            .try_get::<i64, _>("sort_order")
+            .or_else(|_| row.try_get::<f64, _>("sort_order").map(|v| v as i64))
+            .unwrap_or(0);
+        let hidden: bool = row
+            .try_get::<bool, _>("hidden")
+            .or_else(|_| row.try_get::<i64, _>("hidden").map(|v| v != 0))
+            .unwrap_or(false);
+        let is_terminal: bool = row
+            .try_get::<bool, _>("is_terminal")
+            .or_else(|_| row.try_get::<i64, _>("is_terminal").map(|v| v != 0))
+            .unwrap_or(false);
+
+        records.push(MobileSyncRecord {
+            entity_type: "status",
+            entity_id: id.to_string(),
+            operation: "upsert",
+            payload: serde_json::json!({
+                "id": id,
+                "project_id": project_id,
+                "name": name,
+                "color": color,
+                "sort_order": sort_order,
+                "hidden": hidden,
+                "is_terminal": is_terminal,
+            }),
+        });
+    }
+
+    // 6. Batch query issue_workspace links
+    let issue_workspace_links = IssueWorkspace::list_linked_all(pool).await?;
+
+    // 7. Batch query active issues in single SQL call
+    let issue_rows = sqlx::query(
+        r#"SELECT id, project_id, status_id, simple_id, title, description, priority, sort_order
+           FROM issues
+           WHERE COALESCE(archived, 0) = 0
+           ORDER BY sort_order ASC"#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    for row in issue_rows {
+        let id: Uuid = row.try_get("id")?;
+        let project_id: Uuid = row.try_get("project_id")?;
+        let status_id: Uuid = row.try_get("status_id")?;
+        let simple_id: String = row.try_get("simple_id")?;
+        let title: String = row.try_get("title")?;
+        let description: Option<String> = row.try_get("description")?;
+        let priority: Option<String> = row.try_get("priority")?;
+        let sort_order: f64 = row
+            .try_get::<f64, _>("sort_order")
+            .or_else(|_| row.try_get::<i64, _>("sort_order").map(|v| v as f64))
+            .unwrap_or(0.0);
+
+        let ws_link = issue_workspace_links.iter().find(|l| l.issue_id == id);
+
+        records.push(MobileSyncRecord {
+            entity_type: "issue",
+            entity_id: id.to_string(),
+            operation: "upsert",
+            payload: serde_json::json!({
+                "id": id,
+                "project_id": project_id,
+                "status_id": status_id,
+                "simple_id": simple_id,
+                "title": title,
+                "description": description,
+                "priority": priority,
+                "sort_order": sort_order,
+                "workspace_id": ws_link.map(|l| l.workspace_id),
+            }),
+        });
+    }
+
+    // 8. Add issue_workspace links to records
+    for link in &issue_workspace_links {
+        records.push(MobileSyncRecord {
+            entity_type: "issue_workspace",
+            entity_id: format!("{}:{}", link.issue_id, link.workspace_id),
+            operation: "upsert",
+            payload: serde_json::json!({
+                "issue_id": link.issue_id,
+                "workspace_id": link.workspace_id,
+                "project_id": link.project_id,
+            }),
+        });
+    }
+
+    // 9. Batch query active workspaces (lightweight summary only)
+    let workspace_rows = sqlx::query(
+        r#"SELECT w.id, w.name, w.branch,
+                  CASE WHEN EXISTS (
+                      SELECT 1 FROM sessions s
+                      JOIN execution_processes ep ON ep.session_id = s.id
+                      WHERE s.workspace_id = w.id AND ep.status = 'running'
+                      LIMIT 1
+                  ) THEN 1 ELSE 0 END AS is_running
+           FROM workspaces w
+           WHERE COALESCE(w.archived, 0) = 0 AND COALESCE(w.ephemeral, 0) = 0
+           ORDER BY w.updated_at DESC
+           LIMIT 50"#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    for row in workspace_rows {
+        let id: Uuid = row.try_get("id")?;
+        let name: Option<String> = row.try_get("name")?;
+        let branch: String = row.try_get("branch")?;
+        let is_running = row.try_get::<i64, _>("is_running").unwrap_or(0) == 1;
+
+        records.push(MobileSyncRecord {
+            entity_type: "workspace",
+            entity_id: id.to_string(),
+            operation: "upsert",
+            payload: serde_json::json!({
+                "id": id,
+                "name": name.unwrap_or_else(|| id.to_string()),
+                "branch": branch,
+                "is_running": is_running,
+            }),
+        });
+    }
+
+    Ok(ResponseJson(ApiResponse::success(MobileContextResponse {
+        records,
+    })))
 }
 
 /// Export the current local context in the same record shape accepted by the
@@ -110,6 +657,24 @@ async fn get_context_for(
         payload: serde_json::to_value(node)
             .map_err(|error| ApiError::BadRequest(error.to_string()))?,
     });
+    for pipeline in load_pipelines(&pipelines_dir()) {
+        records.push(MobileSyncRecord {
+            entity_type: "pipeline",
+            entity_id: pipeline.id.clone(),
+            operation: "upsert",
+            payload: serde_json::json!({
+                "id": pipeline.id,
+                "name": pipeline.name,
+                "description": pipeline.description,
+                "stages": pipeline.stages.iter().map(|stage| serde_json::json!({
+                    "id": stage.id,
+                    "label": stage.label,
+                    "default_enabled": stage.default_enabled,
+                    "prompt_fragment": stage.prompt_fragment,
+                })).collect::<Vec<_>>(),
+            }),
+        });
+    }
     let issue_workspace_links = IssueWorkspace::list_linked_all(pool).await?;
 
     for workspace in Workspace::find_all_with_status(pool, None, None).await? {
@@ -188,6 +753,41 @@ async fn get_context_for(
                 ScratchPayload::WorkspaceNotes(notes) => Some(notes.content),
                 _ => None,
             });
+        // Default chat config do workspace (executor/modelo/effort/...),
+        // salva pelo app ou Mobile e aplicada nos follow-ups.
+        let chat_config: Option<WorkspaceChatConfigData> =
+            Scratch::find_by_id(pool, workspace.id, &ScratchType::WorkspaceChatConfig)
+                .await?
+                .and_then(|scratch| match scratch.payload {
+                    ScratchPayload::WorkspaceChatConfig(config) => Some(config),
+                    _ => None,
+                });
+        // Latest model context usage for this workspace (same numbers as the
+        // Desktop context gauge: used vs window + prompt-cache hit rate).
+        let context_usage: Option<Value> = sqlx::query(
+            r#"SELECT total_tokens, model_context_window, input_tokens, output_tokens,
+                      cache_read_tokens, cache_creation_tokens, agent, provider, model
+               FROM token_usage_records
+               WHERE workspace_id = ?
+               ORDER BY observed_at DESC
+               LIMIT 1"#,
+        )
+        .bind(workspace.id)
+        .fetch_optional(pool)
+        .await?
+        .map(|row| {
+            serde_json::json!({
+                "total_tokens": row.try_get::<i64, _>("total_tokens").unwrap_or(0),
+                "model_context_window": row.try_get::<i64, _>("model_context_window").unwrap_or(0),
+                "input_tokens": row.try_get::<i64, _>("input_tokens").unwrap_or(0),
+                "output_tokens": row.try_get::<i64, _>("output_tokens").unwrap_or(0),
+                "cache_read_tokens": row.try_get::<i64, _>("cache_read_tokens").unwrap_or(0),
+                "cache_creation_tokens": row.try_get::<i64, _>("cache_creation_tokens").unwrap_or(0),
+                "agent": row.try_get::<String, _>("agent").ok(),
+                "provider": row.try_get::<Option<String>, _>("provider").unwrap_or(None),
+                "model": row.try_get::<Option<String>, _>("model").unwrap_or(None),
+            })
+        });
         let session_payload = sessions
             .iter()
             .map(|session| {
@@ -218,6 +818,8 @@ async fn get_context_for(
                     "repositories": repositories,
                 },
                 "notes": notes,
+                "context_usage": context_usage,
+                "chat_config": chat_config,
             }),
         });
     }
@@ -284,6 +886,7 @@ async fn get_context_for(
     if include_chat {
         let chat_rows = sqlx::query(
             r#"SELECT cat.id, s.workspace_id, cat.prompt, cat.summary, cat.seen,
+                      cat.agent_session_id, cat.agent_message_id,
                       cat.created_at, cat.updated_at
                FROM coding_agent_turns cat
                JOIN execution_processes ep ON ep.id = cat.execution_process_id
@@ -438,44 +1041,81 @@ pub async fn post_chat_command(
         }
     }
 
-    let session =
-        if let Some(session) = Session::find_latest_by_workspace_id(pool, workspace.id).await? {
+    // Bilateral CLI selection: follow-ups cannot change executor mid-session
+    // (ExecutorMismatch), so a different CLI chosen on Mobile starts a new
+    // session thread instead of being silently dropped. Same CLI reuses the
+    // latest session; an untouched session is simply retargeted.
+    // Defaults salvos do workspace (modal do app/Mobile): valem quando o
+    // comando não traz override explícito.
+    let saved_config = read_chat_config(pool, workspace.id).await?;
+    let requested_executor = command
+        .executor
+        .clone()
+        .or_else(|| saved_config.executor.clone())
+        .unwrap_or_else(|| "CODEX".to_string())
+        .parse::<BaseCodingAgent>()
+        .map_err(|_| ApiError::BadRequest("Unknown mobile chat executor".to_string()))?;
+
+    let session = match Session::find_latest_by_workspace_id(pool, workspace.id).await? {
+        Some(session) if session.executor.as_deref() == Some(&requested_executor.to_string()) => {
             session
-        } else {
-            let executor = command
-                .executor
-                .as_deref()
-                .unwrap_or("CODEX")
-                .parse::<BaseCodingAgent>()
-                .map_err(|_| ApiError::BadRequest("Unknown mobile chat executor".to_string()))?;
+        }
+        Some(mut session) => {
+            let has_executions = !ExecutionProcess::find_by_session_id(pool, session.id, false)
+                .await?
+                .is_empty();
+            if has_executions {
+                Session::create(
+                    pool,
+                    &CreateSession {
+                        executor: Some(requested_executor.to_string()),
+                        name: Some("Mobile chat".to_string()),
+                    },
+                    Uuid::new_v4(),
+                    workspace.id,
+                )
+                .await?
+            } else {
+                Session::update_executor(pool, session.id, &requested_executor.to_string()).await?;
+                session.executor = Some(requested_executor.to_string());
+                session
+            }
+        }
+        None => {
             Session::create(
                 pool,
                 &CreateSession {
-                    executor: Some(executor.to_string()),
+                    executor: Some(requested_executor.to_string()),
                     name: Some("Mobile chat".to_string()),
                 },
                 Uuid::new_v4(),
                 workspace.id,
             )
             .await?
-        };
+        }
+    };
 
-    let executor = session
-        .executor
-        .as_deref()
-        .unwrap_or("CODEX")
-        .parse::<BaseCodingAgent>()
-        .map_err(|_| {
-            ApiError::BadRequest("Workspace session has an unknown executor".to_string())
-        })?;
+    let executor = requested_executor;
     let mut executor_config = ExecutorConfig::new(executor);
-    executor_config.model_id = command.model_id;
-    executor_config.reasoning_id = command.reasoning_id;
-    executor_config.agent_id = command.agent_id;
-    executor_config.permission_policy = command.permission_policy;
-    Ok(crate::routes::sessions::run_follow_up(
+    executor_config.model_id = command.model_id.clone().or(saved_config.model_id.clone());
+    executor_config.reasoning_id = command
+        .reasoning_id
+        .clone()
+        .or(saved_config.reasoning_id.clone());
+    executor_config.agent_id = command.agent_id.clone().or(saved_config.agent_id.clone());
+    executor_config.permission_policy = command.permission_policy.clone().or_else(|| {
+        saved_config.permission_policy.as_deref().and_then(|raw| {
+            serde_json::from_value::<PermissionPolicy>(serde_json::Value::String(raw.to_string()))
+                .ok()
+        })
+    });
+    let workspace_name = workspace
+        .name
+        .clone()
+        .unwrap_or_else(|| "Workspace".to_string());
+    let response = crate::routes::sessions::run_follow_up(
         &deployment,
-        session,
+        session.clone(),
         workspace,
         prompt,
         executor_config,
@@ -483,8 +1123,33 @@ pub async fn post_chat_command(
         None,
         None,
     )
-    .await?
-    .into_response())
+    .await?;
+    // Anuncia o turno pronto (cobre /mobile/chat e /tailcat/chat): o APK
+    // atualiza só esse workspace em vez de polling cego.
+    broadcast_board_event(serde_json::json!({
+        "type": "chat_turn",
+        "workspace_id": session.workspace_id,
+        "session_id": session.id,
+        "revision": now_seconds()
+    }));
+    // Push FCM fora do caminho da resposta (best-effort, nunca atrasa o chat).
+    push_to_all(
+        deployment.db().pool.clone(),
+        &format!("Nova resposta em {workspace_name}"),
+        "Toque para abrir o workspace",
+        [
+            ("type".to_string(), "chat_turn".to_string()),
+            ("workspace_id".to_string(), session.workspace_id.to_string()),
+            ("session_id".to_string(), session.id.to_string()),
+            (
+                "title".to_string(),
+                format!("Nova resposta em {workspace_name}"),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    Ok(response.into_response())
 }
 
 /// Create and start the workspace for a card requested by Mobile. The browser
@@ -495,6 +1160,7 @@ pub async fn post_workspace_request(
     Json(request): Json<MobileWorkspaceRequest>,
 ) -> Result<Response, ApiError> {
     let pool = &deployment.db().pool;
+    let pool_owned = pool.clone();
     let issue = Issue::find_by_id(pool, request.issue_id)
         .await?
         .ok_or_else(|| ApiError::BadRequest("issue not found".to_string()))?;
@@ -513,10 +1179,33 @@ pub async fn post_workspace_request(
     }
 
     let repo_ids = ProjectRepo::list_repo_ids(pool, issue.project_id).await?;
-    let repos = Repo::find_by_ids(pool, &repo_ids).await?;
+    let mut repos = Repo::find_by_ids(pool, &repo_ids).await?;
+    if repos.is_empty() {
+        let all_repos = Repo::list_all(pool).await?;
+        if !all_repos.is_empty() {
+            let project = Project::find_by_id(pool, issue.project_id).await?;
+            let proj_name_clean = project
+                .as_ref()
+                .map(|p| p.name.to_lowercase().replace(['-', '_'], ""))
+                .unwrap_or_default();
+
+            let best_repo = all_repos
+                .iter()
+                .find(|r| {
+                    let repo_name_clean = r.name.to_lowercase().replace(['-', '_'], "");
+                    !proj_name_clean.is_empty()
+                        && (repo_name_clean.contains(&proj_name_clean)
+                            || proj_name_clean.contains(&repo_name_clean))
+                })
+                .unwrap_or(&all_repos[0]);
+
+            let _ = ProjectRepo::link(pool, issue.project_id, best_repo.id).await;
+            repos.push(best_repo.clone());
+        }
+    }
     if repos.is_empty() {
         return Err(ApiError::BadRequest(
-            "the issue project has no repository configured".to_string(),
+            "the issue project has no repository configured and no repositories exist".to_string(),
         ));
     }
 
@@ -535,12 +1224,98 @@ pub async fn post_workspace_request(
                 .unwrap_or_else(|| "main".to_string()),
         })
         .collect();
-    let prompt = match issue.description.as_deref() {
-        Some(description) if !description.trim().is_empty() => {
-            format!("{}\n\n{}", issue.title, description)
-        }
-        _ => issue.title.clone(),
+    let mut prompt = match request.prompt.as_deref() {
+        Some(prompt) if !prompt.trim().is_empty() => prompt.trim().to_string(),
+        _ => match issue.description.as_deref() {
+            Some(description) if !description.trim().is_empty() => {
+                format!("{}\n\n{}", issue.title, description)
+            }
+            _ => issue.title.clone(),
+        },
     };
+
+    // Inject custom pre-prompt / post-prompt rules if supplied from mobile
+    let mut rules_block = String::new();
+    if let Some(ref pre) = request.pre_prompt {
+        let trimmed = pre.trim();
+        if !trimmed.is_empty() {
+            rules_block.push_str(&format!(
+                "<!-- vk:rules:pre:start -->\n{}\n<!-- vk:rules:pre:end -->\n\n",
+                trimmed
+            ));
+        }
+    }
+    if let Some(ref post) = request.post_prompt {
+        let trimmed = post.trim();
+        if !trimmed.is_empty() {
+            rules_block.push_str(&format!(
+                "<!-- vk:rules:post:start -->\n{}\n<!-- vk:rules:post:end -->\n\n",
+                trimmed
+            ));
+        }
+    }
+    if !rules_block.is_empty() {
+        prompt.push_str(&format!(
+            "\n\n---\n## Instructions & Rules\n{}",
+            rules_block.trim()
+        ));
+    }
+
+    if let Some(ref pipeline_id) = request.pipeline_id {
+        let all_pipelines = load_pipelines(&pipelines_dir());
+        if let Some(pipe) = all_pipelines.iter().find(|p| &p.id == pipeline_id) {
+            let mut stage_fragments = Vec::new();
+            for stage in &pipe.stages {
+                if request.pipeline_stage_ids.is_empty()
+                    || request.pipeline_stage_ids.contains(&stage.id)
+                {
+                    stage_fragments
+                        .push(format!("- **{}**: {}", stage.label, stage.prompt_fragment));
+                }
+            }
+            if !stage_fragments.is_empty() {
+                prompt.push_str(&format!(
+                    "\n\n---\n## Pipeline: {}\n{}\n",
+                    pipe.name,
+                    stage_fragments.join("\n")
+                ));
+            }
+        }
+
+        let pipeline_metadata = serde_json::json!({
+            "pipeline": {
+                "pipelineIds": vec![pipeline_id.clone()],
+                "enabledIds": request.pipeline_stage_ids,
+                "executor": request.executor,
+                "customText": "",
+            }
+        });
+        crate::routes::local_kanban::merge_and_update_issue(
+            pool,
+            issue.id,
+            UpdateIssueRequest {
+                allow_unmerged_done: None,
+                status_id: None,
+                title: None,
+                description: None,
+                priority: None,
+                start_date: None,
+                target_date: None,
+                completed_at: None,
+                sort_order: None,
+                parent_issue_id: None,
+                parent_issue_sort_order: None,
+                extension_metadata: Some(pipeline_metadata),
+            },
+        )
+        .await?;
+    }
+
+    let mut executor_config = ExecutorConfig::new(executor);
+    executor_config.model_id = request.model_id;
+    executor_config.reasoning_id = request.reasoning_id;
+    executor_config.agent_id = request.agent_id;
+    executor_config.permission_policy = request.permission_policy;
 
     let response = crate::routes::workspaces::create::create_and_start_workspace(
         State(deployment),
@@ -551,7 +1326,7 @@ pub async fn post_workspace_request(
                 remote_project_id: issue.project_id,
                 issue_id: issue.id,
             }),
-            executor_config: ExecutorConfig::new(executor),
+            executor_config,
             prompt,
             attachment_ids: None,
             kind: None,
@@ -559,7 +1334,68 @@ pub async fn post_workspace_request(
     )
     .await?;
 
+    if let Some(data) = response.0.data() {
+        let created_ws = &data.workspace;
+        broadcast_board_event(serde_json::json!({
+            "type": "workspace_created",
+            "workspace_id": created_ws.id,
+            "issue_id": issue.id,
+            "project_id": issue.project_id,
+            "name": created_ws.name,
+            "branch": created_ws.branch,
+            "revision": now_seconds()
+        }));
+        let ws_name = created_ws
+            .name
+            .clone()
+            .unwrap_or_else(|| "Workspace".to_string());
+        push_to_all(
+            pool_owned,
+            &format!("Workspace pronto: {ws_name}"),
+            "Toque para abrir o workspace",
+            [
+                ("type".to_string(), "workspace_created".to_string()),
+                ("workspace_id".to_string(), created_ws.id.to_string()),
+                ("issue_id".to_string(), issue.id.to_string()),
+                ("title".to_string(), format!("Workspace pronto: {ws_name}")),
+            ]
+            .into_iter()
+            .collect(),
+        );
+    }
+
     Ok(response.into_response())
+}
+
+/// Push FCM best-effort para todos os aparelhos registrados (fora do caminho
+/// da resposta; nunca atrasa o chat). Sem credenciais, não faz nada.
+fn push_to_all(
+    pool: sqlx::SqlitePool,
+    title: &str,
+    body: &str,
+    data: std::collections::HashMap<String, String>,
+) {
+    let title = title.to_string();
+    let body = body.to_string();
+    tokio::spawn(async move {
+        let tokens = db::models::push_token::PushToken::find_all(&pool)
+            .await
+            .unwrap_or_default();
+        for device in tokens {
+            match crate::fcm::send_to_token(&device.token, &title, &body, &data).await {
+                Ok(()) => {}
+                Err(crate::fcm::FcmError::InvalidToken) => {
+                    let _ =
+                        db::models::push_token::PushToken::delete_by_token(&pool, &device.token)
+                            .await;
+                }
+                Err(crate::fcm::FcmError::NotConfigured) => break,
+                Err(e) => {
+                    tracing::warn!("FCM push failed: {e:?}");
+                }
+            }
+        }
+    });
 }
 
 fn status_command(prompt: &str) -> Option<&'static str> {
@@ -580,8 +1416,145 @@ fn status_command(prompt: &str) -> Option<&'static str> {
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/mobile/context", get(get_context))
+        .route("/mobile/kanban", get(get_mobile_kanban))
         .route("/mobile/chat", post(post_chat_command))
         .route("/mobile/workspace", post(post_workspace_request))
+        .route("/mobile/issues", post(mobile_create_issue))
+        .route("/mobile/push-tokens", post(mobile_register_push_token))
+        .route(
+            "/mobile/workspaces/{workspace_id}/chat-config",
+            post(mobile_save_chat_config),
+        )
+        .route("/mobile/pairing/invite", post(create_local_pairing_invite))
+        .route("/mobile/pairing/claim", post(claim_local_pairing_invite))
+}
+
+pub async fn get_mobile_kanban(
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<MobileContextResponse>>, ApiError> {
+    get_kanban_context(&deployment).await
+}
+
+async fn create_local_pairing_invite(
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<LocalPairingInviteRequest>,
+) -> Result<ResponseJson<ApiResponse<LocalPairingInviteResponse>>, ApiError> {
+    let mut endpoints = request.endpoints;
+    if endpoints.is_empty()
+        && let Some(endpoint) = request.endpoint
+    {
+        endpoints.push(endpoint);
+    }
+    let endpoints = endpoints
+        .into_iter()
+        .map(|endpoint| endpoint.trim().trim_end_matches('/').to_string())
+        .filter(|endpoint| !endpoint.is_empty())
+        .collect::<Vec<_>>();
+    if endpoints.is_empty() {
+        return Err(ApiError::BadRequest("no LAN endpoint was detected".into()));
+    }
+    for endpoint in &endpoints {
+        let parsed_endpoint = url::Url::parse(endpoint)
+            .map_err(|_| ApiError::BadRequest("invalid LAN endpoint".into()))?;
+        if !matches!(parsed_endpoint.scheme(), "http" | "https")
+            || parsed_endpoint.host_str().is_none()
+        {
+            return Err(ApiError::BadRequest(
+                "LAN endpoint must be an http(s) URL".into(),
+            ));
+        }
+    }
+
+    let node = instance::describe(&deployment);
+    let invite_id = Uuid::new_v4();
+    let secret = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    let expires_at = now_seconds() + 120;
+    let mut pairing_serializer =
+        url::form_urlencoded::Serializer::new("aurapunk://pair-local?".to_string());
+    for endpoint in &endpoints {
+        pairing_serializer.append_pair("endpoint", endpoint);
+    }
+    let pairing_url = pairing_serializer
+        .append_pair("invite_id", &invite_id.to_string())
+        .append_pair("secret", &secret)
+        .append_pair("instance_id", &node.instance_id)
+        .append_pair("expires_at", &expires_at.to_string())
+        .finish();
+
+    let mut invites = local_pairing_invites()
+        .lock()
+        .map_err(|_| ApiError::BadRequest("pairing store unavailable".into()))?;
+    let now = now_seconds();
+    invites.retain(|_, invite| invite.expires_at > now);
+    invites.insert(
+        invite_id,
+        LocalPairingInvite {
+            secret,
+            instance_id: node.instance_id.clone(),
+            endpoints: endpoints.clone(),
+            expires_at,
+        },
+    );
+
+    Ok(ResponseJson(ApiResponse::success(
+        LocalPairingInviteResponse {
+            pairing_url,
+            invite_id,
+            instance_id: node.instance_id,
+            endpoint: endpoints[0].clone(),
+            endpoints,
+            expires_at,
+        },
+    )))
+}
+
+async fn claim_local_pairing_invite(
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<LocalPairingClaimRequest>,
+) -> Result<ResponseJson<ApiResponse<LocalPairingClaimResponse>>, ApiError> {
+    let invite = {
+        let mut invites = local_pairing_invites()
+            .lock()
+            .map_err(|_| ApiError::BadRequest("pairing store unavailable".into()))?;
+        let now = now_seconds();
+        invites.retain(|_, item| item.expires_at > now);
+        let invite = invites
+            .get(&request.invite_id)
+            .cloned()
+            .ok_or_else(|| ApiError::Forbidden("pairing invite expired or already used".into()))?;
+        if invite.expires_at <= now_seconds() || invite.secret != request.secret {
+            return Err(ApiError::Forbidden("invalid pairing invite".into()));
+        }
+        invites.remove(&request.invite_id);
+        invite
+    };
+
+    let node = instance::describe(&deployment);
+    if node.instance_id != invite.instance_id {
+        return Err(ApiError::Forbidden(
+            "pairing invite belongs to another instance".into(),
+        ));
+    }
+
+    let endpoint = request
+        .endpoint
+        .filter(|endpoint| {
+            invite
+                .endpoints
+                .iter()
+                .any(|candidate| candidate == endpoint)
+        })
+        .unwrap_or_else(|| invite.endpoints[0].clone());
+
+    Ok(ResponseJson(ApiResponse::success(
+        LocalPairingClaimResponse {
+            instance_id: node.instance_id,
+            name: node.name,
+            endpoint,
+            direct_token: node.direct_token,
+            transport: "tailcat",
+        },
+    )))
 }
 
 /// Direct Mobile transport over the configured Tailcat network. The bearer
@@ -599,7 +1572,13 @@ pub fn tailcat_router() -> Router<DeploymentImpl> {
         )
         .route("/tailcat/chat", post(tailcat_chat))
         .route("/tailcat/workspace", post(tailcat_workspace))
+        .route("/tailcat/issues", post(tailcat_create_issue))
         .route("/tailcat/issues/{id}", patch(tailcat_update_issue))
+        .route("/tailcat/push-tokens", post(tailcat_register_push_token))
+        .route(
+            "/tailcat/workspaces/{workspace_id}/chat-config",
+            post(tailcat_save_chat_config),
+        )
         .route("/tailcat/events/ws", get(tailcat_events_ws))
 }
 
@@ -628,7 +1607,7 @@ async fn tailcat_kanban(
     State(deployment): State<DeploymentImpl>,
 ) -> Result<ResponseJson<ApiResponse<MobileContextResponse>>, ApiError> {
     authorize_tailcat(&headers, &deployment)?;
-    get_context_for(&deployment, false).await
+    get_kanban_context(&deployment).await
 }
 
 async fn tailcat_workspace_chat(
@@ -695,6 +1674,355 @@ async fn tailcat_workspace(
     post_workspace_request(State(deployment), Json(request)).await
 }
 
+/// Create a new card (issue) from Mobile, mirroring the Desktop
+/// create-card dialog: title, description, status, priority, tags and an
+/// optional pipeline pointer (extension metadata + `vk:pipeline` block).
+#[derive(Debug, Deserialize)]
+pub struct MobileIssuePipeline {
+    #[serde(default)]
+    pub pipeline_ids: Vec<String>,
+    #[serde(default)]
+    pub enabled_ids: Vec<String>,
+    pub executor: Option<String>,
+    pub custom_text: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MobileIssueCreateRequest {
+    pub project_id: Uuid,
+    pub title: String,
+    pub description: Option<String>,
+    pub status_id: Option<Uuid>,
+    /// "urgent" | "high" | "medium" | "low"
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub tag_ids: Vec<Uuid>,
+    pub pipeline: Option<MobileIssuePipeline>,
+}
+
+async fn post_issue_create(
+    deployment: &DeploymentImpl,
+    req: MobileIssueCreateRequest,
+) -> Result<Response, ApiError> {
+    let pool = &deployment.db().pool;
+    let title = req.title.trim().to_string();
+    if title.is_empty() || title.len() > 500 {
+        return Err(ApiError::BadRequest(
+            "Mobile card title must contain 1 to 500 characters".to_string(),
+        ));
+    }
+    if Project::find_by_id(pool, req.project_id).await?.is_none() {
+        return Err(ApiError::BadRequest("project not found".into()));
+    }
+
+    // Default status: first status of the project (same as Desktop dialog).
+    let statuses = ProjectStatus::list_by_project(pool, req.project_id).await?;
+    let status_id = match req.status_id {
+        Some(sid) => {
+            if !statuses.iter().any(|s| s.id == sid) {
+                return Err(ApiError::BadRequest(
+                    "status does not belong to this project".into(),
+                ));
+            }
+            sid
+        }
+        None => {
+            statuses
+                .first()
+                .ok_or_else(|| ApiError::BadRequest("project has no statuses".into()))?
+                .id
+        }
+    };
+
+    let priority: Option<IssuePriority> = match req.priority.as_deref() {
+        None => None,
+        Some(raw) => Some(
+            serde_json::from_value::<IssuePriority>(serde_json::Value::String(
+                raw.trim().to_lowercase(),
+            ))
+            .map_err(|_| ApiError::BadRequest("unknown priority".into()))?,
+        ),
+    };
+
+    // Append at the end of the target column.
+    let max_sort: Option<f64> = sqlx::query(
+        r#"SELECT MAX(sort_order) AS m FROM issues WHERE project_id = ? AND status_id = ?"#,
+    )
+    .bind(req.project_id)
+    .bind(status_id)
+    .fetch_one(pool)
+    .await?
+    .try_get::<Option<f64>, _>("m")
+    .or_else(|_| {
+        // `sort_order` may be stored as INTEGER on older databases.
+        Ok::<_, sqlx::Error>(None)
+    })?;
+    let sort_order = max_sort.unwrap_or(0.0) + 1.0;
+
+    // Pipeline pointer, compatible with the Desktop `vk:pipeline` block. The
+    // heavy stage list stays in extension metadata (read via `get_pipeline`).
+    let mut description = req
+        .description
+        .map(|d| d.trim().to_string())
+        .filter(|d| !d.is_empty());
+    let extension_metadata = match &req.pipeline {
+        Some(p) if !p.pipeline_ids.is_empty() => {
+            let mut block = String::from("<!-- vk:pipeline:start -->\n## Pipeline\n");
+            if let Some(exec) = p
+                .executor
+                .as_deref()
+                .map(str::trim)
+                .filter(|e| !e.is_empty())
+            {
+                block.push_str(&format!(
+                    "- Run this card with the **{exec}** execution agent: pass `executor: \"{exec}\"` when starting the workspace.\n"
+                ));
+            }
+            block.push_str("This card has pipeline stages defined via `get_pipeline` — call that MCP tool BEFORE any code edits, execute the returned stages in order (do not add, skip, or reorder), and report each one via `report_pipeline_stage` as instructed in the tool's response.\n");
+            if let Some(custom) = p
+                .custom_text
+                .as_deref()
+                .map(str::trim)
+                .filter(|c| !c.is_empty())
+            {
+                block.push_str(custom);
+                block.push('\n');
+            }
+            block.push_str("<!-- vk:pipeline:end -->");
+            description = Some(match description {
+                Some(d) => format!("{d}\n\n{block}"),
+                None => block,
+            });
+            serde_json::json!({"pipeline": {
+                "pipelineIds": p.pipeline_ids,
+                "enabledIds": p.enabled_ids,
+                "executor": p.executor,
+                "customText": p.custom_text,
+            }})
+        }
+        _ => serde_json::json!({}),
+    };
+
+    let issue = crate::routes::local_kanban::create_issue_record(
+        pool,
+        CreateIssueRequest {
+            id: None,
+            project_id: req.project_id,
+            status_id,
+            title,
+            description,
+            priority,
+            start_date: None,
+            target_date: None,
+            completed_at: None,
+            sort_order,
+            parent_issue_id: None,
+            parent_issue_sort_order: None,
+            extension_metadata,
+        },
+    )
+    .await?;
+
+    if !req.tag_ids.is_empty() {
+        let project_tags = KanbanTag::list_by_project(pool, req.project_id).await?;
+        for tag_id in req.tag_ids {
+            if !project_tags.iter().any(|t| t.id == tag_id) {
+                return Err(ApiError::BadRequest("tag not found in this project".into()));
+            }
+            DbIssueTag::create(pool, Uuid::new_v4(), issue.id, tag_id).await?;
+        }
+    }
+
+    broadcast_board_event(serde_json::json!({
+        "type": "issue_created",
+        "issue_id": issue.id,
+        "status_id": issue.status_id,
+        "project_id": issue.project_id,
+        "revision": now_seconds()
+    }));
+
+    Ok(
+        ResponseJson(ApiResponse::<_, Value>::success(serde_json::json!({
+            "id": issue.id,
+            "simple_id": issue.simple_id,
+            "project_id": issue.project_id,
+            "status_id": issue.status_id,
+        })))
+        .into_response(),
+    )
+}
+
+async fn tailcat_create_issue(
+    headers: HeaderMap,
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<MobileIssueCreateRequest>,
+) -> Result<Response, ApiError> {
+    authorize_tailcat(&headers, &deployment)?;
+    post_issue_create(&deployment, request).await
+}
+
+/// Registra o token FCM de um aparelho para push de respostas de agentes.
+#[derive(Debug, Deserialize)]
+pub struct MobilePushTokenRequest {
+    pub token: String,
+    pub platform: Option<String>,
+    pub label: Option<String>,
+}
+
+async fn post_push_token(
+    deployment: &DeploymentImpl,
+    req: MobilePushTokenRequest,
+) -> Result<Response, ApiError> {
+    let token = req.token.trim().to_string();
+    if token.is_empty() || token.len() > 500 {
+        return Err(ApiError::BadRequest("invalid push token".into()));
+    }
+    db::models::push_token::PushToken::upsert(
+        &deployment.db().pool,
+        &token,
+        req.platform.as_deref().unwrap_or("android"),
+        req.label.as_deref(),
+    )
+    .await
+    .map_err(|e| ApiError::BadRequest(format!("push token store failed: {e}")))?;
+    Ok(
+        ResponseJson(ApiResponse::<_, Value>::success(serde_json::json!({
+            "registered": true,
+        })))
+        .into_response(),
+    )
+}
+
+/// Salva a config padrão de chat do workspace (executor/modelo/effort/
+/// agent/permission/preset). Campos ausentes preservam o salvo.
+#[derive(Debug, Deserialize)]
+pub struct MobileChatConfigRequest {
+    pub executor: Option<String>,
+    pub model_id: Option<String>,
+    pub reasoning_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub permission_policy: Option<String>,
+    pub preset: Option<String>,
+}
+
+pub(crate) async fn read_chat_config(
+    pool: &sqlx::SqlitePool,
+    workspace_id: Uuid,
+) -> Result<WorkspaceChatConfigData, ApiError> {
+    Ok(
+        Scratch::find_by_id(pool, workspace_id, &ScratchType::WorkspaceChatConfig)
+            .await?
+            .and_then(|scratch| match scratch.payload {
+                ScratchPayload::WorkspaceChatConfig(config) => Some(config),
+                _ => None,
+            })
+            .unwrap_or_default(),
+    )
+}
+
+async fn post_chat_config(
+    deployment: &DeploymentImpl,
+    workspace_id: Uuid,
+    req: MobileChatConfigRequest,
+) -> Result<Response, ApiError> {
+    let pool = &deployment.db().pool;
+    Workspace::find_by_id(pool, workspace_id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("workspace not found".into()))?;
+
+    if let Some(executor) = &req.executor {
+        executor
+            .parse::<BaseCodingAgent>()
+            .map_err(|_| ApiError::BadRequest("Unknown executor".to_string()))?;
+    }
+    if let Some(policy) = &req.permission_policy {
+        serde_json::from_value::<PermissionPolicy>(serde_json::Value::String(policy.clone()))
+            .map_err(|_| ApiError::BadRequest("Unknown permission policy".into()))?;
+    }
+
+    let mut config = read_chat_config(pool, workspace_id).await?;
+    if let Some(v) = req.executor {
+        config.executor = Some(v.to_uppercase());
+    }
+    if let Some(v) = req.model_id {
+        config.model_id = Some(v);
+    }
+    if let Some(v) = req.reasoning_id {
+        config.reasoning_id = Some(v);
+    }
+    if let Some(v) = req.agent_id {
+        config.agent_id = Some(v);
+    }
+    if let Some(v) = req.permission_policy {
+        config.permission_policy = Some(v.to_uppercase());
+    }
+    if let Some(v) = req.preset {
+        config.preset = Some(v.to_uppercase());
+    }
+    Scratch::update(
+        pool,
+        workspace_id,
+        &ScratchType::WorkspaceChatConfig,
+        &UpdateScratch {
+            payload: ScratchPayload::WorkspaceChatConfig(config),
+        },
+    )
+    .await?;
+    broadcast_board_event(serde_json::json!({
+        "type": "chat_config",
+        "workspace_id": workspace_id,
+        "revision": now_seconds()
+    }));
+    Ok(
+        ResponseJson(ApiResponse::<_, Value>::success(serde_json::json!({
+            "workspace_id": workspace_id,
+            "saved": true,
+        })))
+        .into_response(),
+    )
+}
+
+async fn tailcat_save_chat_config(
+    headers: HeaderMap,
+    Path(workspace_id): Path<Uuid>,
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<MobileChatConfigRequest>,
+) -> Result<Response, ApiError> {
+    authorize_tailcat(&headers, &deployment)?;
+    post_chat_config(&deployment, workspace_id, request).await
+}
+
+async fn mobile_save_chat_config(
+    Path(workspace_id): Path<Uuid>,
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<MobileChatConfigRequest>,
+) -> Result<Response, ApiError> {
+    post_chat_config(&deployment, workspace_id, request).await
+}
+
+async fn tailcat_register_push_token(
+    headers: HeaderMap,
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<MobilePushTokenRequest>,
+) -> Result<Response, ApiError> {
+    authorize_tailcat(&headers, &deployment)?;
+    post_push_token(&deployment, request).await
+}
+
+async fn mobile_register_push_token(
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<MobilePushTokenRequest>,
+) -> Result<Response, ApiError> {
+    post_push_token(&deployment, request).await
+}
+
+async fn mobile_create_issue(
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<MobileIssueCreateRequest>,
+) -> Result<Response, ApiError> {
+    post_issue_create(&deployment, request).await
+}
+
 async fn tailcat_update_issue(
     headers: HeaderMap,
     State(deployment): State<DeploymentImpl>,
@@ -705,6 +2033,17 @@ async fn tailcat_update_issue(
     let issue = local_kanban::merge_and_update_issue(&deployment.db().pool, id, request)
         .await?
         .ok_or_else(|| ApiError::BadRequest("issue not found".into()))?;
+
+    broadcast_board_event(serde_json::json!({
+        "type": "issue_updated",
+        "issue_id": issue.id,
+        "status_id": issue.status_id,
+        "title": issue.title,
+        "priority": issue.priority,
+        "project_id": issue.project_id,
+        "revision": now_seconds()
+    }));
+
     Ok(ResponseJson(ApiResponse::<_, Value>::success(issue)).into_response())
 }
 
@@ -720,16 +2059,35 @@ async fn tailcat_events_ws(
         use futures_util::StreamExt;
 
         let mut events = deployment.stream_events().await;
-        while let Some(event) = events.next().await {
-            if event.is_err() {
-                break;
-            }
-            if socket
-                .send(Message::Text("{\"type\":\"context_changed\"}".into()))
-                .await
-                .is_err()
-            {
-                break;
+        let mut board_rx = board_events().subscribe();
+
+        loop {
+            tokio::select! {
+                board_res = board_rx.recv() => {
+                    match board_res {
+                        Ok(msg) => {
+                            if socket.send(Message::Text(msg.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+                event = events.next() => {
+                    match event {
+                        Some(Ok(_)) => {
+                            if socket
+                                .send(Message::Text("{\"type\":\"context_changed\"}".into()))
+                                .await
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        _ => break,
+                    }
+                }
             }
         }
     })

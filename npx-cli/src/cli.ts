@@ -202,7 +202,7 @@ function checkForUpdates(): void {
       if (latest && latest !== CLI_VERSION) {
         setTimeout(() => {
           console.log(`\nUpdate available: ${CLI_VERSION} -> ${latest}`);
-          console.log(`Run: npx vibe-kanban-alternative@latest`);
+          console.log(`Run: npx aurapunk-ide@latest`);
         }, 2000);
       }
     })
@@ -210,7 +210,7 @@ function checkForUpdates(): void {
 }
 
 async function runMcp(args: string[]): Promise<void> {
-  await extractAndRun("vibe-kanban-mcp", (bin) => {
+  await extractAndRun("aurapunk-mcp", (bin) => {
     const proc = spawn(bin, buildMcpArgs(args), {
       stdio: "inherit",
     });
@@ -227,7 +227,7 @@ async function runMcp(args: string[]): Promise<void> {
 }
 
 async function runReview(args: string[]): Promise<void> {
-  await extractAndRun("vibe-kanban-review", (bin) => {
+  await extractAndRun("aurapunk-review", (bin) => {
     const proc = spawn(bin, args, { stdio: "inherit" });
     proc.on("exit", (c) => process.exit(c || 0));
     proc.on("error", (e) => {
@@ -238,7 +238,7 @@ async function runReview(args: string[]): Promise<void> {
 }
 
 async function runTui(args: string[]): Promise<void> {
-  await extractAndRun("vibe-tui", (bin) => {
+  await extractAndRun("aurapunk-tui", (bin) => {
     const proc = spawn(bin, args, { stdio: "inherit" });
     proc.on("exit", (c) => process.exit(c || 0));
     proc.on("error", (e) => {
@@ -270,15 +270,15 @@ async function runMain(
   // Use --desktop to launch the desktop app instead.
   if (desktopMode && tauriPlatform) {
     if (!LOCAL_DEV_MODE) {
-      // Desktop bundles are not published for vibe-kanban-alternative — the release
+      // Desktop bundles are published separately from the npm CLI package — the release
       // workflow ships CLI binaries only. Skip the doomed fetch and fall back.
       console.error(
-        "Desktop builds are not published for vibe-kanban-alternative; starting browser mode instead.",
+        "Desktop builds are distributed separately; starting browser mode instead.",
       );
     } else {
       try {
         console.log(
-          `Starting vibe-kanban-alternative desktop v${CLI_VERSION}${modeLabel}...`,
+          `Starting AuraPunk IDE desktop v${CLI_VERSION}${modeLabel}...`,
         );
         const bundleInfo = await ensureDesktopBundle(
           tauriPlatform,
@@ -300,8 +300,8 @@ async function runMain(
   }
 
   // Browser mode (default — headless server + opens browser)
-  console.log(`Starting vibe-kanban-alternative v${CLI_VERSION}${modeLabel}...`);
-  await extractAndRun("vibe-kanban", (bin) => {
+  console.log(`Starting AuraPunk IDE v${CLI_VERSION}${modeLabel}...`);
+  await extractAndRun("aurapunk", (bin) => {
     execSync(`"${bin}"`, { stdio: "inherit", env: launchEnv });
   });
 }
@@ -335,10 +335,10 @@ function runOrExit(task: Promise<void>): void {
 
 async function main(): Promise<void> {
   fs.mkdirSync(versionCacheDir, { recursive: true });
-  const cli = cac("vibe-kanban-alternative");
+  const cli = cac("aurapunk-ide");
 
   cli
-    .command("[...args]", "Launch the local vibe-kanban app")
+    .command("[...args]", "Launch the local AuraPunk IDE")
     .option("--desktop", "Launch the desktop app instead of browser mode")
     .option("--window, -w", "Launch in desktop window mode (alias for --desktop)")
     .option("--cloud", "Launch with cloud-mode authentication controls")

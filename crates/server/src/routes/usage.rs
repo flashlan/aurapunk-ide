@@ -40,6 +40,10 @@ fn mem0_source(url: &str) -> &'static str {
     }
 }
 
+fn is_aura_punk_cloud_gateway(url: &str) -> bool {
+    url.trim_end_matches('/').ends_with("/api/memory/v1")
+}
+
 #[derive(Debug, Clone, Serialize, TS)]
 pub struct Mem0Connection {
     pub source: String,
@@ -393,6 +397,16 @@ fn url_host(input: &str) -> Option<String> {
 /// mem0: reachable (`/api/config` 2xx) AND its own `/health` reports `ok`.
 /// Returns `(reachable, healthy)`.
 async fn check_mem0(client: &reqwest::Client, base: &str) -> (bool, bool) {
+    if is_aura_punk_cloud_gateway(base) {
+        let reachable = match authorize_mem0(client.get(format!("{base}/health")))
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => true,
+            _ => false,
+        };
+        return (reachable, reachable);
+    }
     if memory_config::load().adapter == MemoryAdapter::Mem0Platform {
         return check_mem0_platform(client, base).await;
     }
@@ -564,8 +578,10 @@ async fn mem0_status() -> ResponseJson<ApiResponse<Mem0Status>> {
     // probes fail, use a real search through mem0 before reporting a degraded
     // state. This also remains conservative: a failed search leaves the
     // direct probe results unchanged.
-    let (embeddings, qdrant) = if config.adapter == MemoryAdapter::Mem0Platform {
-        // Mem0 Platform owns extraction, embeddings and vector storage.
+    let (embeddings, qdrant) = if config.adapter == MemoryAdapter::Mem0Platform
+        || is_aura_punk_cloud_gateway(&mem0_base)
+    {
+        // Hosted adapters own extraction, embeddings and vector storage.
         (true, true)
     } else if mem0_up && !emb_res && !qdrant_res {
         if check_mem0_vector_search(&client, &mem0_base).await {
@@ -794,10 +810,15 @@ async fn get_mem0_config(
 ) -> ResponseJson<ApiResponse<Mem0Config>> {
     let _ = deployment;
     let memory = memory_config::load();
-    if !memory.enabled || memory.adapter == MemoryAdapter::Mem0Platform {
+    if !memory.enabled
+        || memory.adapter == MemoryAdapter::Mem0Platform
+        || is_aura_punk_cloud_gateway(&memory.active_url())
+    {
         return ResponseJson(ApiResponse::success(Mem0Config {
             ok: memory.enabled,
-            provider: if memory.adapter == MemoryAdapter::Mem0Platform {
+            provider: if is_aura_punk_cloud_gateway(&memory.active_url()) {
+                "aurapunk_cloud"
+            } else if memory.adapter == MemoryAdapter::Mem0Platform {
                 "mem0_platform"
             } else {
                 // Keep the form valid so an operator can re-enable memory
@@ -806,9 +827,11 @@ async fn get_mem0_config(
                 "groq"
             }
             .to_string(),
-            graph_enabled: false,
+            graph_enabled: !memory.cloud_vector_only,
             graph_url: String::new(),
-            collection: if memory.adapter == MemoryAdapter::Mem0Platform {
+            collection: if is_aura_punk_cloud_gateway(&memory.active_url()) {
+                "managed by AuraPunk Cloud"
+            } else if memory.adapter == MemoryAdapter::Mem0Platform {
                 "managed by Mem0 Platform"
             } else {
                 "memory disabled"
@@ -843,16 +866,27 @@ async fn put_mem0_config(
     Json(req): Json<UpdateMem0ConfigRequest>,
 ) -> ResponseJson<ApiResponse<Mem0Config>> {
     let _ = deployment;
-    if memory_config::load().adapter == MemoryAdapter::Mem0Platform {
+    let memory = memory_config::load();
+    if memory.adapter == MemoryAdapter::Mem0Platform
+        || is_aura_punk_cloud_gateway(&memory.active_url())
+    {
         // Extraction, embeddings and graph settings are managed by the hosted
         // platform. Keep the endpoint successful so the shared Settings form
         // can be used regardless of the selected adapter.
         return ResponseJson(ApiResponse::success(Mem0Config {
             ok: true,
-            provider: "mem0_platform".to_string(),
-            graph_enabled: false,
+            provider: if is_aura_punk_cloud_gateway(&memory.active_url()) {
+                "aurapunk_cloud".to_string()
+            } else {
+                "mem0_platform".to_string()
+            },
+            graph_enabled: !memory.cloud_vector_only,
             graph_url: String::new(),
-            collection: "managed by Mem0 Platform".to_string(),
+            collection: if is_aura_punk_cloud_gateway(&memory.active_url()) {
+                "managed by AuraPunk Cloud".to_string()
+            } else {
+                "managed by Mem0 Platform".to_string()
+            },
             providers: std::collections::HashMap::new(),
         }));
     }
@@ -1205,6 +1239,17 @@ mod tests {
             url_host("http://example.com").as_deref(),
             Some("example.com")
         );
+    }
+
+    #[test]
+    fn recognizes_the_aurapunk_cloud_memory_gateway() {
+        assert!(is_aura_punk_cloud_gateway(
+            "https://aurapunk.dev/api/memory/v1"
+        ));
+        assert!(is_aura_punk_cloud_gateway(
+            "https://aurapunk.dev/api/memory/v1/"
+        ));
+        assert!(!is_aura_punk_cloud_gateway("https://api.mem0.ai"));
     }
 
     #[test]

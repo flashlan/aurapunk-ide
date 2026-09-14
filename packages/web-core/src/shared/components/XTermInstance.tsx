@@ -38,6 +38,12 @@ interface XTermInstanceProps {
   onSessionName?: (name: string) => void;
 }
 
+type ManagedTerminal = Terminal & { __aurapunkDisposed?: boolean };
+
+function isDisposedTerminal(terminal: Terminal | null): boolean {
+  return Boolean(terminal && (terminal as ManagedTerminal).__aurapunkDisposed);
+}
+
 export function XTermInstance({
   tabId,
   workspaceId,
@@ -55,6 +61,7 @@ export function XTermInstance({
   const resizeRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const disposedRef = useRef(false);
   const searchAddonRef = useRef<SearchAddon | null>(null);
   const initialSizeRef = useRef({ cols: 80, rows: 24 });
   const { theme } = useTheme();
@@ -103,16 +110,29 @@ export function XTermInstance({
   endpointRef.current = endpoint;
 
   const fitTerminal = useCallback(() => {
-    fitAddonRef.current?.fit();
-    if (terminalRef.current) {
-      const conn = getTerminalConnection(tabId);
-      conn?.resize(terminalRef.current.cols, terminalRef.current.rows);
+    if (disposedRef.current) return;
+
+    const terminal = terminalRef.current;
+    const fitAddon = fitAddonRef.current;
+    if (!terminal || !fitAddon || isDisposedTerminal(terminal)) return;
+
+    try {
+      fitAddon.fit();
+      if (!disposedRef.current && !isDisposedTerminal(terminal)) {
+        getTerminalConnection(tabId)?.resize(terminal.cols, terminal.rows);
+      }
+    } catch {
+      // A provider-level close can race a ResizeObserver callback. xterm's
+      // private core is no longer usable in that case; the next mount creates
+      // a fresh instance.
     }
   }, [tabId, getTerminalConnection]);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+
+    disposedRef.current = false;
 
     // A single xterm instance per tab is shared between the in-sidebar terminal
     // and the expanded (full-pane) terminal: only one is mounted at a time, and
@@ -121,7 +141,7 @@ export function XTermInstance({
     let terminal: Terminal;
     let fitAddon: FitAddon;
 
-    if (existing) {
+    if (existing && !isDisposedTerminal(existing.terminal)) {
       terminal = existing.terminal;
       fitAddon = existing.fitAddon;
       if (terminal.element && terminal.element.parentNode !== container) {
@@ -173,7 +193,11 @@ export function XTermInstance({
         createTerminalConnection(
           tabId,
           endpointRef.current,
-          (data) => terminal.write(data),
+          (data) => {
+            if (!disposedRef.current && !isDisposedTerminal(terminal)) {
+              terminal.write(data);
+            }
+          },
           () => onCloseRef.current?.(),
           (name) => onSessionNameRef.current?.(name)
         );
@@ -221,15 +245,24 @@ export function XTermInstance({
     // buffer, but the xterm renderer stays blank until it is refreshed, and the
     // new container's size may differ. Also re-sync the PTY size to the client.
     const raf = requestAnimationFrame(() => {
-      fitAddon.fit();
-      terminal.refresh(0, Math.max(0, terminal.rows - 1));
-      getTerminalConnection(tabId)?.resize(terminal.cols, terminal.rows);
-      if (isActive) {
-        terminal.focus();
+      if (disposedRef.current || isDisposedTerminal(terminal)) return;
+
+      try {
+        fitAddon.fit();
+        if (disposedRef.current || isDisposedTerminal(terminal)) return;
+        terminal.refresh(0, Math.max(0, terminal.rows - 1));
+        getTerminalConnection(tabId)?.resize(terminal.cols, terminal.rows);
+        if (isActive && !disposedRef.current) {
+          terminal.focus();
+        }
+      } catch {
+        // The terminal may have been disposed between the guard and xterm's
+        // internal renderer call. Ignore that expected close race.
       }
     });
 
     return () => {
+      disposedRef.current = true;
       cancelAnimationFrame(raf);
       // Only detach the element if it still lives in THIS container — never
       // steal it from another container that may have re-parented it (e.g.

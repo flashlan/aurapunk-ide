@@ -7,13 +7,13 @@ import os from 'os';
 // Prebuilt binaries are hosted as GitHub Release assets on the fork repo.
 // The release tag is derived from this package's version, so tagging a commit
 // `v<version>` and publishing the matching npm version keeps them in lockstep.
-export const GITHUB_REPO = 'flashlan/vibe-kanban-alternative';
+export const GITHUB_REPO = 'flashlan/aurapunk-ide';
 const PKG_VERSION: string = require('../package.json').version;
 export const BINARY_TAG = `v${PKG_VERSION}`; // e.g., v0.1.0
 export const RELEASE_BASE = `https://github.com/${GITHUB_REPO}/releases/download/${BINARY_TAG}`;
 // Always resolves to the newest release's manifest (used for update checks).
 export const LATEST_MANIFEST_URL = `https://github.com/${GITHUB_REPO}/releases/latest/download/manifest.json`;
-export const CACHE_DIR = path.join(os.homedir(), '.vibe-kanban', 'bin');
+export const CACHE_DIR = path.join(os.homedir(), '.aurapunk-ide', 'bin');
 
 // Local development mode: use binaries from npx-cli/dist/ instead of GitHub
 // Only activate if dist/ exists (i.e., running from source after local-build.sh)
@@ -53,7 +53,7 @@ type ProgressCallback = (downloaded: number, total: number) => void;
 function fetchJson<T>(url: string): Promise<T> {
   return new Promise((resolve, reject) => {
     https
-      .get(url, { headers: { 'User-Agent': 'vibe-kanban-alternative-cli' } }, (res) => {
+      .get(url, { headers: { 'User-Agent': 'aurapunk-ide-cli' } }, (res) => {
         if (
           res.statusCode &&
           [301, 302, 303, 307, 308].includes(res.statusCode) &&
@@ -98,7 +98,7 @@ function downloadFile(
     };
 
     https
-      .get(url, { headers: { 'User-Agent': 'vibe-kanban-alternative-cli' } }, (res) => {
+      .get(url, { headers: { 'User-Agent': 'aurapunk-ide-cli' } }, (res) => {
         if (
           res.statusCode &&
           [301, 302, 303, 307, 308].includes(res.statusCode) &&
@@ -213,7 +213,7 @@ export async function ensureBinary(
 
 export const DESKTOP_CACHE_DIR = path.join(
   os.homedir(),
-  '.vibe-kanban',
+  '.aurapunk-ide',
   'desktop'
 );
 

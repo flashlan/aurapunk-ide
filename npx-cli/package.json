@@ -1,14 +1,11 @@
 {
   "name": "aurapunk-ide",
   "private": false,
-  "version": "0.2.45",
+  "version": "0.3.0",
   "main": "index.js",
   "bin": {
     "aurapunk-ide": "bin/cli.js",
-    "aurapunk": "bin/cli.js",
-    "vibe-kanban-alternative": "bin/cli.js",
-    "vibe-kanban": "bin/cli.js",
-    "vibe-kanban-indie": "bin/cli.js"
+    "aurapunk": "bin/cli.js"
   },
   "scripts": {
     "build": "esbuild src/cli.ts --bundle --platform=node --target=node20 --format=cjs --outfile=bin/cli.js --external:adm-zip --banner:js=\"#!/usr/bin/env node\"",

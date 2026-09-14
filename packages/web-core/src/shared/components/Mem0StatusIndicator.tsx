@@ -66,7 +66,9 @@ export function Mem0StatusIndicator() {
 
   const poll = useCallback(async () => {
     try {
-      const response = await makeRequest('/api/usage/mem0-status');
+      const response = await makeRequest('/api/usage/mem0-status', {
+        cache: 'no-store',
+      });
       const data = await handleApiResponse<Mem0StatusResponse>(response);
       if (data) setStatus(data);
     } catch {
@@ -85,24 +87,44 @@ export function Mem0StatusIndicator() {
   useEffect(() => {
     const handleConnectionChange = () => void poll();
     window.addEventListener('mem0-connection-changed', handleConnectionChange);
-    return () =>
+    window.addEventListener(
+      'aurapunk-cloud-account-changed',
+      handleConnectionChange
+    );
+    return () => {
       window.removeEventListener(
         'mem0-connection-changed',
         handleConnectionChange
       );
+      window.removeEventListener(
+        'aurapunk-cloud-account-changed',
+        handleConnectionChange
+      );
+    };
   }, [poll]);
 
   const level: Mem0Level = status?.level ?? 'green';
   const components = status?.components;
   const color = status ? LEVEL_COLOR[level] : '#9ca3af';
+  const isAuraPunkCloudGateway = status?.connection?.url
+    ?.replace(/\/$/, '')
+    .endsWith('/api/memory/v1');
+  const isManagedAdapter =
+    isAuraPunkCloudGateway || status?.connection?.adapter === 'mem0_platform';
   const tooltip = status
     ? [
         `${LEVEL_LABEL[level]} — ${status.message}`.trim(),
-        `Adapter: ${status.connection?.adapter === 'mem0_platform' ? 'Mem0 Platform' : 'Self-hosted mem0-vk'}`,
-        status.connection?.adapter === 'mem0_platform'
+        `Adapter: ${isAuraPunkCloudGateway ? 'AuraPunk Cloud memory' : status.connection?.adapter === 'mem0_platform' ? 'Managed memory (legacy configuration)' : 'Self-hosted mem0-vk'}`,
+        isManagedAdapter
           ? ''
           : `Source: ${status.connection?.source === 'cloud' ? 'Cloud / shared server' : 'Local Mem0'}`,
-        status.connection?.url ? `Endpoint: ${status.connection.url}` : '',
+        isAuraPunkCloudGateway
+          ? 'Endpoint: AuraPunk Cloud gateway'
+          : isManagedAdapter
+            ? 'Endpoint: managed by the selected cloud service'
+            : status.connection?.url
+              ? `Endpoint: ${status.connection.url}`
+              : '',
         '',
         componentLine('Mem0', components?.mem0 ?? false),
         componentLine('Embeddings', components?.embeddings ?? false),

@@ -21,6 +21,18 @@ interface TerminalState {
   activeTabByProject: Record<string, string | null>;
 }
 
+/**
+ * xterm callbacks can run one tick after a terminal is closed. Mark the
+ * instance before disposing it so mounted views can ignore those callbacks
+ * instead of calling into xterm's disposed private core.
+ */
+function disposeTerminalInstance(instance: TerminalInstance): void {
+  (
+    instance.terminal as Terminal & { __aurapunkDisposed?: boolean }
+  ).__aurapunkDisposed = true;
+  instance.terminal.dispose();
+}
+
 type TerminalAction =
   | {
       type: 'CREATE_TAB';
@@ -558,7 +570,7 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
       // Dispose the terminal instance when closing the tab
       const instance = terminalInstancesRef.current.get(tabId);
       if (instance) {
-        instance.terminal.dispose();
+        disposeTerminalInstance(instance);
         terminalInstancesRef.current.delete(tabId);
       }
       // Close the WebSocket connection
@@ -605,7 +617,7 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
       tabs.forEach((tab) => {
         const instance = terminalInstancesRef.current.get(tab.id);
         if (instance) {
-          instance.terminal.dispose();
+          disposeTerminalInstance(instance);
           terminalInstancesRef.current.delete(tab.id);
         }
         // Close WebSocket connections
@@ -627,7 +639,7 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
     (projectId: string, tabId: string) => {
       const instance = terminalInstancesRef.current.get(tabId);
       if (instance) {
-        instance.terminal.dispose();
+        disposeTerminalInstance(instance);
         terminalInstancesRef.current.delete(tabId);
       }
       closeTerminalConnection(tabId);
@@ -675,7 +687,7 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
       tabs.forEach((tab) => {
         const instance = terminalInstancesRef.current.get(tab.id);
         if (instance) {
-          instance.terminal.dispose();
+          disposeTerminalInstance(instance);
           terminalInstancesRef.current.delete(tab.id);
         }
         closeTerminalConnection(tab.id);
@@ -711,7 +723,7 @@ export function TerminalProvider({ children }: TerminalProviderProps) {
     (tabId: string) => {
       const instance = terminalInstancesRef.current.get(tabId);
       if (instance) {
-        instance.terminal.dispose();
+        disposeTerminalInstance(instance);
         terminalInstancesRef.current.delete(tabId);
       }
       closeTerminalConnection(tabId);

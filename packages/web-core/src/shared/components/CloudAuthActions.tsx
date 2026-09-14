@@ -8,10 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { SidebarBarButton } from '@vibe/ui/components/SidebarBarButton';
-import {
-  DEFAULT_AURAPUNK_CLOUD_URL,
-  useCloudUrl,
-} from '@/shared/hooks/useAppMode';
+import { useCloudUrl } from '@/shared/hooks/useAppMode';
 import {
   makeLocalApiRequest,
   openLocalApiWebSocket,
@@ -35,6 +32,7 @@ export function CloudAuthActions() {
       CLOUD_ACCOUNT_STORAGE_KEY,
       JSON.stringify(nextAccount)
     );
+    window.dispatchEvent(new Event('aurapunk-cloud-account-changed'));
     if ('__TAURI_INTERNALS__' in window) {
       await invoke('write_cloud_account', {
         account: JSON.stringify(nextAccount),
@@ -51,28 +49,43 @@ export function CloudAuthActions() {
 
   const syncMem0Account = useCallback(async (account: CloudAccount | null) => {
     try {
-      await makeRequest('/api/usage/mem0-connection', {
-        method: 'PUT',
-        body: JSON.stringify(
-          account?.memory?.enabled
-            ? {
-                source: 'cloud',
-                adapter: 'mem0_vk',
-                enabled: true,
-                url: account.memory.gatewayUrl,
-                cloud_vector_only: account.memory.plan === 'free',
-                mem0_api_key: account.accessToken,
-              }
-            : {
-                disconnect_cloud: true,
-              }
-        ),
-      });
-      await makeRequest('/api/usage/mem0-account', {
+      const connectionResponse = await makeRequest(
+        '/api/usage/mem0-connection',
+        {
+          method: 'PUT',
+          body: JSON.stringify(
+            account?.memory?.enabled
+              ? {
+                  source: 'cloud',
+                  adapter: 'mem0_vk',
+                  enabled: true,
+                  url: account.memory.gatewayUrl,
+                  cloud_vector_only: account.memory.plan === 'free',
+                  mem0_api_key: account.accessToken,
+                }
+              : {
+                  disconnect_cloud: true,
+                }
+          ),
+        }
+      );
+      if (!connectionResponse.ok) {
+        throw new Error(
+          `Mem0 connection handoff failed (HTTP ${connectionResponse.status})`
+        );
+      }
+      const accountResponse = await makeRequest('/api/usage/mem0-account', {
         method: 'PUT',
         body: JSON.stringify({ account_id: account?.userId ?? null }),
       });
-    } catch {
+      if (!accountResponse.ok) {
+        throw new Error(
+          `Mem0 account handoff failed (HTTP ${accountResponse.status})`
+        );
+      }
+      window.dispatchEvent(new Event('mem0-connection-changed'));
+    } catch (error) {
+      console.warn('AuraPunk Cloud memory handoff failed', error);
       // The desktop app remains usable when its optional local backend is not
       // available; hosted Mem0 will simply reject requests without identity.
     }
@@ -83,7 +96,12 @@ export function CloudAuthActions() {
       const memory = nextAccount.memory;
       if (!memory?.enabled) return;
       const preferenceKey = `${CLOUD_MEMORY_PREFERENCE_PREFIX}:${nextAccount.userId}`;
-      const savedChoice = window.localStorage.getItem(preferenceKey);
+      // The WebView localStorage can be recreated after an app update. Keep
+      // the choice inside the native account file as the durable source, with
+      // localStorage retained as a browser/dev fallback.
+      const savedChoice =
+        nextAccount.memoryPreference ??
+        window.localStorage.getItem(preferenceKey);
       if (!alwaysAsk && savedChoice === 'cloud') {
         await syncMem0Account(nextAccount);
         return;
@@ -97,9 +115,10 @@ export function CloudAuthActions() {
         searchesPerMonth: memory.quota.searchesPerMonth,
       });
       window.localStorage.setItem(preferenceKey, choice);
+      await persistAccount({ ...nextAccount, memoryPreference: choice });
       if (choice === 'cloud') await syncMem0Account(nextAccount);
     },
-    [syncMem0Account]
+    [persistAccount, syncMem0Account]
   );
 
   const syncCloudContext = useCallback(
@@ -160,34 +179,71 @@ export function CloudAuthActions() {
         );
 
         const publish = async (operations: CloudSyncRecord[]) => {
-          const response = await fetch(
-            `${cloudUrl.replace(/\/$/, '')}/api/sync`,
-            {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${nextAccount.accessToken}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                source: 'desktop',
-                operations: operations.map((record) => ({
-                  entityType: record.entity_type,
-                  entityId: record.entity_id,
-                  operation: record.operation,
-                  payload: record.payload,
-                })),
-              }),
+          let lastError: Error | null = null;
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            try {
+              const response = await fetch(
+                `${cloudUrl.replace(/\/$/, '')}/api/sync`,
+                {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${nextAccount.accessToken}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    source: 'desktop',
+                    operations: operations.map((record) => ({
+                      entityType: record.entity_type,
+                      entityId: record.entity_id,
+                      operation: record.operation,
+                      payload: record.payload,
+                    })),
+                  }),
+                }
+              );
+              if (response.ok) return;
+              lastError = new Error(
+                `Cloud sync returned HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`
+              );
+            } catch (error) {
+              lastError =
+                error instanceof Error ? error : new Error(String(error));
             }
-          );
-          if (!response.ok) {
-            throw new Error(
-              `Cloud sync returned HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`
-            );
+            if (attempt < 2) {
+              await new Promise((resolve) =>
+                window.setTimeout(resolve, 500 * (attempt + 1))
+              );
+            }
           }
+          throw lastError ?? new Error('Cloud sync failed');
         };
 
-        for (let index = 0; index < publishedRecords.length; index += 100) {
-          await publish(publishedRecords.slice(index, index + 100));
+        // The catalog is independently useful to Mobile. Do not let a stale
+        // board record or a transient Cloud failure prevent models/pipelines
+        // from being published, and do not let a catalog failure hide cards.
+        const catalogRecords = publishedRecords.filter(
+          (record) =>
+            record.entity_type === 'pipeline' ||
+            record.entity_type === 'executor_options'
+        );
+        const boardRecords = publishedRecords.filter(
+          (record) =>
+            record.entity_type !== 'pipeline' &&
+            record.entity_type !== 'executor_options'
+        );
+        try {
+          for (let index = 0; index < boardRecords.length; index += 100) {
+            await publish(boardRecords.slice(index, index + 100));
+          }
+        } catch (error) {
+          console.warn('AuraPunk Cloud board sync failed', error);
+        }
+        try {
+          for (let index = 0; index < catalogRecords.length; index += 100) {
+            await publish(catalogRecords.slice(index, index + 100));
+          }
+        } catch (error) {
+          console.warn('AuraPunk Cloud catalog sync failed', error);
         }
 
         // Keep the same discovered model catalog available to Mobile. The
@@ -421,7 +477,22 @@ export function CloudAuthActions() {
         if (!saved) return;
         const parsed = JSON.parse(saved) as CloudAccount;
         if (!cancelled && parsed.accessToken) {
+          // Tokens issued before hosted memory was added can still represent a
+          // valid Cloud account, but they cannot authenticate the memory
+          // gateway. Do not keep presenting that account as fully connected;
+          // force a clean authorization so the next token includes `memory`.
+          if (!parsed.memory?.enabled || !parsed.scopes.includes('memory')) {
+            await clearPersistedAccount();
+            window.localStorage.removeItem(CLOUD_ACCOUNT_STORAGE_KEY);
+            window.localStorage.removeItem(
+              `${CLOUD_MEMORY_PREFERENCE_PREFIX}:${parsed.userId}`
+            );
+            setAccount(null);
+            window.dispatchEvent(new Event('aurapunk-cloud-account-changed'));
+            return;
+          }
           setAccount(parsed);
+          window.dispatchEvent(new Event('aurapunk-cloud-account-changed'));
           void persistAccount(parsed);
           void offerCloudMemory(parsed);
           void syncCloudContext(parsed);
@@ -433,7 +504,12 @@ export function CloudAuthActions() {
     return () => {
       cancelled = true;
     };
-  }, [offerCloudMemory, persistAccount, syncCloudContext]);
+  }, [
+    clearPersistedAccount,
+    offerCloudMemory,
+    persistAccount,
+    syncCloudContext,
+  ]);
 
   useEffect(() => {
     if (!account?.accessToken) return;
@@ -529,24 +605,41 @@ export function CloudAuthActions() {
         if (result.status !== 'complete') continue;
 
         setAccount(result.account);
-        await offerCloudMemory(result.account, true);
+        // Persist the device authorization before opening any optional
+        // follow-up dialog. If the memory prompt is dismissed or fails, the
+        // browser authorization must still remain connected to this app.
+        try {
+          await persistAccount(result.account);
+        } catch (error) {
+          console.warn('Could not persist AuraPunk Cloud account', error);
+        }
+        try {
+          await offerCloudMemory(result.account, true);
+        } catch (error) {
+          console.warn('Could not open AuraPunk Cloud memory prompt', error);
+        }
         void syncCloudContext(result.account);
-        void persistAccount(result.account);
         break;
       }
     } catch (error) {
       console.warn('Could not start AuraPunk Cloud sign-in', error);
-      // A malformed self-hosted URL or an unavailable external opener should
-      // not break the local application.
-      try {
-        await openExternal(`${DEFAULT_AURAPUNK_CLOUD_URL}/dashboard`);
-      } catch {
-        // Keep the local app usable when no external browser is available.
-      }
+      // Do not redirect to the dashboard here: that hides an authorization
+      // failure and looks like a successful login. The native opener has its
+      // own platform fallback, so this branch is only for a real failure.
     } finally {
       setPending(false);
     }
   }, [cloudUrl, offerCloudMemory, openExternal, persistAccount]);
+
+  useEffect(() => {
+    const handleLoginRequest = () => void openCloudAuth();
+    window.addEventListener('aurapunk-cloud-login-request', handleLoginRequest);
+    return () =>
+      window.removeEventListener(
+        'aurapunk-cloud-login-request',
+        handleLoginRequest
+      );
+  }, [openCloudAuth]);
 
   const openDashboard = useCallback(() => {
     void openExternal(`${cloudUrl.replace(/\/$/, '')}/dashboard`);
@@ -555,6 +648,7 @@ export function CloudAuthActions() {
   const signOut = useCallback(() => {
     void clearPersistedAccount();
     setAccount(null);
+    window.dispatchEvent(new Event('aurapunk-cloud-account-changed'));
     void syncMem0Account(null);
   }, [clearPersistedAccount, syncMem0Account]);
 
@@ -613,6 +707,7 @@ type CloudAccount = {
   deviceId: string;
   scopes: string[];
   expiresAt: number;
+  memoryPreference?: 'cloud' | 'self-hosted';
   memory?: {
     enabled: boolean;
     gatewayUrl: string;
@@ -643,6 +738,7 @@ type CloudSyncRecord = {
     | 'issue'
     | 'job'
     | 'executor_options'
+    | 'pipeline'
     | 'instance';
   entity_id: string;
   operation: 'upsert' | 'delete';
@@ -668,6 +764,13 @@ type MobileWorkspaceRequest = {
   kind: 'workspace_request';
   issue_id: string;
   executor?: string;
+  model_id?: string;
+  reasoning_id?: string;
+  agent_id?: string;
+  permission_policy?: string;
+  prompt?: string;
+  pipeline_id?: string;
+  pipeline_stage_ids?: string[];
 };
 
 type MobileWorkspaceRequestResult = {

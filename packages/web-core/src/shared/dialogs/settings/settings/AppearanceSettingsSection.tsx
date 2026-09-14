@@ -6,15 +6,9 @@ import {
   TrashIcon,
   ArrowClockwiseIcon,
   CheckIcon,
-  TelevisionIcon,
 } from '@phosphor-icons/react';
-import { ThemeMode } from 'shared/types';
-import { toPrettyCase } from '@/shared/lib/string';
-import { useTheme } from '@/shared/hooks/useTheme';
-import { useUserSystem } from '@/shared/hooks/useUserSystem';
 import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import {
-  DEFAULT_THEME_VARIANT,
   type MobileFontScale,
   type UiFontFamily,
   type CodeFontFamily,
@@ -22,17 +16,14 @@ import {
   type CodeFontSize,
   useAnimateRunningOutline,
   useMobileFontScale,
-  useThemeVariant,
   useUiFontFamily,
   useCodeFontFamily,
   useUiFontScale,
   useCodeFontSize,
   useCustomTheme,
-  useCustomThemeEnabled,
   useSavedCustomThemes,
   useUiPreferencesStore,
 } from '@/shared/stores/useUiPreferencesStore';
-import { useThemeManifest } from '@/shared/lib/themeVariant';
 import {
   CODE_FONT_OPTIONS,
   CODE_FONT_SIZE_OPTIONS,
@@ -50,129 +41,14 @@ import {
   SettingsSelect,
 } from './SettingsComponents';
 
-const LEGACY_THEMES = [
-  {
-    id: 'phosphor',
-    name: 'Phosphor',
-    description:
-      'Classic green-CRT terminal, heavy scanlines, green monochrome glow.',
-    canvasBg: '#051509',
-    surfaceBg: '#081d0f',
-    textColor: '#86efac',
-    highlightColor: '#22c55e',
-    badge: 'CRT Green',
-  },
-  {
-    id: 'amber',
-    name: 'Amber Terminal',
-    description:
-      'Amber command-line aesthetic on deep navy, scanlines and CRT texture.',
-    canvasBg: '#120c02',
-    surfaceBg: '#1e1405',
-    textColor: '#fde047',
-    highlightColor: '#f59e0b',
-    badge: 'CRT Amber',
-  },
-  {
-    id: 'navy-hud',
-    name: 'Navy HUD',
-    description:
-      'Cyan-on-navy sci-fi HUD with CRT scanlines and tactical glow.',
-    canvasBg: '#061325',
-    surfaceBg: '#0a1c35',
-    textColor: '#a5f3fc',
-    highlightColor: '#06b6d4',
-    badge: 'Sci-Fi HUD',
-  },
-  {
-    id: 'atelier-night',
-    name: 'Atelier Night',
-    description:
-      'Near-black editorial surfaces with lilac and electric-blue accents.',
-    canvasBg: '#121118',
-    surfaceBg: '#1a1824',
-    textColor: '#e0e7ff',
-    highlightColor: '#818cf8',
-    badge: 'Editorial',
-  },
-  {
-    id: 'atelier',
-    name: 'Atelier',
-    description:
-      'Warm editorial surfaces with cobalt, coral, sage, and golden accents.',
-    canvasBg: '#1c1a1f',
-    surfaceBg: '#26232b',
-    textColor: '#f3f4f6',
-    highlightColor: '#f43f5e',
-    badge: 'Warm Editorial',
-  },
-  {
-    id: 'noir-neon',
-    name: 'Noir Neon',
-    description:
-      'Near-black charcoal base with electric neon-orange accent and soft glow.',
-    canvasBg: '#0e0e10',
-    surfaceBg: '#18181b',
-    textColor: '#fafafa',
-    highlightColor: '#ff6b00',
-    badge: 'Noir Glow',
-  },
-  {
-    id: 'violet-synth',
-    name: 'Violet Synth',
-    description:
-      'Synthwave console: magenta glow on deep violet, cyan status accents.',
-    canvasBg: '#12091f',
-    surfaceBg: '#1d1033',
-    textColor: '#f5d0fe',
-    highlightColor: '#d946ef',
-    badge: 'Synthwave',
-  },
-  {
-    id: 'ghost-white',
-    name: 'Ghost White',
-    description: 'P4 white-phosphor monochrome VDU on cold blue-black.',
-    canvasBg: '#0b0e14',
-    surfaceBg: '#121721',
-    textColor: '#f1f5f9',
-    highlightColor: '#e2e8f0',
-    badge: 'P4 Phosphor',
-  },
-  {
-    id: 'redline',
-    name: 'Redline',
-    description: 'Alert-red console on scorched near-black, amber warnings.',
-    canvasBg: '#120808',
-    surfaceBg: '#1f0e0e',
-    textColor: '#fecaca',
-    highlightColor: '#ef4444',
-    badge: 'Alert Red',
-  },
-  {
-    id: 'paper-tty',
-    name: 'Paper TTY',
-    description: 'Light hardcopy teletype: warm paper stock, ribbon-red ink.',
-    canvasBg: '#f5f0e6',
-    surfaceBg: '#eae3d2',
-    textColor: '#292524',
-    highlightColor: '#dc2626',
-    badge: 'Paper TTY',
-  },
-];
-
 export function AppearanceSettingsSection() {
   const { t } = useTranslation(['settings', 'common']);
   const isMobile = useIsMobile();
 
-  const { config, updateAndSaveConfig } = useUserSystem();
-  const { setTheme } = useTheme();
-
-  // Theme variant & Outline
-  const [themeVariant, setThemeVariant] = useThemeVariant();
+  // Appearance is now driven exclusively by the custom palette system.
   const [animateRunningOutline, setAnimateRunningOutline] =
     useAnimateRunningOutline();
   const [mobileFontScale, setMobileFontScale] = useMobileFontScale();
-  const { themes: themeVariantManifest } = useThemeManifest();
 
   // Typography
   const [uiFontFamily, setUiFontFamily] = useUiFontFamily();
@@ -182,7 +58,9 @@ export function AppearanceSettingsSection() {
 
   // Custom Themes
   const [customTheme, setCustomTheme] = useCustomTheme();
-  const [customThemeEnabled, setCustomThemeEnabled] = useCustomThemeEnabled();
+  // The legacy enable/disable switch is intentionally gone. The custom
+  // palette is the only theme system now, so it is always active.
+  const customThemeEnabled = true;
   const {
     themes: savedThemes,
     save: saveTheme,
@@ -191,26 +69,10 @@ export function AppearanceSettingsSection() {
   } = useSavedCustomThemes();
   const resetDefaults = useUiPreferencesStore((s) => s.resetAppearanceDefaults);
 
-  const [presetCategory, setPresetCategory] = useState<'modern' | 'legacy'>(
-    'modern'
-  );
   const [newThemeName, setNewThemeName] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const themeOptions = Object.values(ThemeMode).map((theme) => ({
-    value: theme,
-    label: toPrettyCase(theme),
-  }));
-
-  const themeVariantOptions = [
-    { value: DEFAULT_THEME_VARIANT, label: 'Default' },
-    ...themeVariantManifest.map((variant) => ({
-      value: variant.id,
-      label: variant.name,
-    })),
-  ];
 
   const handleExport = () => {
     exportThemeToFile(customTheme, {
@@ -237,9 +99,6 @@ export function AppearanceSettingsSection() {
       }
 
       setCustomTheme(parsed.theme);
-      setCustomThemeEnabled(true);
-      setThemeVariant(DEFAULT_THEME_VARIANT);
-      updateAndSaveConfig({ theme_variant: DEFAULT_THEME_VARIANT });
       if (parsed.typography) {
         setUiFontFamily(parsed.typography.uiFontFamily);
         setCodeFontFamily(parsed.typography.codeFontFamily);
@@ -262,9 +121,9 @@ export function AppearanceSettingsSection() {
   };
 
   const activeGradient = useMemo(() => {
-    if (!customTheme.enableGradient || !customThemeEnabled) return null;
+    if (!customTheme.enableGradient) return null;
     return `linear-gradient(${customTheme.gradientAngle || 135}deg, ${customTheme.gradientColor1} 0%, ${customTheme.gradientColor2} 100%)`;
-  }, [customTheme, customThemeEnabled]);
+  }, [customTheme]);
 
   return (
     <div className="space-y-6 pb-12">
@@ -332,11 +191,7 @@ export function AppearanceSettingsSection() {
                   Aurapunk
                 </span>
                 <span className="text-xs font-semibold">
-                  {themeVariant !== DEFAULT_THEME_VARIANT
-                    ? `Skin: ${themeVariant}`
-                    : customThemeEnabled
-                      ? `Custom: ${customTheme.name || 'Theme'}`
-                      : 'Workspace: Default'}
+                  {`Custom: ${customTheme.name || 'Theme'}`}
                 </span>
               </div>
             </div>
@@ -501,11 +356,7 @@ export function AppearanceSettingsSection() {
               <div className="pl-2 leading-snug">
                 theme:{' '}
                 <span className="text-warning">
-                  '
-                  {themeVariant !== DEFAULT_THEME_VARIANT
-                    ? themeVariant
-                    : customTheme.name || 'custom'}
-                  '
+                  '{customTheme.name || 'custom'}'
                 </span>
                 ,
               </div>
@@ -521,231 +372,85 @@ export function AppearanceSettingsSection() {
         </div>
       </SettingsCard>
 
-      {/* 2. Theme Presets (Modern & Legacy CRT) */}
+      {/* 2. Theme Presets */}
       <SettingsCard
         title="Theme Presets"
-        description="Choose from modern color palettes, gradient styles, or classic legacy CRT terminal skins."
+        description="Choose a saved Aurapunk palette or start from a modern preset."
       >
-        {/* Category Switcher Tabs */}
-        <div className="flex items-center gap-2 p-1 bg-secondary/50 rounded border border-border/80 w-fit mb-4">
-          <button
-            type="button"
-            onClick={() => setPresetCategory('modern')}
-            className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
-              presetCategory === 'modern'
-                ? 'bg-panel text-high shadow-xs border border-border/60'
-                : 'text-low hover:text-normal'
-            }`}
-          >
-            Modern Palettes ({THEME_PRESETS.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setPresetCategory('legacy')}
-            className={`px-3 py-1 text-xs font-medium rounded transition-colors flex items-center gap-1.5 ${
-              presetCategory === 'legacy'
-                ? 'bg-panel text-high shadow-xs border border-border/60'
-                : 'text-low hover:text-normal'
-            }`}
-          >
-            <TelevisionIcon className="size-3.5" />
-            Legacy CRT & Skins ({LEGACY_THEMES.length})
-          </button>
-        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {THEME_PRESETS.map((preset) => {
+            const isSelected =
+              customThemeEnabled && customTheme.name === preset.theme.name;
+            const gradientStyle = preset.theme.enableGradient
+              ? `linear-gradient(135deg, ${preset.theme.gradientColor1} 0%, ${preset.theme.gradientColor2} 100%)`
+              : preset.theme.highlightColor;
 
-        {/* Modern Presets */}
-        {presetCategory === 'modern' ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {THEME_PRESETS.map((preset) => {
-              const isSelected =
-                customThemeEnabled &&
-                themeVariant === DEFAULT_THEME_VARIANT &&
-                customTheme.name === preset.theme.name;
-              const gradientStyle = preset.theme.enableGradient
-                ? `linear-gradient(135deg, ${preset.theme.gradientColor1} 0%, ${preset.theme.gradientColor2} 100%)`
-                : preset.theme.highlightColor;
-
-              return (
-                <div
-                  key={preset.id}
-                  onClick={() => {
-                    setCustomTheme(preset.theme);
-                    setCustomThemeEnabled(true);
-                    setThemeVariant(DEFAULT_THEME_VARIANT);
-                    updateAndSaveConfig({
-                      theme_variant: DEFAULT_THEME_VARIANT,
-                    });
-                    if (preset.uiFontFamily)
-                      setUiFontFamily(preset.uiFontFamily);
-                    if (preset.codeFontFamily)
-                      setCodeFontFamily(preset.codeFontFamily);
-                  }}
-                  className={`group relative p-3.5 rounded-md cursor-pointer transition-all duration-200 flex flex-col justify-between ${
-                    isSelected
-                      ? 'border-2 border-brand bg-brand/10 shadow-sm'
-                      : 'border border-border dark:border-white/15 hover:border-brand/60 bg-secondary/40 hover:bg-secondary/80'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <span className="text-sm font-semibold text-high">
-                        {preset.name}
+            return (
+              <div
+                key={preset.id}
+                onClick={() => {
+                  setCustomTheme(preset.theme);
+                  if (preset.uiFontFamily) setUiFontFamily(preset.uiFontFamily);
+                  if (preset.codeFontFamily)
+                    setCodeFontFamily(preset.codeFontFamily);
+                }}
+                className={`group relative p-3.5 rounded-md cursor-pointer transition-all duration-200 flex flex-col justify-between ${
+                  isSelected
+                    ? 'border-2 border-brand bg-brand/10 shadow-sm'
+                    : 'border border-border dark:border-white/15 hover:border-brand/60 bg-secondary/40 hover:bg-secondary/80'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <span className="text-sm font-semibold text-high">
+                      {preset.name}
+                    </span>
+                    {isSelected && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-brand text-white shadow-xs shrink-0">
+                        <CheckIcon weight="bold" className="size-3" />
+                        Active
                       </span>
-                      {isSelected && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-brand text-white shadow-xs shrink-0">
-                          <CheckIcon weight="bold" className="size-3" />
-                          Active
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-low line-clamp-2 mb-3">
-                      {preset.description}
-                    </p>
+                    )}
                   </div>
-
-                  {/* Color swatches */}
-                  <div className="flex items-center gap-1.5 pt-2 border-t border-border/40">
-                    <div
-                      className="w-5 h-5 rounded-full border border-white/25 ring-1 ring-black/30 shadow-xs"
-                      style={{ backgroundColor: preset.theme.canvasBg }}
-                      title="Canvas Background"
-                    />
-                    <div
-                      className="w-5 h-5 rounded-full border border-white/25 ring-1 ring-black/30 shadow-xs"
-                      style={{ backgroundColor: preset.theme.surfaceBg }}
-                      title="Surface / Panels"
-                    />
-                    <div
-                      className="w-5 h-5 rounded-full border border-white/25 ring-1 ring-black/30 shadow-xs"
-                      style={{ backgroundColor: preset.theme.textColor }}
-                      title="Primary Text"
-                    />
-                    <div
-                      className="w-5 h-5 rounded-full ml-auto border border-white/25 ring-1 ring-black/30 shadow-xs"
-                      style={{ background: gradientStyle }}
-                      title="Highlight / Gradient"
-                    />
-                  </div>
+                  <p className="text-xs text-low line-clamp-2 mb-3">
+                    {preset.description}
+                  </p>
                 </div>
-              );
-            })}
-          </div>
-        ) : (
-          /* Legacy CRT & Retro Skins */
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {LEGACY_THEMES.map((legacy) => {
-              const isSelected =
-                !customThemeEnabled && themeVariant === legacy.id;
 
-              return (
-                <div
-                  key={legacy.id}
-                  onClick={() => {
-                    setThemeVariant(legacy.id);
-                    updateAndSaveConfig({ theme_variant: legacy.id });
-                    setCustomThemeEnabled(false);
-                  }}
-                  className={`group relative p-3.5 rounded-md cursor-pointer transition-all duration-200 flex flex-col justify-between ${
-                    isSelected
-                      ? 'border-2 border-brand bg-brand/10 shadow-sm'
-                      : 'border border-border dark:border-white/15 hover:border-brand/60 bg-secondary/40 hover:bg-secondary/80'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-semibold text-high">
-                          {legacy.name}
-                        </span>
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-secondary text-low font-mono border border-border/50">
-                          {legacy.badge}
-                        </span>
-                      </div>
-                      {isSelected && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-brand text-white shadow-xs shrink-0">
-                          <CheckIcon weight="bold" className="size-3" />
-                          Active
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-low line-clamp-2 mb-3">
-                      {legacy.description}
-                    </p>
-                  </div>
-
-                  {/* Color swatches */}
-                  <div className="flex items-center gap-1.5 pt-2 border-t border-border/40">
-                    <div
-                      className="w-5 h-5 rounded-full border border-white/25 ring-1 ring-black/30 shadow-xs"
-                      style={{ backgroundColor: legacy.canvasBg }}
-                      title="Canvas Background"
-                    />
-                    <div
-                      className="w-5 h-5 rounded-full border border-white/25 ring-1 ring-black/30 shadow-xs"
-                      style={{ backgroundColor: legacy.surfaceBg }}
-                      title="Surface / Panels"
-                    />
-                    <div
-                      className="w-5 h-5 rounded-full border border-white/25 ring-1 ring-black/30 shadow-xs"
-                      style={{ backgroundColor: legacy.textColor }}
-                      title="Primary Text"
-                    />
-                    <div
-                      className="w-5 h-5 rounded-full ml-auto border border-white/25 ring-1 ring-black/30 shadow-xs"
-                      style={{ backgroundColor: legacy.highlightColor }}
-                      title="Accent Color"
-                    />
-                  </div>
+                {/* Color swatches */}
+                <div className="flex items-center gap-1.5 pt-2 border-t border-border/40">
+                  <div
+                    className="w-5 h-5 rounded-full border border-white/25 ring-1 ring-black/30 shadow-xs"
+                    style={{ backgroundColor: preset.theme.canvasBg }}
+                    title="Canvas Background"
+                  />
+                  <div
+                    className="w-5 h-5 rounded-full border border-white/25 ring-1 ring-black/30 shadow-xs"
+                    style={{ backgroundColor: preset.theme.surfaceBg }}
+                    title="Surface / Panels"
+                  />
+                  <div
+                    className="w-5 h-5 rounded-full border border-white/25 ring-1 ring-black/30 shadow-xs"
+                    style={{ backgroundColor: preset.theme.textColor }}
+                    title="Primary Text"
+                  />
+                  <div
+                    className="w-5 h-5 rounded-full ml-auto border border-white/25 ring-1 ring-black/30 shadow-xs"
+                    style={{ background: gradientStyle }}
+                    title="Highlight / Gradient"
+                  />
                 </div>
-              );
-            })}
-          </div>
-        )}
+              </div>
+            );
+          })}
+        </div>
       </SettingsCard>
 
-      {/* 3. Base Theme Mode & CRT Skin */}
+      {/* 3. Interface behavior */}
       <SettingsCard
-        title="Base Theme & CRT Terminal Skins"
-        description="Switch between light, dark, system mode, or apply retro phosphor and scanline skins."
+        title="Interface Behavior"
+        description="Configure how active workspace panels are presented."
       >
-        <SettingsField
-          label={t('settings.general.appearance.theme.label', {
-            defaultValue: 'Theme Mode',
-          })}
-          description={t('settings.general.appearance.theme.helper', {
-            defaultValue: 'Select base dark, light, or system appearance.',
-          })}
-        >
-          <SettingsSelect
-            value={config?.theme || ThemeMode.SYSTEM}
-            options={themeOptions}
-            onChange={(value) => {
-              setTheme(value);
-              updateAndSaveConfig({ theme: value });
-            }}
-            placeholder={t('settings.general.appearance.theme.placeholder', {
-              defaultValue: 'Select theme...',
-            })}
-          />
-        </SettingsField>
-
-        <SettingsField
-          label="Retro CRT Terminal Skin"
-          description="Drop-in skins with classic monochrome phosphor, scanlines, and CRT screen glow."
-        >
-          <SettingsSelect
-            value={themeVariant}
-            options={themeVariantOptions}
-            onChange={(value) => {
-              setThemeVariant(value);
-              updateAndSaveConfig({ theme_variant: value });
-              if (value !== DEFAULT_THEME_VARIANT) {
-                setCustomThemeEnabled(false);
-              }
-            }}
-          />
-        </SettingsField>
-
         <SettingsCheckbox
           id="animate-running-outline-appearance"
           label={t('settings.general.appearance.animateRunningOutline.label', {
@@ -856,252 +561,232 @@ export function AppearanceSettingsSection() {
         title="Custom Palette, Backgrounds & Gradient Highlights"
         description="Customize canvas background (behind everything), interface surface, font color, and gradient highlights."
       >
-        <SettingsCheckbox
-          id="enable-custom-theme-colors"
-          label="Enable Custom Color Palette"
-          description="Overrides default system colors with your custom configuration below."
-          checked={customThemeEnabled}
-          onChange={(enabled) => {
-            setCustomThemeEnabled(enabled);
-            if (enabled) {
-              setThemeVariant(DEFAULT_THEME_VARIANT);
-              updateAndSaveConfig({ theme_variant: DEFAULT_THEME_VARIANT });
-            }
-          }}
-        />
-
-        {customThemeEnabled && (
-          <div className="space-y-4 pt-3 border-t border-border">
-            {/* Background colors */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-high">
-                  Canvas Background (Behind Everything)
-                </label>
-                <p className="text-xs text-low">
-                  Main root canvas and window background.
-                </p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={customTheme.canvasBg}
-                    onChange={(e) =>
-                      setCustomTheme({ canvasBg: e.target.value })
-                    }
-                    className="w-9 h-8 p-0 rounded border border-border cursor-pointer bg-transparent"
-                  />
-                  <input
-                    type="text"
-                    value={customTheme.canvasBg}
-                    onChange={(e) =>
-                      setCustomTheme({ canvasBg: e.target.value })
-                    }
-                    className="flex-1 bg-secondary border border-border rounded-sm px-2.5 py-1 text-sm text-high font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-high">
-                  Interface Surface (Panels, Cards, Sidebars)
-                </label>
-                <p className="text-xs text-low">
-                  Elevated surface for cards, inputs, and sidebars.
-                </p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={customTheme.surfaceBg}
-                    onChange={(e) =>
-                      setCustomTheme({ surfaceBg: e.target.value })
-                    }
-                    className="w-9 h-8 p-0 rounded border border-border cursor-pointer bg-transparent"
-                  />
-                  <input
-                    type="text"
-                    value={customTheme.surfaceBg}
-                    onChange={(e) =>
-                      setCustomTheme({ surfaceBg: e.target.value })
-                    }
-                    className="flex-1 bg-secondary border border-border rounded-sm px-2.5 py-1 text-sm text-high font-mono"
-                  />
-                </div>
+        <div className="space-y-4 pt-3 border-t border-border">
+          {/* Background colors */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-high">
+                Canvas Background (Behind Everything)
+              </label>
+              <p className="text-xs text-low">
+                Main root canvas and window background.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={customTheme.canvasBg}
+                  onChange={(e) => setCustomTheme({ canvasBg: e.target.value })}
+                  className="w-9 h-8 p-0 rounded border border-border cursor-pointer bg-transparent"
+                />
+                <input
+                  type="text"
+                  value={customTheme.canvasBg}
+                  onChange={(e) => setCustomTheme({ canvasBg: e.target.value })}
+                  className="flex-1 bg-secondary border border-border rounded-sm px-2.5 py-1 text-sm text-high font-mono"
+                />
               </div>
             </div>
 
-            {/* Text colors */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-high">
-                  Font Color (Primary Text)
-                </label>
-                <p className="text-xs text-low">
-                  High-contrast text for headings, messages, and titles.
-                </p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={customTheme.textColor}
-                    onChange={(e) =>
-                      setCustomTheme({ textColor: e.target.value })
-                    }
-                    className="w-9 h-8 p-0 rounded border border-border cursor-pointer bg-transparent"
-                  />
-                  <input
-                    type="text"
-                    value={customTheme.textColor}
-                    onChange={(e) =>
-                      setCustomTheme({ textColor: e.target.value })
-                    }
-                    className="flex-1 bg-secondary border border-border rounded-sm px-2.5 py-1 text-sm text-high font-mono"
-                  />
-                </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-high">
+                Interface Surface (Panels, Cards, Sidebars)
+              </label>
+              <p className="text-xs text-low">
+                Elevated surface for cards, inputs, and sidebars.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={customTheme.surfaceBg}
+                  onChange={(e) =>
+                    setCustomTheme({ surfaceBg: e.target.value })
+                  }
+                  className="w-9 h-8 p-0 rounded border border-border cursor-pointer bg-transparent"
+                />
+                <input
+                  type="text"
+                  value={customTheme.surfaceBg}
+                  onChange={(e) =>
+                    setCustomTheme({ surfaceBg: e.target.value })
+                  }
+                  className="flex-1 bg-secondary border border-border rounded-sm px-2.5 py-1 text-sm text-high font-mono"
+                />
               </div>
+            </div>
+          </div>
 
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-high">
-                  Secondary Text Color (Muted)
-                </label>
-                <p className="text-xs text-low">
-                  Labels, timestamps, hints, and secondary metadata.
-                </p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={customTheme.textMutedColor}
-                    onChange={(e) =>
-                      setCustomTheme({ textMutedColor: e.target.value })
-                    }
-                    className="w-9 h-8 p-0 rounded border border-border cursor-pointer bg-transparent"
-                  />
-                  <input
-                    type="text"
-                    value={customTheme.textMutedColor}
-                    onChange={(e) =>
-                      setCustomTheme({ textMutedColor: e.target.value })
-                    }
-                    className="flex-1 bg-secondary border border-border rounded-sm px-2.5 py-1 text-sm text-high font-mono"
-                  />
-                </div>
+          {/* Text colors */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-high">
+                Font Color (Primary Text)
+              </label>
+              <p className="text-xs text-low">
+                High-contrast text for headings, messages, and titles.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={customTheme.textColor}
+                  onChange={(e) =>
+                    setCustomTheme({ textColor: e.target.value })
+                  }
+                  className="w-9 h-8 p-0 rounded border border-border cursor-pointer bg-transparent"
+                />
+                <input
+                  type="text"
+                  value={customTheme.textColor}
+                  onChange={(e) =>
+                    setCustomTheme({ textColor: e.target.value })
+                  }
+                  className="flex-1 bg-secondary border border-border rounded-sm px-2.5 py-1 text-sm text-high font-mono"
+                />
               </div>
             </div>
 
-            {/* Highlight & Gradient */}
-            <div className="pt-2 border-t border-border/60">
-              <div className="space-y-1.5 mb-3">
-                <label className="text-sm font-medium text-high">
-                  Highlight Color (Brand Accent)
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={customTheme.highlightColor}
-                    onChange={(e) =>
-                      setCustomTheme({ highlightColor: e.target.value })
-                    }
-                    className="w-9 h-8 p-0 rounded border border-border cursor-pointer bg-transparent"
-                  />
-                  <input
-                    type="text"
-                    value={customTheme.highlightColor}
-                    onChange={(e) =>
-                      setCustomTheme({ highlightColor: e.target.value })
-                    }
-                    className="flex-1 bg-secondary border border-border rounded-sm px-2.5 py-1 text-sm text-high font-mono"
-                  />
-                </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-high">
+                Secondary Text Color (Muted)
+              </label>
+              <p className="text-xs text-low">
+                Labels, timestamps, hints, and secondary metadata.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={customTheme.textMutedColor}
+                  onChange={(e) =>
+                    setCustomTheme({ textMutedColor: e.target.value })
+                  }
+                  className="w-9 h-8 p-0 rounded border border-border cursor-pointer bg-transparent"
+                />
+                <input
+                  type="text"
+                  value={customTheme.textMutedColor}
+                  onChange={(e) =>
+                    setCustomTheme({ textMutedColor: e.target.value })
+                  }
+                  className="flex-1 bg-secondary border border-border rounded-sm px-2.5 py-1 text-sm text-high font-mono"
+                />
               </div>
+            </div>
+          </div>
 
-              <SettingsCheckbox
-                id="enable-highlight-gradient"
-                label="Enable Gradient on Highlights & Buttons"
-                description="Applies smooth two-color gradient to primary action buttons, active badges, and accents."
-                checked={customTheme.enableGradient}
-                onChange={(checked) =>
-                  setCustomTheme({ enableGradient: checked })
-                }
-              />
+          {/* Highlight & Gradient */}
+          <div className="pt-2 border-t border-border/60">
+            <div className="space-y-1.5 mb-3">
+              <label className="text-sm font-medium text-high">
+                Highlight Color (Brand Accent)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={customTheme.highlightColor}
+                  onChange={(e) =>
+                    setCustomTheme({ highlightColor: e.target.value })
+                  }
+                  className="w-9 h-8 p-0 rounded border border-border cursor-pointer bg-transparent"
+                />
+                <input
+                  type="text"
+                  value={customTheme.highlightColor}
+                  onChange={(e) =>
+                    setCustomTheme({ highlightColor: e.target.value })
+                  }
+                  className="flex-1 bg-secondary border border-border rounded-sm px-2.5 py-1 text-sm text-high font-mono"
+                />
+              </div>
+            </div>
 
-              {customTheme.enableGradient && (
-                <div className="mt-3 p-3.5 rounded bg-secondary/50 border border-border space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-medium text-high block mb-1">
-                        Start Color
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={customTheme.gradientColor1}
-                          onChange={(e) =>
-                            setCustomTheme({ gradientColor1: e.target.value })
-                          }
-                          className="w-8 h-7 p-0 rounded border border-border cursor-pointer bg-transparent"
-                        />
-                        <input
-                          type="text"
-                          value={customTheme.gradientColor1}
-                          onChange={(e) =>
-                            setCustomTheme({ gradientColor1: e.target.value })
-                          }
-                          className="flex-1 bg-secondary border border-border rounded-sm px-2 py-0.5 text-xs font-mono"
-                        />
-                      </div>
-                    </div>
+            <SettingsCheckbox
+              id="enable-highlight-gradient"
+              label="Enable Gradient on Highlights & Buttons"
+              description="Applies smooth two-color gradient to primary action buttons, active badges, and accents."
+              checked={customTheme.enableGradient}
+              onChange={(checked) =>
+                setCustomTheme({ enableGradient: checked })
+              }
+            />
 
-                    <div>
-                      <label className="text-xs font-medium text-high block mb-1">
-                        End Color
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="color"
-                          value={customTheme.gradientColor2}
-                          onChange={(e) =>
-                            setCustomTheme({ gradientColor2: e.target.value })
-                          }
-                          className="w-8 h-7 p-0 rounded border border-border cursor-pointer bg-transparent"
-                        />
-                        <input
-                          type="text"
-                          value={customTheme.gradientColor2}
-                          onChange={(e) =>
-                            setCustomTheme({ gradientColor2: e.target.value })
-                          }
-                          className="flex-1 bg-secondary border border-border rounded-sm px-2 py-0.5 text-xs font-mono"
-                        />
-                      </div>
+            {customTheme.enableGradient && (
+              <div className="mt-3 p-3.5 rounded bg-secondary/50 border border-border space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-high block mb-1">
+                      Start Color
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={customTheme.gradientColor1}
+                        onChange={(e) =>
+                          setCustomTheme({ gradientColor1: e.target.value })
+                        }
+                        className="w-8 h-7 p-0 rounded border border-border cursor-pointer bg-transparent"
+                      />
+                      <input
+                        type="text"
+                        value={customTheme.gradientColor1}
+                        onChange={(e) =>
+                          setCustomTheme({ gradientColor1: e.target.value })
+                        }
+                        className="flex-1 bg-secondary border border-border rounded-sm px-2 py-0.5 text-xs font-mono"
+                      />
                     </div>
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span className="font-medium text-high">
-                        Gradient Angle
-                      </span>
-                      <span className="text-low font-mono">
-                        {customTheme.gradientAngle || 135}°
-                      </span>
+                    <label className="text-xs font-medium text-high block mb-1">
+                      End Color
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={customTheme.gradientColor2}
+                        onChange={(e) =>
+                          setCustomTheme({ gradientColor2: e.target.value })
+                        }
+                        className="w-8 h-7 p-0 rounded border border-border cursor-pointer bg-transparent"
+                      />
+                      <input
+                        type="text"
+                        value={customTheme.gradientColor2}
+                        onChange={(e) =>
+                          setCustomTheme({ gradientColor2: e.target.value })
+                        }
+                        className="flex-1 bg-secondary border border-border rounded-sm px-2 py-0.5 text-xs font-mono"
+                      />
                     </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="360"
-                      step="5"
-                      value={customTheme.gradientAngle || 135}
-                      onChange={(e) =>
-                        setCustomTheme({
-                          gradientAngle: Number(e.target.value),
-                        })
-                      }
-                      className="w-full accent-brand cursor-pointer"
-                    />
                   </div>
                 </div>
-              )}
-            </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="font-medium text-high">
+                      Gradient Angle
+                    </span>
+                    <span className="text-low font-mono">
+                      {customTheme.gradientAngle || 135}°
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="360"
+                    step="5"
+                    value={customTheme.gradientAngle || 135}
+                    onChange={(e) =>
+                      setCustomTheme({
+                        gradientAngle: Number(e.target.value),
+                      })
+                    }
+                    className="w-full accent-brand cursor-pointer"
+                  />
+                </div>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </SettingsCard>
 
       {/* 7. Save, Export & Import Theme Management */}
@@ -1154,10 +839,6 @@ export function AppearanceSettingsSection() {
                       type="button"
                       onClick={() => {
                         applyTheme(saved);
-                        setThemeVariant(DEFAULT_THEME_VARIANT);
-                        updateAndSaveConfig({
-                          theme_variant: DEFAULT_THEME_VARIANT,
-                        });
                       }}
                       className="px-2.5 py-1 text-xs rounded border border-brand/40 bg-brand/10 hover:bg-brand/20 text-brand font-medium transition-colors shadow-xs"
                     >

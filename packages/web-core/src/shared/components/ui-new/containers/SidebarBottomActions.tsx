@@ -4,7 +4,7 @@ import { SidebarBarButton } from '@vibe/ui/components/SidebarBarButton';
 import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { Mem0StatusIndicator } from '@/shared/components/Mem0StatusIndicator';
 import { CloudAuthActions } from '@/shared/components/CloudAuthActions';
-import { useIsCloudMode } from '@/shared/hooks/useAppMode';
+import { LocalMobilePairingAction } from '@/shared/components/LocalMobilePairingAction';
 
 /**
  * Bottom sidebar bar content (ADR-010). ADR-019: the kanban notifications
@@ -13,12 +13,12 @@ import { useIsCloudMode } from '@/shared/hooks/useAppMode';
  */
 export function SidebarBottomActions() {
   const { t } = useTranslation('common');
-  const isCloudMode = useIsCloudMode();
 
   return (
     <>
       <Mem0StatusIndicator />
-      {isCloudMode && <CloudAuthActions />}
+      <LocalMobilePairingAction />
+      <CloudAuthActions />
       <SidebarBarButton
         label={t('sidebar.settings')}
         icon={GearIcon}

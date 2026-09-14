@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# kill-dev-servers.sh — stop all locally-running vibe-kanban dev servers.
+# kill-dev-servers.sh — stop all locally-running AuraPunk IDE dev servers.
 #
 # Kills the frontend (Vite) and backend (`cargo run --bin server`) dev processes
 # spawned by `pnpm run dev` / `backend:dev:watch` / `local-web:dev`, plus any
 # server binaries left listening on the dev port range (3000-3015).
 #
 # Does NOT touch:
-#   - the installed production app  (~/.vibe-kanban/bin/.../vibe-kanban)
-#   - vibe-kanban-mcp stdio connectors attached to live Claude Code sessions
+#   - the installed production app  (~/.aurapunk-ide/bin/.../aurapunk)
+#   - AuraPunk IDE MCP stdio connectors attached to live Claude Code sessions
 #   - running Claude Code / orchestrator agents and their tmux sessions
 #
 # Dev ports are fixed (3001/3002/3003) — no port cache to reset.
@@ -70,7 +70,7 @@ done
 UNIQUE=$(printf '%s\n' "${PIDS[@]:-}" | grep -E '^[0-9]+$' | sort -un)
 
 if [[ -z "$UNIQUE" ]]; then
-  echo "No vibe-kanban dev servers running."
+  echo "No AuraPunk IDE dev servers running."
   exit 0
 fi
 

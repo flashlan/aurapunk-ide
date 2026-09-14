@@ -1,11 +1,19 @@
 # Changelog
 
-All notable changes to **vibe-kanban-alternative** are documented here. This fork is
+All notable changes to **AuraPunk IDE** are documented here. This fork is
 local-only and single-developer focused; releases are cut by pushing a `v<version>`
 tag that matches `npx-cli/package.json` (see `.github/workflows/release-alternative.yml`).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.0] - 2026-09-14
+
+This is a breaking release. The `0.3.x` line is not compatible with the `0.2.x`
+runtime and cloud contracts. It introduces the AuraPunk IDE branding, the hosted
+cloud authentication/memory path, mobile synchronization surfaces, and the
+release pipeline that publishes the npm CLI and native IDE installers from the
+same `v0.3.0` tag.
 
 ## [0.2.45] - 2026-09-03
 
