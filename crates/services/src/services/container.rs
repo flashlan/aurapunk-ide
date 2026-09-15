@@ -1139,6 +1139,29 @@ pub trait ContainerService {
             let raw_messages =
                 execution_process::load_raw_log_messages(&self.db().pool, *id).await?;
 
+            // Cloud-imported history is already normalized and contains only
+            // JSON patches. Do not run it through an executor normalizer: the
+            // cloud container has no local agent transcript to normalize, and
+            // re-normalizing would unnecessarily require a live worktree and
+            // executor installation before the conversation can be displayed.
+            let has_json_patches = raw_messages
+                .iter()
+                .any(|message| matches!(message, LogMsg::JsonPatch(_)));
+            let has_raw_output = raw_messages
+                .iter()
+                .any(|message| matches!(message, LogMsg::Stdout(_) | LogMsg::Stderr(_)));
+            if has_json_patches && !has_raw_output {
+                let stream = futures::stream::iter(
+                    raw_messages
+                        .into_iter()
+                        .filter(|message| matches!(message, LogMsg::JsonPatch(_)))
+                        .chain(std::iter::once(LogMsg::Finished))
+                        .map(Ok::<_, std::io::Error>),
+                )
+                .boxed();
+                return Some(stream);
+            }
+
             // Create temporary store and populate
             // Include JsonPatch messages (already normalized) and Stdout/Stderr (need normalization)
             let temp_store = Arc::new(MsgStore::new());

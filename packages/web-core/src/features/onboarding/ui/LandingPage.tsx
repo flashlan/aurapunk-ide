@@ -5,6 +5,7 @@ import {
   CheckIcon,
   CowIcon,
   DeviceMobileIcon,
+  DownloadSimpleIcon,
   GithubLogoIcon,
   MusicNoteIcon,
   MusicNotesIcon,
@@ -132,7 +133,7 @@ function isAgentInstalled(info: AvailabilityInfo | undefined): boolean {
 
 export function LandingPage() {
   const appNavigation = useAppNavigation();
-  const { config, updateAndSaveConfig, loading } = useUserSystem();
+  const { config, environment, updateAndSaveConfig, loading } = useUserSystem();
 
   const [initialized, setInitialized] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -149,6 +150,8 @@ export function LandingPage() {
   const [editorAvailability, setEditorAvailability] = useState<
     Partial<Record<EditorType, boolean>>
   >({});
+  const [installingTool, setInstallingTool] = useState<string | null>(null);
+  const [installError, setInstallError] = useState<string | null>(null);
   const [availabilityReady, setAvailabilityReady] = useState(false);
   const hasRedirectedToRootRef = useRef(false);
 
@@ -243,25 +246,17 @@ export function LandingPage() {
       return getAgentName(a).localeCompare(getAgentName(b));
     };
 
-    return [...Object.values(BaseCodingAgent)]
-      .filter(
-        (agent) =>
-          !availabilityReady || isAgentInstalled(agentAvailability[agent])
-      )
-      .sort(compareAgents);
-  }, [agentAvailability, availabilityReady]);
+    return [...Object.values(BaseCodingAgent)].sort(compareAgents);
+  }, []);
 
-  const editorOptions = useMemo(
-    () => [
-      ...Object.values(EditorType).filter(
-        (editor) =>
-          editor === EditorType.CUSTOM ||
-          !availabilityReady ||
-          editorAvailability[editor]
-      ),
-    ],
-    [availabilityReady, editorAvailability]
-  );
+  const editorOptions = useMemo(() => [...Object.values(EditorType)], []);
+
+  const environmentType = environment?.os_type?.toLowerCase() ?? '';
+  const isLinuxEnvironment =
+    /linux|debian|ubuntu|fedora|arch|alpine|centos|rhel|rocky|alma|suse|opensuse|mint/.test(
+      environmentType
+    );
+  const supportsGraphicalEditorInstall = !isLinuxEnvironment;
 
   useEffect(() => {
     if (!availabilityReady) return;
@@ -296,6 +291,39 @@ export function LandingPage() {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
+  const installTool = async (
+    kind: 'agent' | 'editor',
+    id: BaseCodingAgent | EditorType,
+    name: string
+  ) => {
+    const key = `${kind}:${id}`;
+    setInstallingTool(key);
+    setInstallError(null);
+
+    try {
+      await configApi.installTool(kind, id);
+      if (kind === 'agent') {
+        setAgentAvailability((current) => ({
+          ...current,
+          [id as BaseCodingAgent]: { type: 'INSTALLATION_FOUND' },
+        }));
+      } else {
+        setEditorAvailability((current) => ({
+          ...current,
+          [id as EditorType]: true,
+        }));
+      }
+    } catch (error) {
+      setInstallError(
+        error instanceof Error
+          ? error.message
+          : `Could not install ${name}. Check the environment and try again.`
+      );
+    } finally {
+      setInstallingTool(null);
+    }
+  };
+
   const handleSoundSelect = (value: SoundFile) => {
     setSoundEnabled(true);
     setSoundFile(value);
@@ -304,8 +332,11 @@ export function LandingPage() {
 
   const isCustomEditorValid =
     editorType !== EditorType.CUSTOM || customCommand.trim() !== '';
-  const hasInstalledAgent = executorOptions.includes(selectedAgent);
-  const hasInstalledEditor = editorOptions.includes(editorType);
+  const hasInstalledAgent = isAgentInstalled(agentAvailability[selectedAgent]);
+  const hasInstalledEditor =
+    isLinuxEnvironment ||
+    editorType === EditorType.CUSTOM ||
+    editorAvailability[editorType] === true;
   const canContinue =
     !saving && isCustomEditorValid && hasInstalledAgent && hasInstalledEditor;
 
@@ -423,12 +454,22 @@ export function LandingPage() {
               <div className="grid gap-1.5">
                 {executorOptions.map((agent) => {
                   const selected = selectedAgent === agent;
+                  const toolKey = `agent:${agent}`;
+                  const installed = isAgentInstalled(agentAvailability[agent]);
 
                   return (
-                    <button
+                    <div
                       key={agent}
-                      type="button"
                       onClick={() => setSelectedAgent(agent)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setSelectedAgent(agent);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={selected}
                       className={cn(
                         'flex items-center gap-base rounded-sm border px-base py-half text-left',
                         selected
@@ -444,16 +485,27 @@ export function LandingPage() {
                         {getAgentName(agent)}
                       </span>
                       {AGENT_DOWNLOAD_LINKS[agent] && (
-                        <a
-                          href={AGENT_DOWNLOAD_LINKS[agent]}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(event) => event.stopPropagation()}
-                          className="shrink-0 text-xs text-brand hover:underline"
-                          aria-label={`Download ${getAgentName(agent)}`}
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void installTool(
+                              'agent',
+                              agent,
+                              getAgentName(agent)
+                            );
+                          }}
+                          disabled={installingTool !== null}
+                          className="inline-flex shrink-0 items-center gap-1 text-xs text-brand hover:underline disabled:cursor-wait disabled:opacity-60"
+                          aria-label={`${installed ? 'Reinstall' : 'Install'} ${getAgentName(agent)}`}
                         >
-                          Download
-                        </a>
+                          <DownloadSimpleIcon className="size-icon-xs" />
+                          {installingTool === toolKey
+                            ? 'Installing...'
+                            : installed
+                              ? 'Installed'
+                              : 'Install'}
+                        </button>
                       )}
                       {selected && (
                         <CheckIcon
@@ -461,7 +513,7 @@ export function LandingPage() {
                           weight="bold"
                         />
                       )}
-                    </button>
+                    </div>
                   );
                 })}
                 {availabilityReady && executorOptions.length === 0 && (
@@ -472,7 +524,8 @@ export function LandingPage() {
                 )}
               </div>
               <p className="text-xs text-low">
-                Download links open the official CLI or installation guide.
+                Install runs the official package installer inside this
+                environment. Authentication is still performed with the CLI.
               </p>
             </section>
 
@@ -487,12 +540,24 @@ export function LandingPage() {
               <div className="grid gap-1.5">
                 {editorOptions.map((editor) => {
                   const selected = editorType === editor;
+                  const toolKey = `editor:${editor}`;
+                  const installed =
+                    editor === EditorType.CUSTOM ||
+                    editorAvailability[editor] === true;
 
                   return (
-                    <button
+                    <div
                       key={editor}
-                      type="button"
                       onClick={() => setEditorType(editor)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setEditorType(editor);
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={selected}
                       className={cn(
                         'flex items-center gap-base rounded-sm border px-base py-half text-left',
                         selected
@@ -507,25 +572,41 @@ export function LandingPage() {
                       <span className="text-sm text-normal flex-1 truncate">
                         {getIdeName(editor)}
                       </span>
-                      {EDITOR_DOWNLOAD_LINKS[editor] && (
-                        <a
-                          href={EDITOR_DOWNLOAD_LINKS[editor]}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(event) => event.stopPropagation()}
-                          className="shrink-0 text-xs text-brand hover:underline"
-                          aria-label={`Download ${getIdeName(editor)}`}
-                        >
-                          Download
-                        </a>
-                      )}
+                      {EDITOR_DOWNLOAD_LINKS[editor] &&
+                        supportsGraphicalEditorInstall && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void installTool(
+                                'editor',
+                                editor,
+                                getIdeName(editor)
+                              );
+                            }}
+                            disabled={installingTool !== null}
+                            className="inline-flex shrink-0 items-center gap-1 text-xs text-brand hover:underline disabled:cursor-wait disabled:opacity-60"
+                            aria-label={`${installed ? 'Reinstall' : 'Install'} ${getIdeName(editor)}`}
+                          >
+                            <DownloadSimpleIcon className="size-icon-xs" />
+                            {installingTool === toolKey
+                              ? 'Installing...'
+                              : installed
+                                ? 'Installed'
+                                : 'Install'}
+                          </button>
+                        )}
+                      {EDITOR_DOWNLOAD_LINKS[editor] &&
+                        !supportsGraphicalEditorInstall && (
+                          <span className="text-xs text-low">CLI-first</span>
+                        )}
                       {selected && (
                         <CheckIcon
                           className="size-icon-xs text-brand shrink-0"
                           weight="bold"
                         />
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -552,9 +633,15 @@ export function LandingPage() {
                 </div>
               )}
               <p className="text-xs text-low">
-                Graphical editors are installed on your local machine; cloud
-                workspaces remain CLI-first.
+                {isLinuxEnvironment
+                  ? 'Cloud/Linux workspaces are CLI-first; graphical editors are optional and are not installed automatically.'
+                  : 'Graphical editors are installed on this machine when a supported package manager is available.'}
               </p>
+              {installError && (
+                <p className="rounded-sm border border-warning/60 bg-warning/10 p-base text-xs text-warning">
+                  {installError}
+                </p>
+              )}
             </section>
 
             {/* Column 3: Notification Sound */}

@@ -107,7 +107,6 @@ export function Sidebar({
   onTasksExpansionChange,
   onSelectIssue,
   isLoadingProjects,
-  isLoadingWorkspaces,
   onSelectWorkspace,
   onOpenProjectPage,
   onOpenWorkspacesPage,
@@ -164,7 +163,7 @@ export function Sidebar({
         activeIssueId={activeIssueId}
         onTasksExpansionChange={onTasksExpansionChange}
         onSelectIssue={onSelectIssue}
-        isLoading={isLoadingProjects || isLoadingWorkspaces}
+        isLoadingProjects={isLoadingProjects}
         onSelectWorkspace={onSelectWorkspace}
         onOpenProjectPage={onOpenProjectPage}
         onOpenWorkspacesPage={onOpenWorkspacesPage}

@@ -17,8 +17,7 @@ COPY packages/local-web/package.json packages/local-web/package.json
 COPY packages/ui/package.json packages/ui/package.json
 COPY packages/web-core/package.json packages/web-core/package.json
 
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 COPY packages/local-web/ packages/local-web/
 COPY packages/public/ packages/public/
@@ -93,17 +92,15 @@ COPY crates/preview-proxy/ crates/preview-proxy/
 COPY assets/ assets/
 COPY --from=fe-builder /app/packages/local-web/dist packages/local-web/dist
 
-RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git \
-    --mount=type=cache,id=workspace-target,target=/app/target \
-    cargo build --locked --release --bin server \
+RUN cargo build --locked --release --bin server \
  && cp /app/target/release/server /usr/local/bin/server
 
-FROM debian:bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     git \
     openssh-client \
     tini \
@@ -121,11 +118,13 @@ RUN mkdir -p /repos \
 USER appuser
 
 ENV HOST=0.0.0.0
-ENV PORT=3000
+ENV BACKEND_PORT=3002
+ENV PORT=3002
+ENV PREVIEW_PROXY_PORT=3003
 
-EXPOSE 3000
+EXPOSE 3002 3003
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD ["/bin/sh", "-c", "wget --spider -q http://127.0.0.1:${PORT:-3000}/health"]
+  CMD ["/bin/sh", "-c", "wget --spider -q http://127.0.0.1:${BACKEND_PORT:-${PORT:-3002}}/health"]
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/server"]

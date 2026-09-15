@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, process::Stdio, time::Duration};
 
 use axum::{
     Json, Router,
@@ -29,7 +29,7 @@ use services::services::{
     container::ContainerService,
     project_config,
 };
-use tokio::fs;
+use tokio::{fs, process::Command as TokioCommand, time::timeout};
 use ts_rs::TS;
 use utils::{assets::config_path, log_msg::LogMsg, response::ApiResponse};
 use uuid::Uuid;
@@ -54,6 +54,7 @@ pub fn router() -> Router<DeploymentImpl> {
             get(check_editor_availability),
         )
         .route("/agents/check-availability", get(check_agent_availability))
+        .route("/tools/install", post(install_tool))
         .route("/agents/preset-options", get(get_agent_preset_options))
         .route("/agents/models", get(get_agent_models))
         .route("/general-rules/resolve", get(resolve_general_rules))
@@ -582,6 +583,198 @@ async fn check_editor_availability(
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct CheckAgentAvailabilityQuery {
     executor: BaseCodingAgent,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+pub enum InstallToolKind {
+    Agent,
+    Editor,
+}
+
+#[derive(Debug, Deserialize, TS)]
+pub struct InstallToolRequest {
+    pub kind: InstallToolKind,
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, TS)]
+pub struct InstallToolResponse {
+    pub installed: bool,
+    pub message: String,
+}
+
+fn npm_install_script(package: &str, executable: &str) -> String {
+    format!(
+        r#"set -eu
+command -v npm >/dev/null 2>&1 || {{ echo "npm is required to install this tool" >&2; exit 127; }}
+mkdir -p "$HOME/.local"
+npm install --prefix "$HOME/.local" --global {package}
+export PATH="$HOME/.local/bin:$PATH"
+command -v {executable} >/dev/null 2>&1 || {{ echo "The package installed, but {executable} was not found on PATH" >&2; exit 127; }}
+"#
+    )
+}
+
+fn npm_install_powershell_script(package: &str, executable: &str) -> String {
+    format!(
+        r#"$ErrorActionPreference = 'Stop'
+if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {{ throw 'npm is required to install this tool' }}
+$prefix = Join-Path $env:USERPROFILE '.local'
+New-Item -ItemType Directory -Force -Path $prefix | Out-Null
+npm install --prefix $prefix --global {package}
+$env:Path = "$prefix;$env:Path"
+if (-not (Get-Command {executable} -ErrorAction SilentlyContinue)) {{ throw 'The package installed, but {executable} was not found on PATH' }}
+"#
+    )
+}
+
+fn agent_install_script(agent: &BaseCodingAgent) -> Option<String> {
+    let (package, executable) = match agent {
+        BaseCodingAgent::ClaudeCode | BaseCodingAgent::ClaudeCodeHeaded => {
+            ("@anthropic-ai/claude-code", "claude")
+        }
+        BaseCodingAgent::Codex => ("@openai/codex", "codex"),
+        BaseCodingAgent::Gemini => ("@google/gemini-cli", "gemini"),
+        BaseCodingAgent::Opencode | BaseCodingAgent::OpencodeHeaded => ("opencode-ai", "opencode"),
+        BaseCodingAgent::Amp => ("@sourcegraph/amp", "amp"),
+        BaseCodingAgent::Copilot => ("@github/copilot", "copilot"),
+        BaseCodingAgent::QwenCode => ("@qwen-code/qwen-code", "qwen"),
+        BaseCodingAgent::CursorAgent => {
+            return Some(
+                r#"set -eu
+command -v curl >/dev/null 2>&1 || { echo "curl is required to install Cursor Agent" >&2; exit 127; }
+curl https://cursor.com/install -fsS | bash
+export PATH="$HOME/.local/bin:$PATH"
+command -v cursor-agent >/dev/null 2>&1 || { echo "Cursor Agent was installed, but cursor-agent was not found on PATH" >&2; exit 127; }
+"#
+                .to_string(),
+            );
+        }
+        BaseCodingAgent::Antigravity | BaseCodingAgent::AntigravityHeaded => return None,
+        BaseCodingAgent::Droid => return None,
+    };
+
+    if cfg!(windows) {
+        Some(npm_install_powershell_script(package, executable))
+    } else {
+        Some(npm_install_script(package, executable))
+    }
+}
+
+fn editor_install_script(editor: &EditorType) -> Option<String> {
+    let (macos_cask, windows_id) = match editor {
+        EditorType::VsCode => ("visual-studio-code", "Microsoft.VisualStudioCode"),
+        EditorType::VsCodeInsiders => (
+            "visual-studio-code@insiders",
+            "Microsoft.VisualStudioCode.Insiders",
+        ),
+        EditorType::Cursor => ("cursor", "Anysphere.Cursor"),
+        EditorType::Windsurf => ("windsurf", "Codeium.Windsurf"),
+        EditorType::IntelliJ => ("intellij-idea", "JetBrains.IntelliJIDEA.Community"),
+        EditorType::Zed => ("zed", "ZedIndustries.Zed"),
+        EditorType::Xcode | EditorType::GoogleAntigravity | EditorType::Custom => return None,
+    };
+
+    if cfg!(windows) {
+        return Some(format!(
+            r#"$ErrorActionPreference = 'Stop'
+if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {{ throw 'winget is required to install this editor' }}
+winget install --id {windows_id} --exact --accept-package-agreements --accept-source-agreements
+"#
+        ));
+    }
+
+    Some(format!(
+        r#"set -eu
+case "$(uname -s 2>/dev/null || printf unknown)" in
+  Darwin)
+    command -v brew >/dev/null 2>&1 || {{ echo "Homebrew is required to install this editor" >&2; exit 127; }}
+    brew install --cask {macos_cask}
+    ;;
+  MINGW*|MSYS*|CYGWIN*|Windows_NT)
+    command -v winget >/dev/null 2>&1 || {{ echo "winget is required to install this editor" >&2; exit 127; }}
+    winget install --id {windows_id} --exact --accept-package-agreements --accept-source-agreements
+    ;;
+  *)
+    echo "Automatic graphical-editor installation is supported on macOS (Homebrew) and Windows (winget). Cloud/Linux environments are CLI-first." >&2
+    exit 2
+    ;;
+esac
+"#
+    ))
+}
+
+fn install_script(request: &InstallToolRequest) -> Option<String> {
+    match request.kind {
+        InstallToolKind::Agent => {
+            let agent = request.id.parse::<BaseCodingAgent>().ok()?;
+            agent_install_script(&agent)
+        }
+        InstallToolKind::Editor => {
+            let editor = request.id.parse::<EditorType>().ok()?;
+            editor_install_script(&editor)
+        }
+    }
+}
+
+async fn install_tool(
+    axum::extract::State(_deployment): axum::extract::State<DeploymentImpl>,
+    axum::Json(request): axum::Json<InstallToolRequest>,
+) -> Result<ResponseJson<ApiResponse<InstallToolResponse>>, ApiError> {
+    let Some(script) = install_script(&request) else {
+        return Err(ApiError::BadRequest(format!(
+            "No automatic installer is available for {}",
+            request.id
+        )));
+    };
+
+    let mut command = TokioCommand::new(if cfg!(windows) { "powershell" } else { "sh" });
+    if cfg!(windows) {
+        command.args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ]);
+    } else {
+        command.args(["-lc", &script]);
+    }
+
+    let output = timeout(
+        Duration::from_secs(15 * 60),
+        command
+            .env("CI", "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output(),
+    )
+    .await
+    .map_err(|_| ApiError::BadRequest("Tool installation timed out after 15 minutes".into()))?
+    .map_err(ApiError::Io)?;
+
+    if !output.status.success() {
+        let details = String::from_utf8_lossy(&output.stderr);
+        let details = details.trim();
+        let details = if details.len() > 2000 {
+            &details[details.len() - 2000..]
+        } else {
+            details
+        };
+        return Err(ApiError::BadRequest(format!(
+            "Installation failed for {}: {}",
+            request.id, details
+        )));
+    }
+
+    Ok(ResponseJson(ApiResponse::success(InstallToolResponse {
+        installed: true,
+        message: format!("{} installation completed", request.id),
+    })))
 }
 
 async fn check_agent_availability(
