@@ -428,7 +428,12 @@ export type RenameBranchRequest = { new_branch_name: string, };
 
 export type RenameBranchResponse = { branch: string, };
 
-export type StartReviewRequest = { executor_config: ExecutorConfig, additional_prompt: string | null, use_all_workspace_commits: boolean, };
+export type StartReviewRequest = { executor_config: ExecutorConfig, additional_prompt: string | null, use_all_workspace_commits: boolean, 
+/**
+ * Uses OCR only for deterministic file/rule selection; the selected
+ * coding agent supplies its own subscription-backed reasoning.
+ */
+use_open_code_review_delegation: boolean, };
 
 export type ReviewError = { "type": "process_already_running" };
 

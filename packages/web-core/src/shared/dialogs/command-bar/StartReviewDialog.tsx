@@ -74,17 +74,26 @@ const StartReviewDialogImpl = create<StartReviewDialogProps>(
     );
     const [includeGitContext, setIncludeGitContext] = useState(true);
     const [useOpenCodeReview, setUseOpenCodeReview] = useState(false);
+    const [useOpenCodeReviewDelegation, setUseOpenCodeReviewDelegation] =
+      useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const effectiveProfile = userSelectedProfile ?? resolvedDefaultProfile;
 
     const canSubmit = Boolean(
-      (useOpenCodeReview || effectiveProfile) && !isSubmitting
+      (useOpenCodeReview && !useOpenCodeReviewDelegation
+        ? true
+        : effectiveProfile) && !isSubmitting
     );
 
     const handleSubmit = useCallback(async () => {
-      if (!useOpenCodeReview && !effectiveProfile) return;
+      if (
+        (!useOpenCodeReview || useOpenCodeReviewDelegation) &&
+        !effectiveProfile
+      ) {
+        return;
+      }
 
       setIsSubmitting(true);
       setError(null);
@@ -95,12 +104,16 @@ const StartReviewDialogImpl = create<StartReviewDialogProps>(
         if (createNewSession || !resolvedSessionId) {
           const session = await sessionsApi.create({
             workspace_id: workspaceId,
-            executor: useOpenCodeReview
-              ? undefined
-              : effectiveProfile?.executor,
-            name: useOpenCodeReview
-              ? t('startReviewDialog.openCodeReviewSessionName')
-              : t('startReviewDialog.sessionName'),
+            executor:
+              useOpenCodeReview && !useOpenCodeReviewDelegation
+                ? undefined
+                : effectiveProfile?.executor,
+            name:
+              useOpenCodeReview && !useOpenCodeReviewDelegation
+                ? t('startReviewDialog.openCodeReviewSessionName')
+                : useOpenCodeReviewDelegation
+                  ? t('startReviewDialog.openCodeReviewDelegatedSessionName')
+                  : t('startReviewDialog.sessionName'),
           });
           targetSessionId = session.id;
 
@@ -115,7 +128,7 @@ const StartReviewDialogImpl = create<StartReviewDialogProps>(
           return;
         }
 
-        if (useOpenCodeReview) {
+        if (useOpenCodeReview && !useOpenCodeReviewDelegation) {
           await sessionsApi.startOpenCodeReview(targetSessionId, {
             use_all_workspace_commits: includeGitContext,
           });
@@ -132,6 +145,7 @@ const StartReviewDialogImpl = create<StartReviewDialogProps>(
             },
             additional_prompt: combinedPrompt || null,
             use_all_workspace_commits: includeGitContext,
+            use_open_code_review_delegation: useOpenCodeReviewDelegation,
           });
         }
 
@@ -151,7 +165,7 @@ const StartReviewDialogImpl = create<StartReviewDialogProps>(
       } catch (err) {
         console.error('Failed to start review:', err);
         setError(
-          useOpenCodeReview
+          useOpenCodeReview && !useOpenCodeReviewDelegation
             ? t('startReviewDialog.openCodeReviewError')
             : 'Failed to start review. Please try again.'
         );
@@ -166,6 +180,7 @@ const StartReviewDialogImpl = create<StartReviewDialogProps>(
       createNewSession,
       includeGitContext,
       useOpenCodeReview,
+      useOpenCodeReviewDelegation,
       reviewMarkdown,
       additionalPrompt,
       queryClient,
@@ -193,14 +208,16 @@ const StartReviewDialogImpl = create<StartReviewDialogProps>(
           <DialogHeader>
             <DialogTitle>{t('startReviewDialog.title')}</DialogTitle>
             <DialogDescription>
-              {useOpenCodeReview
+              {useOpenCodeReview && !useOpenCodeReviewDelegation
                 ? t('startReviewDialog.openCodeReviewDescription')
-                : t('startReviewDialog.description')}
+                : useOpenCodeReviewDelegation
+                  ? t('startReviewDialog.openCodeReviewDelegatedDescription')
+                  : t('startReviewDialog.description')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
-            {!useOpenCodeReview && (
+            {(!useOpenCodeReview || useOpenCodeReviewDelegation) && (
               <div className="space-y-2">
                 <Label
                   htmlFor="additional-prompt"
@@ -218,23 +235,24 @@ const StartReviewDialogImpl = create<StartReviewDialogProps>(
               </div>
             )}
 
-            {!useOpenCodeReview && hasReviewComments && (
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">
-                  {t('startReviewDialog.reviewComments', {
-                    count:
-                      reviewMarkdown
-                        ?.split('\n')
-                        .filter((l) => l.startsWith('-')).length ?? 0,
-                  })}
-                </Label>
-                <div className="text-sm text-muted-foreground bg-muted/50 rounded-md p-3 max-h-32 overflow-y-auto">
-                  <pre className="whitespace-pre-wrap font-sans text-xs">
-                    {reviewMarkdown}
-                  </pre>
+            {(!useOpenCodeReview || useOpenCodeReviewDelegation) &&
+              hasReviewComments && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">
+                    {t('startReviewDialog.reviewComments', {
+                      count:
+                        reviewMarkdown
+                          ?.split('\n')
+                          .filter((l) => l.startsWith('-')).length ?? 0,
+                    })}
+                  </Label>
+                  <div className="text-sm text-muted-foreground bg-muted/50 rounded-md p-3 max-h-32 overflow-y-auto">
+                    <pre className="whitespace-pre-wrap font-sans text-xs">
+                      {reviewMarkdown}
+                    </pre>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
             {error && <div className="text-sm text-destructive">{error}</div>}
 
@@ -264,9 +282,11 @@ const StartReviewDialogImpl = create<StartReviewDialogProps>(
                 <Checkbox
                   id="open-code-review"
                   checked={useOpenCodeReview}
-                  onCheckedChange={(checked) =>
-                    setUseOpenCodeReview(checked === true)
-                  }
+                  onCheckedChange={(checked) => {
+                    const enabled = checked === true;
+                    setUseOpenCodeReview(enabled);
+                    if (!enabled) setUseOpenCodeReviewDelegation(false);
+                  }}
                 />
                 <Label
                   htmlFor="open-code-review"
@@ -280,23 +300,47 @@ const StartReviewDialogImpl = create<StartReviewDialogProps>(
               </p>
             </div>
 
-            {!useOpenCodeReview && profiles && (
-              <div className="flex gap-3 flex-col sm:flex-row">
-                <AgentSelector
-                  profiles={profiles}
-                  selectedExecutorProfile={effectiveProfile}
-                  onChange={setUserSelectedProfile}
-                  disabled={!createNewSession}
-                  showLabel={false}
-                />
-                <ConfigSelector
-                  profiles={profiles}
-                  selectedExecutorProfile={effectiveProfile}
-                  onChange={setUserSelectedProfile}
-                  showLabel={false}
-                />
+            {useOpenCodeReview && (
+              <div className="space-y-1 ml-6">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="open-code-review-delegation"
+                    checked={useOpenCodeReviewDelegation}
+                    onCheckedChange={(checked) =>
+                      setUseOpenCodeReviewDelegation(checked === true)
+                    }
+                  />
+                  <Label
+                    htmlFor="open-code-review-delegation"
+                    className="cursor-pointer text-sm"
+                  >
+                    {t('startReviewDialog.openCodeReviewDelegation')}
+                  </Label>
+                </div>
+                <p className="text-xs text-muted-foreground ml-6">
+                  {t('startReviewDialog.openCodeReviewDelegatedDescription')}
+                </p>
               </div>
             )}
+
+            {(!useOpenCodeReview || useOpenCodeReviewDelegation) &&
+              profiles && (
+                <div className="flex gap-3 flex-col sm:flex-row">
+                  <AgentSelector
+                    profiles={profiles}
+                    selectedExecutorProfile={effectiveProfile}
+                    onChange={setUserSelectedProfile}
+                    disabled={!createNewSession}
+                    showLabel={false}
+                  />
+                  <ConfigSelector
+                    profiles={profiles}
+                    selectedExecutorProfile={effectiveProfile}
+                    onChange={setUserSelectedProfile}
+                    showLabel={false}
+                  />
+                </div>
+              )}
           </div>
 
           <DialogFooter className="sm:!justify-between">
@@ -326,9 +370,11 @@ const StartReviewDialogImpl = create<StartReviewDialogProps>(
               <Button onClick={handleSubmit} disabled={!canSubmit}>
                 {isSubmitting
                   ? t('actionsMenu.startingReview')
-                  : useOpenCodeReview
+                  : useOpenCodeReview && !useOpenCodeReviewDelegation
                     ? t('actionsMenu.startOpenCodeReview')
-                    : t('actionsMenu.startReview')}
+                    : useOpenCodeReviewDelegation
+                      ? t('actionsMenu.startDelegatedOpenCodeReview')
+                      : t('actionsMenu.startReview')}
               </Button>
             </div>
           </DialogFooter>

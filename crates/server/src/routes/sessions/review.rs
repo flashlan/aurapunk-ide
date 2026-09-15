@@ -14,7 +14,7 @@ use executors::{
         ExecutorAction, ExecutorActionType,
         review::{RepoReviewContext as ExecutorRepoReviewContext, ReviewRequest as ReviewAction},
     },
-    executors::build_review_prompt,
+    executors::{build_open_code_review_delegation_prompt, build_review_prompt},
     profile::ExecutorConfig,
 };
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,10 @@ pub struct StartReviewRequest {
     pub additional_prompt: Option<String>,
     #[serde(default)]
     pub use_all_workspace_commits: bool,
+    /// Uses OCR only for deterministic file/rule selection; the selected
+    /// coding agent supplies its own subscription-backed reasoning.
+    #[serde(default)]
+    pub use_open_code_review_delegation: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]
@@ -99,7 +103,14 @@ pub async fn start_review(
         None
     };
 
-    let prompt = build_review_prompt(context.as_deref(), payload.additional_prompt.as_deref());
+    let prompt = if payload.use_open_code_review_delegation {
+        build_open_code_review_delegation_prompt(
+            context.as_deref(),
+            payload.additional_prompt.as_deref(),
+        )
+    } else {
+        build_review_prompt(context.as_deref(), payload.additional_prompt.as_deref())
+    };
     let _resumed_session = agent_session_id.is_some();
 
     let action = ExecutorAction::new(

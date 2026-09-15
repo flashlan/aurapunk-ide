@@ -317,13 +317,17 @@
     "openCodeReviewDescription": "Runs the locally installed OCR CLI and saves its JSON output in this card's execution log. Install and configure OCR separately.",
     "openCodeReviewSessionName": "OpenCodeReview",
     "openCodeReviewError": "OpenCodeReview could not start. Install `ocr` and configure a provider, then try again.",
+    "openCodeReviewDelegation": "Delegate review to the selected agent",
+    "openCodeReviewDelegatedDescription": "OCR selects files and rules; the selected coding agent performs the review using its existing subscription. No OCR API key is needed.",
+    "openCodeReviewDelegatedSessionName": "OpenCodeReview delegated",
     "newSession": "New Session",
     "sessionName": "Review"
   },
   "actionsMenu": {
     "startReview": "Start Review",
     "startingReview": "Starting Review...",
-    "startOpenCodeReview": "Start OpenCodeReview"
+    "startOpenCodeReview": "Start OpenCodeReview",
+    "startDelegatedOpenCodeReview": "Start delegated review"
   },
   "resolveConflicts": {
     "dialog": {

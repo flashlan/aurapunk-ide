@@ -436,11 +436,73 @@ pub fn build_review_prompt(
     prompt
 }
 
+/// Build a review prompt where OpenCodeReview provides deterministic file and
+/// rule selection while the configured coding agent performs the LLM review.
+/// This mode deliberately never asks OCR to call a model endpoint.
+pub fn build_open_code_review_delegation_prompt(
+    context: Option<&[RepoReviewContext]>,
+    additional_prompt: Option<&str>,
+) -> String {
+    let mut prompt = String::from(
+        "Review the code changes using OpenCodeReview delegation mode. You are the host review agent; use your existing authenticated subscription for all reasoning. Do not run `ocr review`, because that mode requires OCR's own LLM provider.\n\n",
+    );
+    prompt.push_str(
+        "First, run `ocr delegate preview --format json` to obtain the complete reviewable file list. For a branch range, include the requested `--from <base> --to HEAD` flags. Then run `ocr delegate rule --format json <paths...>` for every reviewable file (in batches if needed). Review every listed file using the matching rules and git diff/context exploration.\n\n",
+    );
+
+    if let Some(repos) = context {
+        for repo in repos {
+            prompt.push_str(&format!("Repository: {}\n", repo.repo_name));
+            prompt.push_str(&format!(
+                "Use: `ocr delegate preview --format json --from {} --to HEAD`\n",
+                repo.base_commit
+            ));
+            prompt.push_str(&format!(
+                "Use `git diff {}..HEAD -- <path>` when inspecting each file.\n\n",
+                repo.base_commit
+            ));
+        }
+    } else {
+        prompt.push_str(
+            "Review the current workspace changes, including staged, unstaged, and untracked files.\n\n",
+        );
+    }
+
+    prompt.push_str(
+        "Account for every previewed file. Report only actionable findings, ordered by critical, high, medium, then low severity, including file and line references where possible. If `ocr` is not installed, clearly report that setup is required: `npm install -g @alibaba-group/open-code-review`.\n",
+    );
+
+    if let Some(additional) = additional_prompt {
+        prompt.push('\n');
+        prompt.push_str(additional);
+    }
+
+    prompt
+}
+
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
 
     use super::*;
+
+    #[test]
+    fn delegated_open_code_review_prompt_uses_ocr_without_an_ocr_llm() {
+        let context = [RepoReviewContext {
+            repo_id: uuid::Uuid::nil(),
+            repo_name: "example".to_string(),
+            base_commit: "abc123".to_string(),
+        }];
+
+        let prompt = build_open_code_review_delegation_prompt(
+            Some(&context),
+            Some("Focus on authorization."),
+        );
+
+        assert!(prompt.contains("ocr delegate preview --format json --from abc123 --to HEAD"));
+        assert!(prompt.contains("Do not run `ocr review`"));
+        assert!(prompt.contains("Focus on authorization."));
+    }
 
     #[test]
     fn test_cursor_agent_deserialization() {
