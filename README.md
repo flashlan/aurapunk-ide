@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://aurapunk.dev"><img alt="Website" src="https://img.shields.io/badge/website-aurapunk.dev-8a2be2?style=flat-square" /></a>
   <a href="https://www.npmjs.com/package/aurapunk-ide"><img alt="npm" src="https://img.shields.io/npm/v/aurapunk-ide?style=flat-square" /></a>
   <a href="https://github.com/flashlan/aurapunk-ide/actions"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/flashlan/aurapunk-ide/main.yml" /></a>
   <a href="https://deepwiki.com/BloopAI/vibe-kanban"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
@@ -97,8 +98,17 @@ of the direct P2P bridge are still rolling out.
 All installers ship [`SHA256SUMS`](https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/SHA256SUMS)
 in [release `v0.3.2`](https://github.com/flashlan/aurapunk-ide/releases/tag/v0.3.2) for integrity verification.
 
+## Website and Hosted Plans
+
+**[aurapunk.dev](https://aurapunk.dev)** — AuraPunk IDE itself is free and open source, full stop; nothing above requires an account or a subscription. The website additionally offers optional hosted plans for people who want AuraPunk Mobile to work without a Desktop instance running at home:
+
+- **Free plan** — an account with limited mem0 memory quota, no VM hosting required.
+- **Paid hosted instances** — your own cloud VM running the full cockpit, with a larger mem0 quota and disk space for building workspace worktrees, so AuraPunk Mobile can create and drive cards on its own instead of depending on your Desktop being online.
+- **Desktop ↔ Mobile sync** — regardless of plan, pair AuraPunk Mobile with a running Desktop or with a Cloud instance by scanning a QR code from **Settings → Devices**.
+
 ## Table of Contents
 
+- [Website and Hosted Plans](#website-and-hosted-plans)
 - [Background and Credits](#background-and-credits)
 - [Overview](#overview)
 - [What This Fork Adds](#what-this-fork-adds)
