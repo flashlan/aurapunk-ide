@@ -71,6 +71,8 @@ import {
   Workspace,
   StartReviewRequest,
   ReviewError,
+  StartOpenCodeReviewRequest,
+  OpenCodeReviewError,
   GitRemote,
   ListPrsError,
   PullRequestDetail,
@@ -361,6 +363,20 @@ export const sessionsApi = {
       body: JSON.stringify(data),
     });
     return handleApiResponse<ExecutionProcess, ReviewError>(response);
+  },
+
+  startOpenCodeReview: async (
+    sessionId: string,
+    data: StartOpenCodeReviewRequest
+  ): Promise<ExecutionProcess> => {
+    const response = await makeRequest(
+      `/api/sessions/${sessionId}/open-code-review`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<ExecutionProcess, OpenCodeReviewError>(response);
   },
 
   reset: async (

@@ -313,12 +313,17 @@
     "reviewComments": "Review Comments ({{count}})",
     "includeGitContext": "Include git context",
     "includeGitContextDescription": "Tells the agent how to view all changes made on this branch",
+    "openCodeReview": "Use OpenCodeReview CLI (optional)",
+    "openCodeReviewDescription": "Runs the locally installed OCR CLI and saves its JSON output in this card's execution log. Install and configure OCR separately.",
+    "openCodeReviewSessionName": "OpenCodeReview",
+    "openCodeReviewError": "OpenCodeReview could not start. Install `ocr` and configure a provider, then try again.",
     "newSession": "New Session",
     "sessionName": "Review"
   },
   "actionsMenu": {
     "startReview": "Start Review",
-    "startingReview": "Starting Review..."
+    "startingReview": "Starting Review...",
+    "startOpenCodeReview": "Start OpenCodeReview"
   },
   "resolveConflicts": {
     "dialog": {

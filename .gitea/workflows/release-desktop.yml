@@ -113,7 +113,9 @@ jobs:
           test -n "$RELEASE_TOKEN"
           apk add --no-cache curl jq
           api="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/releases"
-          body=$(jq -nc --arg tag "$GITHUB_REF_NAME" '{tag_name:$tag,name:$tag}')
+          notes=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")
+          body=$(jq -nc --arg tag "$GITHUB_REF_NAME" --arg body "$notes" \
+            '{tag_name:$tag,name:$tag,body:$body}')
           release=$(curl --fail --silent --show-error \
             -H "Authorization: token $RELEASE_TOKEN" \
             -H 'Content-Type: application/json' \

@@ -19,7 +19,9 @@ pub fn execution_identity(
         ExecutorActionType::CodingAgentInitialRequest(request) => &request.executor_config,
         ExecutorActionType::CodingAgentFollowUpRequest(request) => &request.executor_config,
         ExecutorActionType::ReviewRequest(request) => &request.executor_config,
-        ExecutorActionType::ScriptRequest(_) => return None,
+        ExecutorActionType::ScriptRequest(_) | ExecutorActionType::OpenCodeReviewRequest(_) => {
+            return None;
+        }
     };
 
     let model = config.model_id.clone();

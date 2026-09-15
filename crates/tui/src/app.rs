@@ -2782,6 +2782,7 @@ pub fn process_label(p: &ExecutionProcess) -> String {
         RunReason::CleanupScript => "cleanup",
         RunReason::ArchiveScript => "archive",
         RunReason::DevServer => "devserver",
+        RunReason::OpenCodeReview => "open-code-review",
     };
     format!("{reason} · {}", short(&p.id))
 }

@@ -454,6 +454,9 @@ impl LocalContainerService {
             ExecutionProcessRunReason::CleanupScript => {
                 format!("Cleanup script changes for workspace {}", ctx.workspace.id)
             }
+            ExecutionProcessRunReason::OpenCodeReview => {
+                format!("OpenCodeReview for workspace {}", ctx.workspace.id)
+            }
             _ => format!(
                 "Changes from execution process {}",
                 ctx.execution_process.id

@@ -1,3 +1,4 @@
+pub mod open_code_review;
 pub mod queue;
 pub mod review;
 
@@ -460,6 +461,10 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/reset", post(reset_process))
         .route("/setup", post(run_setup_script))
         .route("/review", post(review::start_review))
+        .route(
+            "/open-code-review",
+            post(open_code_review::start_open_code_review),
+        )
         .layer(from_fn_with_state(
             deployment.clone(),
             load_session_middleware,

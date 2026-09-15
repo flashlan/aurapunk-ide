@@ -96,6 +96,8 @@ manually_disconnected: boolean, };
 
 export type WorkspaceNotesData = { content: string, };
 
+export type WorkspaceChatConfigData = { executor?: string | null, model_id?: string | null, reasoning_id?: string | null, agent_id?: string | null, permission_policy?: string | null, preset?: string | null, };
+
 export type WorkspacePanelStateData = { right_main_panel_mode: string | null, is_left_main_panel_visible: boolean, };
 
 export type WorkspacePrFilterData = "all" | "has_pr" | "no_pr";
@@ -207,9 +209,9 @@ custom_theme: JsonValue | null, };
 
 export type ProjectRepoDefaultsData = { repos: Array<DraftWorkspaceRepo>, };
 
-export type ScratchPayload = { "type": "DRAFT_TASK", "data": string } | { "type": "DRAFT_FOLLOW_UP", "data": DraftFollowUpData } | { "type": "DRAFT_WORKSPACE", "data": DraftWorkspaceData } | { "type": "DRAFT_ISSUE", "data": DraftIssueData } | { "type": "PREVIEW_SETTINGS", "data": PreviewSettingsData } | { "type": "ANDROID_MIRROR_SETTINGS", "data": AndroidMirrorSettingsData } | { "type": "WORKSPACE_NOTES", "data": WorkspaceNotesData } | { "type": "UI_PREFERENCES", "data": UiPreferencesData } | { "type": "PROJECT_REPO_DEFAULTS", "data": ProjectRepoDefaultsData };
+export type ScratchPayload = { "type": "DRAFT_TASK", "data": string } | { "type": "DRAFT_FOLLOW_UP", "data": DraftFollowUpData } | { "type": "DRAFT_WORKSPACE", "data": DraftWorkspaceData } | { "type": "DRAFT_ISSUE", "data": DraftIssueData } | { "type": "PREVIEW_SETTINGS", "data": PreviewSettingsData } | { "type": "ANDROID_MIRROR_SETTINGS", "data": AndroidMirrorSettingsData } | { "type": "WORKSPACE_NOTES", "data": WorkspaceNotesData } | { "type": "UI_PREFERENCES", "data": UiPreferencesData } | { "type": "PROJECT_REPO_DEFAULTS", "data": ProjectRepoDefaultsData } | { "type": "WORKSPACE_CHAT_CONFIG", "data": WorkspaceChatConfigData };
 
-export enum ScratchType { DRAFT_TASK = "DRAFT_TASK", DRAFT_FOLLOW_UP = "DRAFT_FOLLOW_UP", DRAFT_WORKSPACE = "DRAFT_WORKSPACE", DRAFT_ISSUE = "DRAFT_ISSUE", PREVIEW_SETTINGS = "PREVIEW_SETTINGS", ANDROID_MIRROR_SETTINGS = "ANDROID_MIRROR_SETTINGS", WORKSPACE_NOTES = "WORKSPACE_NOTES", UI_PREFERENCES = "UI_PREFERENCES", PROJECT_REPO_DEFAULTS = "PROJECT_REPO_DEFAULTS" }
+export enum ScratchType { DRAFT_TASK = "DRAFT_TASK", DRAFT_FOLLOW_UP = "DRAFT_FOLLOW_UP", DRAFT_WORKSPACE = "DRAFT_WORKSPACE", DRAFT_ISSUE = "DRAFT_ISSUE", PREVIEW_SETTINGS = "PREVIEW_SETTINGS", ANDROID_MIRROR_SETTINGS = "ANDROID_MIRROR_SETTINGS", WORKSPACE_NOTES = "WORKSPACE_NOTES", UI_PREFERENCES = "UI_PREFERENCES", PROJECT_REPO_DEFAULTS = "PROJECT_REPO_DEFAULTS", WORKSPACE_CHAT_CONFIG = "WORKSPACE_CHAT_CONFIG" }
 
 export type Scratch = { id: string, payload: ScratchPayload, created_at: string, updated_at: string, };
 
@@ -269,7 +271,7 @@ dropped: boolean, started_at: string, completed_at: string | null, created_at: s
 
 export enum ExecutionProcessStatus { running = "running", completed = "completed", failed = "failed", killed = "killed" }
 
-export type ExecutionProcessRunReason = "setupscript" | "cleanupscript" | "archivescript" | "codingagent" | "devserver";
+export type ExecutionProcessRunReason = "setupscript" | "cleanupscript" | "archivescript" | "codingagent" | "devserver" | "opencodereview";
 
 export type AgentWorkDeclaration = { id: string, workspace_id: string, owner_id: string, execution_process_id: string | null, agent_name: string, intent: string, files: Array<string>, symbols: Array<string>, dependencies: Array<string>, lease_expires_at: string, created_at: string, updated_at: string, };
 
@@ -429,6 +431,14 @@ export type RenameBranchResponse = { branch: string, };
 export type StartReviewRequest = { executor_config: ExecutorConfig, additional_prompt: string | null, use_all_workspace_commits: boolean, };
 
 export type ReviewError = { "type": "process_already_running" };
+
+export type StartOpenCodeReviewRequest = { 
+/**
+ * Review the workspace branch since its fork point when available.
+ */
+use_all_workspace_commits: boolean, };
+
+export type OpenCodeReviewError = { "type": "process_already_running" };
 
 export type OpenEditorRequest = { editor_type: string | null, file_path: string | null, };
 
@@ -913,7 +923,7 @@ export type ExecutorAction = { typ: ExecutorActionType, next_action: ExecutorAct
 
 export type McpConfig = { servers: { [key in string]?: JsonValue }, servers_path: Array<string>, template: JsonValue, preconfigured: JsonValue, is_toml_config: boolean, };
 
-export type ExecutorActionType = { "type": "CodingAgentInitialRequest" } & CodingAgentInitialRequest | { "type": "CodingAgentFollowUpRequest" } & CodingAgentFollowUpRequest | { "type": "ScriptRequest" } & ScriptRequest | { "type": "ReviewRequest" } & ReviewRequest;
+export type ExecutorActionType = { "type": "CodingAgentInitialRequest" } & CodingAgentInitialRequest | { "type": "CodingAgentFollowUpRequest" } & CodingAgentFollowUpRequest | { "type": "ScriptRequest" } & ScriptRequest | { "type": "ReviewRequest" } & ReviewRequest | { "type": "OpenCodeReviewRequest" } & OpenCodeReviewRequest;
 
 export type ExecutorConfig = { 
 /**
@@ -951,6 +961,16 @@ export type ScriptRequest = { script: string, language: ScriptRequestLanguage, c
 working_dir: string | null, };
 
 export type ScriptRequestLanguage = "Bash";
+
+export type OpenCodeReviewRequest = { 
+/**
+ * When present, review the range from this commit through the current HEAD.
+ */
+base_commit: string | null, 
+/**
+ * Optional relative path to execute in, relative to the workspace root.
+ */
+working_dir: string | null, };
 
 export enum BaseCodingAgent { CLAUDE_CODE = "CLAUDE_CODE", CLAUDE_CODE_HEADED = "CLAUDE_CODE_HEADED", AMP = "AMP", GEMINI = "GEMINI", ANTIGRAVITY = "ANTIGRAVITY", ANTIGRAVITY_HEADED = "ANTIGRAVITY_HEADED", CODEX = "CODEX", OPENCODE = "OPENCODE", OPENCODE_HEADED = "OPENCODE_HEADED", CURSOR_AGENT = "CURSOR_AGENT", QWEN_CODE = "QWEN_CODE", COPILOT = "COPILOT", DROID = "DROID" }
 

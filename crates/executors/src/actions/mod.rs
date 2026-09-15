@@ -8,8 +8,8 @@ use ts_rs::TS;
 use crate::{
     actions::{
         coding_agent_follow_up::CodingAgentFollowUpRequest,
-        coding_agent_initial::CodingAgentInitialRequest, review::ReviewRequest,
-        script::ScriptRequest,
+        coding_agent_initial::CodingAgentInitialRequest, open_code_review::OpenCodeReviewRequest,
+        review::ReviewRequest, script::ScriptRequest,
     },
     approvals::ExecutorApprovalService,
     env::ExecutionEnv,
@@ -18,6 +18,7 @@ use crate::{
 };
 pub mod coding_agent_follow_up;
 pub mod coding_agent_initial;
+pub mod open_code_review;
 pub mod review;
 pub mod script;
 
@@ -31,6 +32,7 @@ pub enum ExecutorActionType {
     CodingAgentFollowUpRequest,
     ScriptRequest,
     ReviewRequest,
+    OpenCodeReviewRequest,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -67,7 +69,9 @@ impl ExecutorAction {
                 Some(request.base_executor())
             }
             ExecutorActionType::ReviewRequest(request) => Some(request.base_executor()),
-            ExecutorActionType::ScriptRequest(_) => None,
+            ExecutorActionType::ScriptRequest(_) | ExecutorActionType::OpenCodeReviewRequest(_) => {
+                None
+            }
         }
     }
 
@@ -79,7 +83,9 @@ impl ExecutorAction {
         match self.typ() {
             ExecutorActionType::CodingAgentInitialRequest(request) => request.interactive.as_ref(),
             ExecutorActionType::CodingAgentFollowUpRequest(request) => request.interactive.as_ref(),
-            ExecutorActionType::ReviewRequest(_) | ExecutorActionType::ScriptRequest(_) => None,
+            ExecutorActionType::ReviewRequest(_)
+            | ExecutorActionType::ScriptRequest(_)
+            | ExecutorActionType::OpenCodeReviewRequest(_) => None,
         }
     }
 }

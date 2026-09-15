@@ -63,6 +63,7 @@ pub enum ExecutionProcessRunReason {
     ArchiveScript,
     CodingAgent,
     DevServer,
+    OpenCodeReview,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize, TS)]
@@ -697,6 +698,11 @@ impl ExecutionProcess {
             }
             ExecutorActionType::ReviewRequest(request) => {
                 Ok(Some(request.executor_config.profile_id()))
+            }
+            ExecutorActionType::OpenCodeReviewRequest(_) => {
+                Err(ExecutionProcessError::ValidationError(
+                    "OpenCodeReview does not use an executor profile".to_string(),
+                ))
             }
             _ => Err(ExecutionProcessError::ValidationError(
                 "Couldn't find profile from initial request".to_string(),

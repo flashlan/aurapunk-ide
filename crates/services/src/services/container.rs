@@ -1743,7 +1743,9 @@ pub trait ContainerService {
             ExecutorActionType::ReviewRequest(review_request) => {
                 Some(review_request.prompt.clone())
             }
-            ExecutorActionType::ScriptRequest(_) => None,
+            ExecutorActionType::ScriptRequest(_) | ExecutorActionType::OpenCodeReviewRequest(_) => {
+                None
+            }
         } {
             let create_coding_agent_turn = CreateCodingAgentTurn {
                 execution_process_id: execution_process.id,
@@ -1853,6 +1855,7 @@ pub trait ContainerService {
                 request.executor_config.profile_id(),
                 request.effective_dir(&workspace_root),
             )),
+            ExecutorActionType::OpenCodeReviewRequest(_) => None,
             _ => None,
         } {
             let msg_store = match self.get_msg_store_by_id(&execution_process.id).await {
@@ -1962,6 +1965,13 @@ pub trait ContainerService {
                 | ExecutorActionType::CodingAgentInitialRequest(_)
                 | ExecutorActionType::ReviewRequest(_),
             ) => ExecutionProcessRunReason::CodingAgent,
+            (_, ExecutorActionType::OpenCodeReviewRequest(_)) => {
+                ExecutionProcessRunReason::OpenCodeReview
+            }
+            (
+                ExecutorActionType::OpenCodeReviewRequest(_),
+                ExecutorActionType::ScriptRequest(_),
+            ) => ExecutionProcessRunReason::CleanupScript,
         };
 
         self.start_execution(&ctx.workspace, &ctx.session, next_action, &next_run_reason)

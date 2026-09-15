@@ -75,6 +75,7 @@ pub enum RunReason {
     ArchiveScript,
     CodingAgent,
     DevServer,
+    OpenCodeReview,
 }
 
 /// Mirror of `db::models::execution_process::ExecutionProcessStatus`.

@@ -674,6 +674,9 @@ impl Workspace {
                 ExecutorActionType::ScriptRequest(_) => {
                     current = action.next_action();
                 }
+                ExecutorActionType::OpenCodeReviewRequest(_) => {
+                    current = action.next_action();
+                }
             }
         }
         None
