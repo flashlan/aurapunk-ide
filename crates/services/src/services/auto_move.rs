@@ -75,7 +75,10 @@ async fn move_issue_forward(
     Ok(true)
 }
 
-/// Force move to target even if it is backwards (used for AgentRunning: In Review/Done -> In Progress).
+/// Force move to target even if it is backwards (used for AgentRunning: In Review -> In Progress).
+/// The terminal-state predicate lives in the SQL update, rather than only in
+/// the caller, so a stale agent-running event cannot overwrite a concurrent
+/// user/merge transition to Done.
 async fn move_issue_force(
     pool: &SqlitePool,
     issue_id: Uuid,
@@ -90,13 +93,23 @@ async fn move_issue_force(
     if issue.status_id == target_status_id {
         return Ok(false);
     }
-    sqlx::query(
-        r#"UPDATE issues SET status_id = $1, updated_at = datetime('now', 'subsec') WHERE id = $2"#,
+    let result = sqlx::query(
+        r#"UPDATE issues
+           SET status_id = $1, updated_at = datetime('now', 'subsec')
+           WHERE id = $2
+             AND NOT EXISTS (
+               SELECT 1 FROM project_statuses
+               WHERE project_statuses.id = issues.status_id
+                 AND project_statuses.is_terminal = 1
+             )"#,
     )
     .bind(target_status_id)
     .bind(issue_id)
     .execute(pool)
     .await?;
+    if result.rows_affected() == 0 {
+        return Ok(false);
+    }
     tracing::info!(
         "auto-move (force) card {} -> status {}",
         issue_id,
@@ -477,6 +490,19 @@ mod tests {
 
         on_agent_running(&pool, ws_id).await;
 
+        let issue = Issue::find_by_id(&pool, iid).await.unwrap().unwrap();
+        assert_eq!(issue.status_id, statuses[3].id);
+    }
+
+    #[tokio::test]
+    async fn forced_agent_move_cannot_overwrite_a_terminal_card() {
+        let pool = pool().await;
+        let (pid, statuses) = seed_project_with_statuses(&pool).await;
+        let iid = create_issue(&pool, pid, statuses[3].id).await;
+
+        let moved = move_issue_force(&pool, iid, statuses[1].id).await.unwrap();
+
+        assert!(!moved, "terminal cards must reject a forced auto-move");
         let issue = Issue::find_by_id(&pool, iid).await.unwrap().unwrap();
         assert_eq!(issue.status_id, statuses[3].id);
     }
