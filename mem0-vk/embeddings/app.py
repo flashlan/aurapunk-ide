@@ -276,6 +276,46 @@ def graph_stats(user_id: str | None = None):
     }
 
 
+@app.get("/graph/overview")
+def graph_overview(user_id: str, limit: int = 80):
+    """A bounded, render-ready view of one memory graph.
+
+    This deliberately returns relations, not vector payloads.  The vector
+    store remains private to mem0-vk while the UI can safely render the ideas
+    and their extracted links as a force-directed network.
+    """
+    g = graph.get(user_id)
+    capped_limit = max(1, min(limit, 160))
+    # Prefer the most connected concepts when a repository has a large graph;
+    # this retains the useful structure instead of returning insertion order.
+    node_ids = sorted(g.nodes, key=lambda node: (-g.degree(node), str(node)))[:capped_limit]
+    node_set = set(node_ids)
+    nodes = [
+        {
+            "id": node,
+            "type": g.nodes[node].get("type", "other"),
+            "description": g.nodes[node].get("description", ""),
+            "degree": g.degree(node),
+        }
+        for node in node_ids
+    ]
+    edges = [
+        {
+            "subject": subject,
+            "predicate": attrs.get("predicate", "related_to"),
+            "object": obj,
+        }
+        for subject, obj, attrs in g.edges(data=True)
+        if subject in node_set and obj in node_set
+    ]
+    return {
+        "user_id": user_id,
+        "nodes": nodes,
+        "edges": edges,
+        "truncated": g.number_of_nodes() > len(node_ids),
+    }
+
+
 @app.post("/graph/upsert")
 def graph_upsert(req: UpsertRequest):
     return graph.upsert(req.user_id, req)

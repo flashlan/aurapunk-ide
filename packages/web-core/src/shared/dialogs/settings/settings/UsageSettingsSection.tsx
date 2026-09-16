@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { makeRequest } from '@/shared/lib/remoteApi';
 import { handleApiResponse } from '@/shared/lib/api';
@@ -104,6 +104,33 @@ export interface TokenUsageBreakdown {
   cache_creation_tokens: number;
 }
 
+export interface AgentProgressPoint {
+  minute: string;
+  hits: number;
+  weak_recalls: number;
+  failures: number;
+}
+
+export interface MemoryGraphNode {
+  id: string;
+  type: string;
+  description: string;
+  degree: number;
+}
+
+export interface MemoryGraphEdge {
+  subject: string;
+  predicate: string;
+  object: string;
+}
+
+export interface MemoryGraphOverview {
+  user_id: string;
+  nodes: MemoryGraphNode[];
+  edges: MemoryGraphEdge[];
+  truncated: boolean;
+}
+
 export interface ProviderQuotaWindow {
   name: string;
   used_percent: number | null;
@@ -134,9 +161,22 @@ export interface UsageSummary {
   total_seconds: number;
   mem0_tokens: Mem0TokenUsage;
   mem0_relevance: Mem0RelevanceSummary;
+  agent_progress: AgentProgressPoint[];
   token_telemetry: TokenTelemetrySummary;
   token_usage: TokenUsageBreakdown[];
   provider_limits: ProviderQuotaSnapshot[];
+}
+
+export async function fetchMemoryGraph(
+  userId: string
+): Promise<MemoryGraphOverview> {
+  const response = await makeRequest('/api/usage/memory-graph', {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId }),
+  });
+  return handleApiResponse<MemoryGraphOverview>(response);
 }
 
 /** Aggregate issue lifecycle counts across all projects. */
@@ -265,6 +305,210 @@ function formatQuotaLimit(window: ProviderQuotaWindow): string | null {
   return `${window.limit_value} ${window.unit ?? ''}`.trim();
 }
 
+function seededUnit(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 0xffffffff;
+}
+
+/** A deterministic, bounded force layout without exposing the backing store. */
+function MemoryGraphCanvas({ graph }: { graph: MemoryGraphOverview }) {
+  const layout = useMemo(() => {
+    const width = 880;
+    const height = 340;
+    const positions = new Map(
+      graph.nodes.map((node) => [
+        node.id,
+        {
+          x: 80 + seededUnit(`${node.id}:x`) * (width - 160),
+          y: 46 + seededUnit(`${node.id}:y`) * (height - 92),
+          z: seededUnit(`${node.id}:z`),
+        },
+      ])
+    );
+    for (let iteration = 0; iteration < 90; iteration += 1) {
+      const force = new Map(
+        graph.nodes.map((node) => [node.id, { x: 0, y: 0 }])
+      );
+      for (let left = 0; left < graph.nodes.length; left += 1) {
+        for (let right = left + 1; right < graph.nodes.length; right += 1) {
+          const a = positions.get(graph.nodes[left].id)!;
+          const b = positions.get(graph.nodes[right].id)!;
+          const dx = a.x - b.x;
+          const dy = a.y - b.y;
+          const distance = Math.max(16, Math.hypot(dx, dy));
+          const strength = 1100 / (distance * distance);
+          force.get(graph.nodes[left].id)!.x += (dx / distance) * strength;
+          force.get(graph.nodes[left].id)!.y += (dy / distance) * strength;
+          force.get(graph.nodes[right].id)!.x -= (dx / distance) * strength;
+          force.get(graph.nodes[right].id)!.y -= (dy / distance) * strength;
+        }
+      }
+      for (const edge of graph.edges) {
+        const a = positions.get(edge.subject);
+        const b = positions.get(edge.object);
+        if (!a || !b) continue;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const distance = Math.max(1, Math.hypot(dx, dy));
+        const strength = (distance - 105) * 0.012;
+        force.get(edge.subject)!.x += (dx / distance) * strength;
+        force.get(edge.subject)!.y += (dy / distance) * strength;
+        force.get(edge.object)!.x -= (dx / distance) * strength;
+        force.get(edge.object)!.y -= (dy / distance) * strength;
+      }
+      for (const node of graph.nodes) {
+        const point = positions.get(node.id)!;
+        const movement = force.get(node.id)!;
+        point.x = Math.min(width - 28, Math.max(28, point.x + movement.x));
+        point.y = Math.min(height - 24, Math.max(24, point.y + movement.y));
+      }
+    }
+    return { width, height, positions };
+  }, [graph]);
+
+  return (
+    <svg
+      viewBox={`0 0 ${layout.width} ${layout.height}`}
+      className="h-[340px] w-full rounded-sm border border-border bg-secondary/25"
+      role="img"
+      aria-label="Semantic memory relationship graph"
+    >
+      <defs>
+        <radialGradient id="memory-node" cx="35%" cy="30%">
+          <stop stopColor="var(--color-brand, #60a5fa)" stopOpacity="1" />
+          <stop
+            offset="1"
+            stopColor="var(--color-brand, #60a5fa)"
+            stopOpacity=".28"
+          />
+        </radialGradient>
+      </defs>
+      {graph.edges.map((edge) => {
+        const source = layout.positions.get(edge.subject);
+        const target = layout.positions.get(edge.object);
+        if (!source || !target) return null;
+        return (
+          <line
+            key={`${edge.subject}:${edge.predicate}:${edge.object}`}
+            x1={source.x}
+            y1={source.y}
+            x2={target.x}
+            y2={target.y}
+            stroke="currentColor"
+            strokeOpacity="0.22"
+            strokeWidth="1"
+            className="text-brand"
+          />
+        );
+      })}
+      {graph.nodes.map((node) => {
+        const point = layout.positions.get(node.id)!;
+        const radius = 5 + Math.min(8, node.degree * 1.25) + point.z * 2;
+        return (
+          <g key={node.id} className="group cursor-default">
+            <title>{`${node.id}${node.description ? ` — ${node.description}` : ''}`}</title>
+            <circle
+              cx={point.x}
+              cy={point.y}
+              r={radius + 7}
+              fill="var(--color-brand, #60a5fa)"
+              opacity="0.07"
+            />
+            <circle
+              cx={point.x}
+              cy={point.y}
+              r={radius}
+              fill="url(#memory-node)"
+              stroke="var(--color-brand, #60a5fa)"
+              strokeOpacity="0.8"
+            />
+            <text
+              x={point.x + radius + 6}
+              y={point.y + 4}
+              className="fill-high text-[10px] opacity-75 group-hover:opacity-100"
+            >
+              {node.id.length > 28 ? `${node.id.slice(0, 27)}…` : node.id}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function ProgressScatterChart({ points }: { points: AgentProgressPoint[] }) {
+  if (points.length === 0) return null;
+  const width = 880;
+  const height = 150;
+  const max = Math.max(
+    1,
+    ...points.flatMap((point) => [
+      point.hits,
+      point.weak_recalls,
+      point.failures,
+    ])
+  );
+  const x = (index: number) =>
+    24 + (index / Math.max(1, points.length - 1)) * (width - 48);
+  const y = (value: number) => height - 22 - (value / max) * (height - 42);
+  const series = [
+    { key: 'hits', color: '#34d399', label: 'Hits' },
+    { key: 'weak_recalls', color: '#fbbf24', label: 'Weak recalls' },
+    { key: 'failures', color: '#f87171', label: 'Failures' },
+  ] as const;
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="h-[150px] w-full"
+      role="img"
+      aria-label="Agent progress per minute"
+    >
+      {[0.25, 0.5, 0.75].map((ratio) => (
+        <line
+          key={ratio}
+          x1="24"
+          x2={width - 24}
+          y1={height - 22 - ratio * (height - 42)}
+          y2={height - 22 - ratio * (height - 42)}
+          className="stroke-border"
+          strokeDasharray="3 4"
+        />
+      ))}
+      {series.map((line) => (
+        <g key={line.key}>
+          <polyline
+            fill="none"
+            stroke={line.color}
+            strokeWidth="1.5"
+            strokeOpacity=".65"
+            points={points
+              .map((point, index) => `${x(index)},${y(point[line.key])}`)
+              .join(' ')}
+          />
+          {points.map(
+            (point, index) =>
+              point[line.key] > 0 && (
+                <circle
+                  key={`${line.key}-${point.minute}`}
+                  cx={x(index)}
+                  cy={y(point[line.key])}
+                  r="3"
+                  fill={line.color}
+                >
+                  <title>{`${line.label}: ${point[line.key]} · ${point.minute}`}</title>
+                </circle>
+              )
+          )}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 export function UsageSettingsSection() {
   const { t } = useTranslation('settings');
   const [summary, setSummary] = useState<UsageSummary | null>(null);
@@ -273,6 +517,11 @@ export function UsageSettingsSection() {
   const [reExtractBusy, setReExtractBusy] = useState(false);
   const [reExtractResult, setReExtractResult] =
     useState<ReExtractResponse | null>(null);
+  const [memoryGraph, setMemoryGraph] = useState<MemoryGraphOverview | null>(
+    null
+  );
+  const [memoryGraphLoading, setMemoryGraphLoading] = useState(false);
+  const [memoryGraphError, setMemoryGraphError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -286,6 +535,25 @@ export function UsageSettingsSection() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadMemoryGraph = useCallback(async (userId: string) => {
+    setMemoryGraphLoading(true);
+    setMemoryGraphError(null);
+    try {
+      setMemoryGraph(await fetchMemoryGraph(userId.trim() || 'default'));
+    } catch (e) {
+      setMemoryGraph(null);
+      setMemoryGraphError(
+        e instanceof Error ? e.message : 'Failed to load memory graph'
+      );
+    } finally {
+      setMemoryGraphLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMemoryGraph('default');
+  }, [loadMemoryGraph]);
 
   const handleReExtract = async () => {
     const userId = reExtractUser.trim() || 'default';
@@ -1047,6 +1315,95 @@ export function UsageSettingsSection() {
                 );
               })}
             </div>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-medium text-high">
+              {t('settings.usage.memoryGraph', 'Semantic memory graph')}
+            </h3>
+            <p className="mt-0.5 text-xs text-low">
+              {t(
+                'settings.usage.memoryGraphHint',
+                'Extracted concepts and relations from Mem0; vector records stay private in Qdrant.'
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadMemoryGraph(reExtractUser)}
+            disabled={memoryGraphLoading}
+            className="shrink-0 rounded-sm bg-panel px-3 py-1.5 text-sm text-normal ring-1 ring-border hover:text-high disabled:opacity-50"
+          >
+            {memoryGraphLoading
+              ? t('settings.usage.loadingGraph', 'Loading…')
+              : t('settings.usage.refreshGraph', 'Refresh graph')}
+          </button>
+        </div>
+        <div className="rounded-sm border border-border bg-panel p-3">
+          {memoryGraphError ? (
+            <p className="text-sm text-low">
+              {t(
+                'settings.usage.graphUnavailable',
+                'Graph unavailable. Enable the Mem0 graph service, then try again.'
+              )}
+            </p>
+          ) : memoryGraph && memoryGraph.nodes.length > 0 ? (
+            <>
+              <MemoryGraphCanvas graph={memoryGraph} />
+              <p className="mt-2 text-xs text-low">
+                {memoryGraph.nodes.length}{' '}
+                {t('settings.usage.graphNodes', 'concepts')} ·{' '}
+                {memoryGraph.edges.length}{' '}
+                {t('settings.usage.graphEdges', 'relations')}
+                {memoryGraph.truncated &&
+                  ` · ${t('settings.usage.graphTruncated', 'showing the most connected concepts')}`}
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-low">
+              {t(
+                'settings.usage.noGraphData',
+                'No extracted relations yet. Save memories or run re-extraction for this repository.'
+              )}
+            </p>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <h3 className="mb-2 text-sm font-medium text-high">
+          {t('settings.usage.agentProgress', 'Agent progress — last 24 hours')}
+        </h3>
+        <div className="rounded-sm border border-border bg-panel p-3">
+          {(summary?.agent_progress ?? []).length === 0 ? (
+            <p className="text-sm text-low">
+              {t(
+                'settings.usage.noAgentProgress',
+                'No recall or failed-agent events in the last 24 hours.'
+              )}
+            </p>
+          ) : (
+            <>
+              <ProgressScatterChart points={summary?.agent_progress ?? []} />
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-low">
+                <span>
+                  <i className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400" />
+                  {t('settings.usage.progressHits', 'Hits')}
+                </span>
+                <span>
+                  <i className="mr-1 inline-block h-2 w-2 rounded-full bg-amber-400" />
+                  {t('settings.usage.progressWeak', 'Weak recalls')}
+                </span>
+                <span>
+                  <i className="mr-1 inline-block h-2 w-2 rounded-full bg-red-400" />
+                  {t('settings.usage.progressFailures', 'Failures')}
+                </span>
+              </div>
+            </>
           )}
         </div>
       </section>

@@ -954,7 +954,7 @@ async function queryGraphNeighbors(
   userId: string,
   queryText: string
 ): Promise<{ neighbors: any[]; relations: any[] } | undefined> {
-  if (!config.graphUrl) return undefined;
+  if (!config.graphUrl || !graphEnabled()) return undefined;
   try {
     const [neighbors, relations] = await Promise.all([
       graphProxy("POST", "/graph/neighbors", { user_id: userId, query: queryText }).catch(
@@ -1013,6 +1013,34 @@ async function graphTraverse(
     };
   } catch (err) {
     console.error(`[graph] traverse failed: ${(err as Error).message}`);
+    return undefined;
+  }
+}
+
+async function graphOverview(userId: string): Promise<
+  | {
+      nodes: { id: string; type: string; description: string; degree: number }[];
+      edges: { subject: string; predicate: string; object: string }[];
+      truncated: boolean;
+    }
+  | undefined
+> {
+  if (!config.graphUrl || !graphEnabled()) return undefined;
+  try {
+    // Keep this request explicit: graphProxy's body-oriented helper does not
+    // attach query parameters, and the repository scope must be in the URL.
+    const response = await fetch(
+      `${config.graphUrl}/graph/overview?${new URLSearchParams({ user_id: userId })}`
+    );
+    if (!response.ok) return undefined;
+    const overview = await response.json();
+    return {
+      nodes: overview.nodes || [],
+      edges: overview.edges || [],
+      truncated: Boolean(overview.truncated),
+    };
+  } catch (err) {
+    console.error(`[graph] overview failed: ${(err as Error).message}`);
     return undefined;
   }
 }
@@ -1604,6 +1632,14 @@ app.post("/api/graph/traverse", async (c) => {
   const res = await graphTraverse(user_id || "", start, hops ?? 2, direction ?? "both");
   if (!res) return c.json({ error: "graph not configured or traverse failed" }, 503);
   return c.json({ ok: true, ...res });
+});
+
+app.post("/api/graph/overview", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const user_id: string = scopedMemoryUserId(c, body?.user_id || "");
+  const res = await graphOverview(user_id || "");
+  if (!res) return c.json({ error: "graph not configured or overview failed" }, 503);
+  return c.json({ ok: true, user_id, ...res });
 });
 
 app.post("/api/re-extract/:user_id", async (c) => {

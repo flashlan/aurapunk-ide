@@ -201,6 +201,44 @@ pub struct TokenUsageBreakdown {
     pub cache_creation_tokens: i64,
 }
 
+/// One minute of observed memory-recall quality and agent failures. No memory
+/// text or prompt data is retained in this telemetry stream.
+#[derive(Debug, Serialize, TS)]
+pub struct AgentProgressPoint {
+    /// UTC minute in ISO-8601 form.
+    pub minute: String,
+    /// Recalls with a top semantic score of at least 0.3.
+    pub hits: i64,
+    /// Empty or low-confidence recalls (top score below 0.3).
+    pub weak_recalls: i64,
+    /// Agent processes that ended as failed or killed.
+    pub failures: i64,
+}
+
+/// A bounded graph projection of one repository's semantic memory.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
+pub struct MemoryGraphOverview {
+    pub user_id: String,
+    pub nodes: Vec<MemoryGraphNode>,
+    pub edges: Vec<MemoryGraphEdge>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
+pub struct MemoryGraphNode {
+    pub id: String,
+    pub r#type: String,
+    pub description: String,
+    pub degree: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
+pub struct MemoryGraphEdge {
+    pub subject: String,
+    pub predicate: String,
+    pub object: String,
+}
+
 #[derive(Debug, Serialize, TS)]
 pub struct UsageSummary {
     /// Activity over the last 30 days, one row per (day, agent).
@@ -219,10 +257,13 @@ pub struct UsageSummary {
     /// `memory_search` recall relevance, day-bucketed — reported live by the
     /// `vibe_kanban_mcp` process via `POST /api/usage/mem0-relevance` (a
     /// separate process from this server, so this can't be read from a
-    /// shared in-process struct the way the rest of `UsageSummary` is; see
-    /// docs/ADR/ADR-030-mem0-context-drift-measurement.md). In-memory only —
-    /// resets on server restart.
+    /// shared in-process struct the way the rest of `UsageSummary` is). This
+    /// legacy aggregate is in-memory; its minute-level counterpart below is
+    /// persisted in `memory_recall_events`.
     pub mem0_relevance: Mem0RelevanceSummary,
+    /// Last 24 hours of durable recall-quality and execution-failure events,
+    /// grouped into one-minute buckets for the progress chart.
+    pub agent_progress: Vec<AgentProgressPoint>,
     /// LLM token + KV-cache telemetry, day-bucketed per agent — reported
     /// via `POST /api/usage/token-telemetry`. In-memory only — resets on
     /// server restart.
@@ -334,6 +375,7 @@ pub fn router() -> Router<DeploymentImpl> {
         )
         .route("/usage/mem0-status", get(mem0_status))
         .route("/usage/mem0-relevance", post(report_mem0_relevance))
+        .route("/usage/memory-graph", post(memory_graph_overview))
         .route("/usage/token-telemetry", post(report_token_telemetry))
 }
 
@@ -771,6 +813,16 @@ async fn report_mem0_relevance(
     Json(body): Json<ReportMem0RelevanceBody>,
 ) -> ResponseJson<ApiResponse<()>> {
     deployment.mem0_relevance_service().record(body.top_score);
+    let outcome = if body.top_score.is_some_and(|score| score >= 0.3) {
+        "hit"
+    } else {
+        "weak"
+    };
+    let _ = sqlx::query("INSERT INTO memory_recall_events (top_score, outcome) VALUES (?, ?)")
+        .bind(body.top_score)
+        .bind(outcome)
+        .execute(&deployment.db().pool)
+        .await;
     ResponseJson(ApiResponse::success(()))
 }
 
@@ -948,6 +1000,65 @@ async fn fetch_mem0_tokens() -> Mem0TokenUsage {
     resp.json::<Mem0TokenUsage>().await.unwrap_or_default()
 }
 
+#[derive(Debug, Deserialize)]
+struct MemoryGraphRequest {
+    #[serde(default = "default_memory_user_id")]
+    user_id: String,
+}
+
+fn default_memory_user_id() -> String {
+    "default".to_string()
+}
+
+/// Proxy the bounded semantic graph from mem0-vk. This keeps Qdrant and graph
+/// storage credentials server-side and returns only extracted concepts and
+/// relation labels to the local UI.
+async fn memory_graph_overview(
+    Json(body): Json<MemoryGraphRequest>,
+) -> ResponseJson<ApiResponse<MemoryGraphOverview>> {
+    if !memory_config::load().enabled
+        || memory_config::load().adapter == MemoryAdapter::Mem0Platform
+    {
+        return ResponseJson(ApiResponse::error(
+            "memory graph is unavailable for this memory adapter",
+        ));
+    }
+    let user_id = body.user_id.trim();
+    if user_id.is_empty() {
+        return ResponseJson(ApiResponse::error("user_id must not be empty"));
+    }
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return ResponseJson(ApiResponse::error("failed to build mem0 client")),
+    };
+    let url = format!("{}/api/graph/overview", mem0_url());
+    let response = match authorize_mem0(client.post(url))
+        .json(&serde_json::json!({ "user_id": user_id }))
+        .send()
+        .await
+    {
+        Ok(response) if response.status().is_success() => response,
+        Ok(response) => {
+            return ResponseJson(ApiResponse::error(&format!(
+                "memory graph returned status {}",
+                response.status()
+            )));
+        }
+        Err(error) => {
+            return ResponseJson(ApiResponse::error(&format!(
+                "memory graph request failed: {error}"
+            )));
+        }
+    };
+    match response.json::<MemoryGraphOverview>().await {
+        Ok(graph) => ResponseJson(ApiResponse::success(graph)),
+        Err(_) => ResponseJson(ApiResponse::error("failed to parse memory graph response")),
+    }
+}
+
 async fn usage_summary(
     State(deployment): State<DeploymentImpl>,
 ) -> ResponseJson<ApiResponse<UsageSummary>> {
@@ -1101,6 +1212,43 @@ async fn usage_summary(
     let mem0_tokens = fetch_mem0_tokens().await;
     let mem0_relevance = deployment.mem0_relevance_service().summary();
     let token_telemetry = deployment.token_telemetry_service().summary();
+    let agent_progress = sqlx::query_as::<_, (String, i64, i64, i64)>(
+        r#"SELECT minute,
+                  SUM(hits) AS hits,
+                  SUM(weak_recalls) AS weak_recalls,
+                  SUM(failures) AS failures
+           FROM (
+               SELECT strftime('%Y-%m-%dT%H:%M:00Z', recorded_at) AS minute,
+                      CASE WHEN outcome = 'hit' THEN 1 ELSE 0 END AS hits,
+                      CASE WHEN outcome = 'weak' THEN 1 ELSE 0 END AS weak_recalls,
+                      0 AS failures
+                 FROM memory_recall_events
+                WHERE recorded_at >= datetime('now', '-24 hours')
+               UNION ALL
+               SELECT strftime('%Y-%m-%dT%H:%M:00Z', COALESCE(completed_at, updated_at)) AS minute,
+                      0 AS hits,
+                      0 AS weak_recalls,
+                      1 AS failures
+                 FROM execution_processes
+                WHERE status IN ('failed', 'killed')
+                  AND COALESCE(completed_at, updated_at) >= datetime('now', '-24 hours')
+           )
+           GROUP BY minute
+           ORDER BY minute ASC"#,
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(
+        |(minute, hits, weak_recalls, failures)| AgentProgressPoint {
+            minute,
+            hits,
+            weak_recalls,
+            failures,
+        },
+    )
+    .collect();
 
     #[derive(FromRow)]
     struct TokenUsageRow {
@@ -1168,6 +1316,7 @@ async fn usage_summary(
         total_seconds,
         mem0_tokens,
         mem0_relevance,
+        agent_progress,
         token_telemetry,
         token_usage,
         provider_limits,
