@@ -1120,7 +1120,7 @@ pub(super) async fn resolve_prompt_model(
 
         // 2. Exact match against model IDs across all providers
         for provider in &providers.providers {
-            for (model_id, _info) in &provider.models {
+            for model_id in provider.models.keys() {
                 if model_id.eq_ignore_ascii_case(raw) {
                     return Some(ModelSpec {
                         provider_id: provider.id.clone(),
@@ -1132,7 +1132,7 @@ pub(super) async fn resolve_prompt_model(
 
         // 3. Suffix match: e.g. raw is "gpt-5.6-sol" and provider model is "openai/gpt-5.6-sol"
         for provider in &providers.providers {
-            for (model_id, _info) in &provider.models {
+            for model_id in provider.models.keys() {
                 if model_id.ends_with(&format!("/{raw}")) || raw.ends_with(&format!("/{model_id}"))
                 {
                     return Some(ModelSpec {
