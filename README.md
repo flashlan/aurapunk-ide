@@ -31,14 +31,14 @@
 ## Download
 
 <p align="center">
-  <a href="https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/Aurapunk-IDE-macos-apple-silicon.dmg"><img alt="macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple_Silicon-000000?style=for-the-badge&logo=apple&logoColor=white" /></a>
-  <a href="https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/Aurapunk-IDE-macos-intel.dmg"><img alt="macOS Intel" src="https://img.shields.io/badge/macOS-Intel-000000?style=for-the-badge&logo=apple&logoColor=white" /></a>
+  <a href="https://github.com/flashlan/aurapunk-ide/releases/latest/download/Aurapunk-IDE-macos-apple-silicon.dmg"><img alt="macOS Apple Silicon" src="https://img.shields.io/badge/macOS-Apple_Silicon-000000?style=for-the-badge&logo=apple&logoColor=white" /></a>
+  <a href="https://github.com/flashlan/aurapunk-ide/releases/latest/download/Aurapunk-IDE-macos-intel.dmg"><img alt="macOS Intel" src="https://img.shields.io/badge/macOS-Intel-000000?style=for-the-badge&logo=apple&logoColor=white" /></a>
   <br/>
-  <a href="https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/Aurapunk-IDE-linux-x64.AppImage"><img alt="Linux AppImage" src="https://img.shields.io/badge/Linux-AppImage-FCC624?style=for-the-badge&logo=linux&logoColor=black" /></a>
-  <a href="https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/Aurapunk-IDE-linux-x64.deb"><img alt="Debian/Ubuntu deb" src="https://img.shields.io/badge/Debian%2FUbuntu-.deb-A81D33?style=for-the-badge&logo=debian&logoColor=white" /></a>
-  <a href="https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/Aurapunk-IDE-linux-x64.rpm"><img alt="Fedora rpm" src="https://img.shields.io/badge/Fedora-.rpm-51A2DA?style=for-the-badge&logo=fedora&logoColor=white" /></a>
+  <a href="https://github.com/flashlan/aurapunk-ide/releases/latest/download/Aurapunk-IDE-linux-x64.AppImage"><img alt="Linux AppImage" src="https://img.shields.io/badge/Linux-AppImage-FCC624?style=for-the-badge&logo=linux&logoColor=black" /></a>
+  <a href="https://github.com/flashlan/aurapunk-ide/releases/latest/download/Aurapunk-IDE-linux-x64.deb"><img alt="Debian/Ubuntu deb" src="https://img.shields.io/badge/Debian%2FUbuntu-.deb-A81D33?style=for-the-badge&logo=debian&logoColor=white" /></a>
+  <a href="https://github.com/flashlan/aurapunk-ide/releases/latest/download/Aurapunk-IDE-linux-x64.rpm"><img alt="Fedora rpm" src="https://img.shields.io/badge/Fedora-.rpm-51A2DA?style=for-the-badge&logo=fedora&logoColor=white" /></a>
   <br/>
-  <a href="https://github.com/flashlan/aurapunk-ide/releases/download/v0.3.2/Aurapunk-IDE-windows-x64.exe"><img alt="Windows x64" src="https://img.shields.io/badge/Windows-x64_installer-0078D6?style=for-the-badge&logo=windows&logoColor=white" /></a>
+  <a href="https://github.com/flashlan/aurapunk-ide/releases/latest/download/Aurapunk-IDE-windows-x64.exe"><img alt="Windows x64" src="https://img.shields.io/badge/Windows-x64_installer-0078D6?style=for-the-badge&logo=windows&logoColor=white" /></a>
   <br/>
   <a href="https://pub-80572bbc4ab94346be24d128e6b22a0f.r2.dev/aurapunk-mobile/aurapunk-mobile-beta.apk"><img alt="Android beta APK" src="https://img.shields.io/badge/Android-Beta_APK-3DDC84?style=for-the-badge&logo=android&logoColor=white" /></a>
 </p>
