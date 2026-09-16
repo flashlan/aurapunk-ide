@@ -59,7 +59,7 @@ const LocalMobilePairingDialogImpl = create<NoProps>(() => {
 
       if (endpoints.length === 0) {
         throw new Error(
-          'Não foi possível detectar uma interface de rede local. Abra o Desktop pela rede local e tente novamente.'
+          'Could not detect a local network interface. Open the Desktop over the local network and try again.'
         );
       }
 
@@ -71,7 +71,7 @@ const LocalMobilePairingDialogImpl = create<NoProps>(() => {
       const body = (await response.json()) as PairingResponse;
       if (!response.ok || !body.data?.pairing_url) {
         throw new Error(
-          body.message ?? `Desktop retornou HTTP ${response.status}`
+          body.message ?? `Desktop returned HTTP ${response.status}`
         );
       }
       setPairingUrl(body.data.pairing_url);
@@ -79,7 +79,7 @@ const LocalMobilePairingDialogImpl = create<NoProps>(() => {
       setError(
         inviteError instanceof Error
           ? inviteError.message
-          : 'Não foi possível criar o convite local.'
+          : 'Could not create the local invitation.'
       );
     } finally {
       setPending(false);
@@ -97,17 +97,17 @@ const LocalMobilePairingDialogImpl = create<NoProps>(() => {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <QrCodeIcon className="size-icon-sm text-brand" weight="bold" />
-            Conectar AuraPunk Mobile pela rede local
+            Connect AuraPunk Mobile over the local network
           </DialogTitle>
           <DialogDescription className="space-y-3 text-left">
             <span className="block">
-              O QR é temporário e pode ser usado uma única vez. O token
-              permanente do Desktop não é colocado no QR.
+              The QR code is temporary and can be used only once. The Desktop
+              permanent token is never embedded in the QR.
             </span>
             <span className="block text-xs text-low">
-              Ao usar o aplicativo empacotado, o listener LAN é iniciado
-              automaticamente neste botão e encerrado quando o Desktop fecha. Em
-              desenvolvimento web, inicie o backend com HOST=0.0.0.0.
+              In the packaged app, the LAN listener starts automatically from
+              this button and stops when the Desktop closes. In web
+              development, start the backend with HOST=0.0.0.0.
             </span>
           </DialogDescription>
         </DialogHeader>
@@ -115,12 +115,12 @@ const LocalMobilePairingDialogImpl = create<NoProps>(() => {
         {!pairingUrl ? (
           <div className="space-y-3 text-sm text-normal">
             <p>
-              O Desktop inicia o listener local e detecta automaticamente as
-              interfaces disponíveis — Wi-Fi, Ethernet e redes privadas como
-              WireGuard/Tailscale.
+              The Desktop starts the local listener and automatically detects
+              the available interfaces — Wi-Fi, Ethernet, and private networks
+              like WireGuard/Tailscale.
             </p>
             <p className="text-xs text-low">
-              Você só precisa gerar o QR code e escaneá-lo no AuraPunk Mobile.
+              Just generate the QR code and scan it in AuraPunk Mobile.
             </p>
             {error && <p className="text-sm text-danger">{error}</p>}
           </div>
@@ -135,14 +135,14 @@ const LocalMobilePairingDialogImpl = create<NoProps>(() => {
               />
             </div>
             <p className="text-center text-sm text-normal">
-              Abra AuraPunk Mobile, escolha <strong>Conectar Desktop</strong> e
-              escaneie este código em até 2 minutos.
+              Open AuraPunk Mobile, choose <strong>Connect Desktop</strong> and
+              scan this code within 2 minutes.
             </p>
             <button
               type="button"
               className="max-w-full break-all text-center text-xs text-low hover:text-normal"
               onClick={() => navigator.clipboard?.writeText(pairingUrl)}
-              title="Copiar convite"
+              title="Copy invitation"
             >
               {pairingUrl}
             </button>
@@ -151,14 +151,14 @@ const LocalMobilePairingDialogImpl = create<NoProps>(() => {
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={close}>
-            Fechar
+            Close
           </Button>
           {!pairingUrl ? (
             <Button onClick={() => void generateInvite()} disabled={pending}>
-              {pending ? 'Gerando…' : 'Gerar QR code'}
+              {pending ? 'Generating…' : 'Generate QR code'}
             </Button>
           ) : (
-            <Button onClick={() => setPairingUrl(null)}>Gerar outro</Button>
+            <Button onClick={() => setPairingUrl(null)}>Generate another</Button>
           )}
         </DialogFooter>
       </DialogContent>
