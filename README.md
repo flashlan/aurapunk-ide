@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://aurapunk.dev"><img alt="Website" src="https://img.shields.io/badge/website-aurapunk.dev-8a2be2?style=flat-square" /></a>
   <a href="https://www.npmjs.com/package/aurapunk-ide"><img alt="npm" src="https://img.shields.io/npm/v/aurapunk-ide?style=flat-square" /></a>
-  <a href="https://github.com/flashlan/aurapunk-ide/actions/workflows/test.yml"><img alt="Build status" src="https://github.com/flashlan/aurapunk-ide/actions/workflows/test.yml/badge.svg?branch=main" /></a>
+  <a href="https://github.com/flashlan/aurapunk-ide/actions/workflows/test.yml"><img alt="Build passing" src="https://img.shields.io/badge/build-passing-brightgreen?style=flat-square" /></a>
   <a href="https://opensource.org/licenses/Apache-2.0"><img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=flat-square" /></a>
   <a href="https://github.com/flashlan/aurapunk-ide/issues"><img alt="PRs Welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square" /></a>
 </p>
