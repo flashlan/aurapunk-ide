@@ -2,7 +2,7 @@
 //!
 //! Triggers:
 //! - workspace creation (linked issue) -> In Progress
-//! - agent running (any coding-agent execution starts) -> In Progress (even from In Review/Done)
+//! - agent running (any coding-agent execution starts) -> In Progress (except terminal cards)
 //! - pipeline completion (final execution success) -> In Review
 //! - merge (direct or PR merged) -> Done (is_terminal)
 //!
@@ -206,8 +206,9 @@ pub async fn on_workspace_created(pool: &SqlitePool, issue_id: Uuid) {
     }
 }
 
-/// Hook: a coding-agent execution started for `workspace_id`. Move any linked card
-/// back to In Progress (force, even from In Review/Done) so active work is visible.
+/// Hook: a coding-agent execution started for `workspace_id`. Move a linked open card
+/// back to In Progress (force, even from In Review) so active work is visible. A terminal
+/// card is an explicit completion decision and must not be reopened automatically.
 /// Idempotent if already In Progress.
 pub async fn on_agent_running(pool: &SqlitePool, workspace_id: Uuid) {
     let issue_id =
@@ -228,6 +229,23 @@ pub async fn on_agent_running(pool: &SqlitePool, workspace_id: Uuid) {
     }) else {
         return;
     };
+    let statuses = match ProjectStatus::list_by_project(pool, issue.project_id).await {
+        Ok(statuses) => statuses,
+        Err(e) => {
+            tracing::warn!("auto-move agent_running list statuses failed: {e}");
+            return;
+        }
+    };
+    if statuses
+        .iter()
+        .any(|status| status.id == issue.status_id && status.is_terminal)
+    {
+        tracing::info!(
+            "auto-move agent_running skip: card {} is already in a terminal status",
+            issue_id
+        );
+        return;
+    }
     let Some(target) =
         resolve_target_for_trigger(pool, issue.project_id, Trigger::AgentRunning).await
     else {
@@ -438,6 +456,27 @@ mod tests {
             .await
             .unwrap();
         on_workspace_merged(&pool, ws_id).await;
+        let issue = Issue::find_by_id(&pool, iid).await.unwrap().unwrap();
+        assert_eq!(issue.status_id, statuses[3].id);
+    }
+
+    #[tokio::test]
+    async fn agent_running_does_not_reopen_a_manually_completed_card() {
+        let pool = pool().await;
+        let (pid, statuses) = seed_project_with_statuses(&pool).await;
+        let iid = create_issue(&pool, pid, statuses[3].id).await;
+        let ws_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO workspaces (id, branch) VALUES (?, 'b')")
+            .bind(ws_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        db::models::issue_workspace::IssueWorkspace::link(&pool, iid, ws_id)
+            .await
+            .unwrap();
+
+        on_agent_running(&pool, ws_id).await;
+
         let issue = Issue::find_by_id(&pool, iid).await.unwrap().unwrap();
         assert_eq!(issue.status_id, statuses[3].id);
     }
