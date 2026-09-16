@@ -24,6 +24,9 @@ Este livro foi escrito dentro do próprio repositório que ele ensina a usar. To
 | 7 | Git, workspaces e worktrees | `07-git-workspaces.md` | Escrito |
 | 8 | Projeto prático: Criando um SaaS com Vibe Kanban | `08-projeto-saas.md` | Escrito |
 | 9 | Da escrita à Amazon KDP | `09-publicacao-kdp.md` | Escrito |
+| 17 | Agentes: instalação, autenticação e modelos | `17-agentes.md` | Escrito |
+| 18 | Configurações: referência das abas | `18-configuracoes.md` | Escrito |
+| 19 | Resolução de problemas: índice de erros | `19-resolucao-problemas.md` | Escrito |
 
 ## Parte II — Bastidores (para quem customiza o app)
 

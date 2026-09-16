@@ -24,6 +24,9 @@ This book was written inside the very repository it teaches you to use. Every fi
 | 7 | Git, workspaces and worktrees | `07-git-workspaces.md` | Written |
 | 8 | Practical project: Building a SaaS with Vibe Kanban | `08-projeto-saas.md` | Written |
 | 9 | From writing to Amazon KDP | `09-publicacao-kdp.md` | Written |
+| 17 | Agents: installation, authentication, and models | `17-agentes.md` | Written |
+| 18 | Settings: tab reference | `18-configuracoes.md` | Written |
+| 19 | Troubleshooting: error index | `19-resolucao-problemas.md` | Written |
 
 ## Part II — Behind the Scenes (for those who customize the app)
 
