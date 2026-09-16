@@ -345,6 +345,22 @@ fn main() {
                 }
                 let _ = window;
             } else {
+                // The installers put the MCP, review and TUI executables in
+                // Tauri's platform-specific resource directory. The embedded
+                // server uses this path when opening the terminal cockpit.
+                if let Ok(resource_dir) = app.path().resource_dir() {
+                    let bundled_bin_dir = resource_dir.join("bin");
+                    if bundled_bin_dir.is_dir() {
+                        // Process-wide configuration is set before the local
+                        // server starts and before any worker threads launch.
+                        unsafe {
+                            std::env::set_var(
+                                "AURAPUNK_BUNDLED_BIN_DIR",
+                                bundled_bin_dir,
+                            )
+                        };
+                    }
+                }
                 // Production: show the packaged splash immediately while the
                 // Axum server initializes SQLite, migrations, and startup
                 // reconciliation. Navigate the same window to the app once

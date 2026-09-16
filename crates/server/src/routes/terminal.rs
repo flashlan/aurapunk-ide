@@ -55,13 +55,25 @@ struct TerminalQuery {
     pub rows: u16,
 }
 
-/// Locate the `vibe-tui` binary next to the current server executable or
-/// fall back to `cargo run -p tui --`.
+/// Locate the `vibe-tui` binary embedded by a desktop installer, next to the
+/// current server executable, or fall back to `cargo run -p tui --`.
 fn resolve_tui_command() -> (String, Vec<String>) {
+    let binary_name = if cfg!(target_os = "windows") {
+        "vibe-tui.exe"
+    } else {
+        "vibe-tui"
+    };
+    if let Some(tui_bin) = std::env::var_os("AURAPUNK_BUNDLED_BIN_DIR")
+        .map(std::path::PathBuf::from)
+        .map(|dir| dir.join(binary_name))
+        .filter(|path| path.exists())
+    {
+        return (tui_bin.to_string_lossy().to_string(), vec![]);
+    }
     if let Ok(exe) = std::env::current_exe()
         && let Some(parent) = exe.parent()
     {
-        let tui_bin = parent.join("vibe-tui");
+        let tui_bin = parent.join(binary_name);
         if tui_bin.exists() {
             return (tui_bin.to_string_lossy().to_string(), vec![]);
         }
