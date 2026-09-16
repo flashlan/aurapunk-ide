@@ -1075,6 +1075,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires a locally installed and authenticated Codex CLI"]
     async fn test_discover_models_live() {
         let codex = super::Codex::default();
         let models = codex.discover_models_live(None, None).await;
