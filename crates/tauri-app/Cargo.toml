@@ -7,6 +7,11 @@ edition.workspace = true
 name = "vibe-kanban-tauri"
 path = "src/main.rs"
 
+[features]
+# Allows local debug bundles to use the embedded frontend and server, just
+# like release bundles, without changing the normal `tauri dev` workflow.
+packaged = []
+
 [build-dependencies]
 tauri-build.workspace = true
 

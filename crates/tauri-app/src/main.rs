@@ -326,7 +326,7 @@ fn main() {
                 }
             });
 
-            if cfg!(debug_assertions) {
+            if cfg!(all(debug_assertions, not(feature = "packaged"))) {
                 // Dev mode: frontend dev server (Vite) and backend are started
                 // externally. Use WebviewUrl::External so that macOS WKWebView
                 // renders with the same content scaling as the production build.
