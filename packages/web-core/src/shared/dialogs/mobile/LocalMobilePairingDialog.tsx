@@ -106,8 +106,8 @@ const LocalMobilePairingDialogImpl = create<NoProps>(() => {
             </span>
             <span className="block text-xs text-low">
               In the packaged app, the LAN listener starts automatically from
-              this button and stops when the Desktop closes. In web
-              development, start the backend with HOST=0.0.0.0.
+              this button and stops when the Desktop closes. In web development,
+              start the backend with HOST=0.0.0.0.
             </span>
           </DialogDescription>
         </DialogHeader>
@@ -158,7 +158,9 @@ const LocalMobilePairingDialogImpl = create<NoProps>(() => {
               {pending ? 'Generating…' : 'Generate QR code'}
             </Button>
           ) : (
-            <Button onClick={() => setPairingUrl(null)}>Generate another</Button>
+            <Button onClick={() => setPairingUrl(null)}>
+              Generate another
+            </Button>
           )}
         </DialogFooter>
       </DialogContent>
