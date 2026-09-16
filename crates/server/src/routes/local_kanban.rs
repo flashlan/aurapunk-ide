@@ -948,18 +948,16 @@ pub(crate) async fn merge_and_update_issue(
     };
     let status_id = req.status_id.unwrap_or(existing.status_id);
 
-    // A terminal transition is a completion claim. Agents must use the
-    // `complete_workspace_card` workflow, which integrates through the
-    // Integration Guard and records the durable Mem0 summary before marking
-    // the card Done. The only bypass is the explicit operator action exposed
-    // by the Kanban confirmation dialog (`allow_unmerged_done`).
+    // A terminal transition is a completion claim. It requires an integrated
+    // workspace; neither agents nor the UI may bypass that guard. The
+    // `allow_unmerged_done` field is retained in the wire type only for
+    // backwards-compatible request parsing and is deliberately ignored.
     if status_id != existing.status_id
         && is_terminal_status(pool, existing.project_id, status_id).await?
-        && !req.allow_unmerged_done.unwrap_or(false)
         && !issue_has_integrated_workspace(pool, id).await?
     {
         return Err(ApiError::Conflict(
-            "Cannot move this card to Done before it is integrated. Use complete_workspace_card, or explicitly choose Move without merging in the Kanban dialog.".into(),
+            "Cannot move this card to Done before it is integrated. Merge the linked workspace or use complete_workspace_card.".into(),
         ));
     }
     let title = req.title.unwrap_or(existing.title);
@@ -1993,11 +1991,10 @@ mod tests {
             parent_issue_sort_order: None,
             extension_metadata: None,
         };
-        let updated = super::merge_and_update_issue(&pool, issue.id, override_request)
+        let error = super::merge_and_update_issue(&pool, issue.id, override_request)
             .await
-            .unwrap()
-            .expect("issue exists");
-        assert_eq!(updated.status_id, done.id);
+            .expect_err("legacy allow_unmerged_done must not bypass integration");
+        assert!(error.to_string().contains("integrated"));
     }
 
     // -----------------------------------------------------------------

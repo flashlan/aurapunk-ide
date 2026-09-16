@@ -1265,7 +1265,7 @@ export function KanbanContainer() {
       // for a status-only update (no sort_order rewrite).
       const effectiveMove = isManualSort ? move : { ...move, index: undefined };
 
-      const commitMove = (allowUnmergedDone: boolean) => {
+      const commitMove = () => {
         const newItems = computeKanbanMove(itemsRef.current, effectiveMove);
         const updates = buildKanbanMoveUpdates({
           newItems,
@@ -1273,17 +1273,7 @@ export function KanbanContainer() {
           isManualSort,
           calculateSortOrder,
           statusColumnIndexMap,
-        }).map((update) =>
-          update.id === move.issueId && allowUnmergedDone
-            ? {
-                ...update,
-                changes: {
-                  ...update.changes,
-                  allow_unmerged_done: true,
-                },
-              }
-            : update
-        );
+        });
 
         setItems(newItems);
         applyKanbanMove(updates, projectId);
@@ -1297,9 +1287,8 @@ export function KanbanContainer() {
           const decision = await ConfirmDialog.show({
             title: 'Complete card',
             message:
-              'This card has not been integrated yet. Choose how to move it to Done.',
+              'Moving this card to Done requires merging its linked workspace.',
             confirmText: 'Move and merge',
-            alternativeText: 'Move without merging',
             cancelText: 'Cancel',
             variant: 'info',
           });
@@ -1354,19 +1343,14 @@ export function KanbanContainer() {
             }
 
             // The merge record now authorizes the terminal status transition.
-            commitMove(false);
+            commitMove();
             return;
           }
-
-          // The alternate button is an explicit operator override. It is
-          // persisted with the move so the backend can distinguish it from an
-          // agent silently setting Done.
-          commitMove(true);
         })();
         return;
       }
 
-      commitMove(false);
+      commitMove();
     },
     [
       projectId,
