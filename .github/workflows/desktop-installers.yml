@@ -182,28 +182,25 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$app"
 
       - name: Build Intel DMG
-        working-directory: crates/tauri-app
-        run: npx --yes $TAURI_CLI bundle --config tauri.build.conf.json --bundles dmg --no-sign
-
-      - name: Collect installer
         shell: bash
         run: |
           set -euo pipefail
-          bundle=''
-          for candidate in \
-            "$GITHUB_WORKSPACE/target/release/bundle/dmg" \
-            "$GITHUB_WORKSPACE/crates/tauri-app/target/release/bundle/dmg"; do
-            if [ -d "$candidate" ]; then
-              bundle="$candidate"
-              break
-            fi
-          done
-          [ -n "$bundle" ] || { echo 'Tauri DMG output directory was not found.' >&2; exit 1; }
+          app=$(find \
+            "$GITHUB_WORKSPACE/target/release/bundle/macos" \
+            "$GITHUB_WORKSPACE/crates/tauri-app/target/release/bundle/macos" \
+            -type d -name '*.app' -print -quit 2>/dev/null || true)
+          [ -n "$app" ] || { echo 'macOS Intel app bundle was not found.' >&2; exit 1; }
+
+          staging=$(mktemp -d)
+          volume="$staging/Aurapunk IDE"
+          mkdir -p "$volume"
+          ditto "$app" "$volume/Aurapunk IDE.app"
+          ln -s /Applications "$volume/Applications"
+
           mkdir -p installer-output
-          shopt -s nullglob
-          installers=("$bundle"/*.dmg)
-          [ "${#installers[@]}" -gt 0 ] || { echo "No .dmg installer found in $bundle" >&2; exit 1; }
-          cp -f "${installers[0]}" installer-output/Aurapunk-IDE-macos-intel.dmg
+          dmg=installer-output/Aurapunk-IDE-macos-intel.dmg
+          hdiutil create -volname 'Aurapunk IDE' -srcfolder "$volume" -ov -format UDZO "$dmg"
+          hdiutil verify "$dmg"
           ls -lh installer-output
 
       - name: Upload macOS Intel installer
