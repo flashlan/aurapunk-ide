@@ -20,7 +20,7 @@ Os manuscritos já estão prontos: `docs/livro/manuscript.md` (PT) e `docs/livro
     --epub-cover-image=docs/images/livro/capa-ebook.png
   ```
   Sem pandoc, use a mesma conversão no **Calibre** (Add books → Convert) ou suba o EPUB gerado pelo `Kindle Create` — Kobo/Google aceitam.
-- [ ] Capa: `capa-ebook.png` 1600×2560, <50MB, RGB, título legível em thumbnail 100×160. Google recomenda sem bordas brancas; Kobo aceita igual ao KDP.
+- [ ] Capa: `capa-ebook.png` 1600×2560, menos de 50 MB, RGB, título legível em thumbnail 100×160. Google recomenda sem bordas brancas; Kobo aceita igual ao KDP.
 - [ ] ISBN: **Kobo** oferece ISBN grátis (use o dele); **Google Play** não exige ISBN; **Amazon** pode usar o gratuito do KDP — o mesmo livro terá ISBNs diferentes por loja, normal em wide.
 
 ## 1. Kobo Writing Life (kobo.com/writinglife)

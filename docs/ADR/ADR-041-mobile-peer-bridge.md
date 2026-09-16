@@ -97,5 +97,5 @@ using temporary object storage; storage and egress remain accounted for.
 
 ## References
 
-- Tailcat repository and license: <https://github.com/tailscale/tailcat>
-- Tailcat architecture: <https://tailscale.com/blog/tailcat>
+- [Tailcat repository and licence](https://github.com/tailscale/tailcat)
+- [Tailcat architecture](https://tailscale.com/blog/tailcat)
