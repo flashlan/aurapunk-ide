@@ -564,23 +564,6 @@ impl McpServer {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn platform_response_maps_to_the_existing_memory_shape() {
-        let response: Mem0PlatformSearchResponse = serde_json::from_value(serde_json::json!({
-            "results": [{ "id": "memory-1", "memory": "Uses Qdrant", "score": 0.82 }]
-        }))
-        .expect("valid Mem0 Platform response");
-
-        assert_eq!(response.results.len(), 1);
-        assert_eq!(response.results[0].memory.as_deref(), Some("Uses Qdrant"));
-        assert_eq!(response.results[0].score, Some(0.82));
-    }
-}
-
 #[tool_router(router = mem0_tools_router, vis = "pub")]
 impl McpServer {
     #[tool(
@@ -1091,5 +1074,22 @@ impl McpServer {
             likely_stale,
             evidence,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn platform_response_maps_to_the_existing_memory_shape() {
+        let response: Mem0PlatformSearchResponse = serde_json::from_value(serde_json::json!({
+            "results": [{ "id": "memory-1", "memory": "Uses Qdrant", "score": 0.82 }]
+        }))
+        .expect("valid Mem0 Platform response");
+
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].memory.as_deref(), Some("Uses Qdrant"));
+        assert_eq!(response.results[0].score, Some(0.82));
     }
 }
