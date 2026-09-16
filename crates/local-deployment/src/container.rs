@@ -2194,7 +2194,7 @@ impl LocalContainerService {
                 let _ = executor.normalize_logs(store.clone(), &effective_dir);
             }
 
-            if let Some((agent, model, provider)) = execution_identity(&action) {
+            if let Some((agent, model, provider)) = execution_identity(action) {
                 let issue_id = IssueWorkspace::find_issue_and_project_by_workspace(
                     &self.db.pool,
                     ctx.workspace.id,

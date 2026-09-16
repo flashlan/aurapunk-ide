@@ -267,14 +267,13 @@ pub async fn create_and_start_workspace(
             all_attachment_ids.push(attachment.id);
         }
     }
-    if !all_attachment_ids.is_empty() {
-        if let Err(error) = managed_workspace
+    if !all_attachment_ids.is_empty()
+        && let Err(error) = managed_workspace
             .associate_attachments(&all_attachment_ids)
             .await
-        {
-            cleanup_failed_workspace(&managed_workspace).await;
-            return Err(ApiError::from(error));
-        }
+    {
+        cleanup_failed_workspace(&managed_workspace).await;
+        return Err(ApiError::from(error));
     }
 
     let workspace = managed_workspace.workspace.clone();

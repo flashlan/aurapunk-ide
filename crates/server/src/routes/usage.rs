@@ -440,13 +440,10 @@ fn url_host(input: &str) -> Option<String> {
 /// Returns `(reachable, healthy)`.
 async fn check_mem0(client: &reqwest::Client, base: &str) -> (bool, bool) {
     if is_aura_punk_cloud_gateway(base) {
-        let reachable = match authorize_mem0(client.get(format!("{base}/health")))
-            .send()
-            .await
-        {
-            Ok(response) if response.status().is_success() => true,
-            _ => false,
-        };
+        let reachable = matches!(
+            authorize_mem0(client.get(format!("{base}/health"))).send().await,
+            Ok(response) if response.status().is_success()
+        );
         return (reachable, reachable);
     }
     if memory_config::load().adapter == MemoryAdapter::Mem0Platform {

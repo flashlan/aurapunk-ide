@@ -131,13 +131,13 @@ fn persisted_value(path: &Path, generate: impl FnOnce() -> String) -> String {
 }
 
 fn host_memory_bytes() -> u64 {
-    if let Ok(contents) = fs::read_to_string("/proc/meminfo") {
-        if let Some(value) = contents.lines().find_map(|line| {
+    if let Ok(contents) = fs::read_to_string("/proc/meminfo")
+        && let Some(value) = contents.lines().find_map(|line| {
             let mut fields = line.split_whitespace();
             (fields.next() == Some("MemTotal:")).then(|| fields.next()?.parse::<u64>().ok())?
-        }) {
-            return value * 1_024;
-        }
+        })
+    {
+        return value * 1_024;
     }
 
     if let Ok(output) = Command::new("sysctl").args(["-n", "hw.memsize"]).output()

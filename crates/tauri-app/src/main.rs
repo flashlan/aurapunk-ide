@@ -319,10 +319,10 @@ fn main() {
                     _ => None,
                 };
 
-                if let Some(action) = action {
-                    if let Err(error) = app.emit("native-menu-action", action) {
-                        tracing::warn!(?error, "Failed to dispatch native menu action");
-                    }
+                if let Some(action) = action
+                    && let Err(error) = app.emit("native-menu-action", action)
+                {
+                    tracing::warn!(?error, "Failed to dispatch native menu action");
                 }
             });
 

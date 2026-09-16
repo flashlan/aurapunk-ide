@@ -938,14 +938,13 @@ async fn get_context_for(
             if let Some(link) = issue_workspace_links
                 .iter()
                 .find(|link| link.issue_id == issue.id)
+                && let Some(object) = payload.as_object_mut()
             {
-                if let Some(object) = payload.as_object_mut() {
-                    object.insert(
-                        "workspace_id".to_string(),
-                        serde_json::to_value(link.workspace_id)
-                            .map_err(|error| ApiError::BadRequest(error.to_string()))?,
-                    );
-                }
+                object.insert(
+                    "workspace_id".to_string(),
+                    serde_json::to_value(link.workspace_id)
+                        .map_err(|error| ApiError::BadRequest(error.to_string()))?,
+                );
             }
             records.push(MobileSyncRecord {
                 entity_type: "issue",
@@ -1353,7 +1352,6 @@ async fn import_cloud_context(
             .await?;
 
             if let Some(turn) = turn {
-                let chat = chat;
                 let turn_created_at = chat.map(|chat| chat.created_at).unwrap_or(turn.created_at);
                 sqlx::query(
                     r#"INSERT INTO coding_agent_turns (
@@ -1405,18 +1403,18 @@ async fn import_cloud_context(
                         },
                     )));
                 }
-                if let Some(summary) = chat.and_then(|chat| chat.summary.clone()) {
-                    if !summary.is_empty() {
-                        logs.push(LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(
-                            logs.len(),
-                            NormalizedEntry {
-                                timestamp: None,
-                                entry_type: NormalizedEntryType::AssistantMessage,
-                                content: summary,
-                                metadata: None,
-                            },
-                        )));
-                    }
+                if let Some(summary) = chat.and_then(|chat| chat.summary.clone())
+                    && !summary.is_empty()
+                {
+                    logs.push(LogMsg::JsonPatch(ConversationPatch::add_normalized_entry(
+                        logs.len(),
+                        NormalizedEntry {
+                            timestamp: None,
+                            entry_type: NormalizedEntryType::AssistantMessage,
+                            content: summary,
+                            metadata: None,
+                        },
+                    )));
                 }
                 let log_json = logs
                     .iter()
