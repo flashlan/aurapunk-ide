@@ -1924,7 +1924,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn terminal_issue_transition_requires_integration_or_explicit_override() {
+    async fn terminal_issue_transition_requires_integration_even_with_legacy_override() {
         clear_key_chain_cache();
         let pool = pool().await;
         let project = create_project_record(&pool, Uuid::new_v4(), "Completion", "#6366f1", None)
