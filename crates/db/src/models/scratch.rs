@@ -307,7 +307,7 @@ pub enum ScratchPayload {
     PreviewSettings(PreviewSettingsData),
     AndroidMirrorSettings(AndroidMirrorSettingsData),
     WorkspaceNotes(WorkspaceNotesData),
-    UiPreferences(UiPreferencesData),
+    UiPreferences(Box<UiPreferencesData>),
     ProjectRepoDefaults(ProjectRepoDefaultsData),
     WorkspaceChatConfig(WorkspaceChatConfigData),
 }

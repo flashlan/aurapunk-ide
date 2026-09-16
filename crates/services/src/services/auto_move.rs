@@ -449,30 +449,14 @@ mod tests {
         let (pid, statuses) = seed_project_with_statuses(&pool).await;
         let iid = create_issue(&pool, pid, statuses[0].id).await;
         // Disable via scratch
-        let prefs = UiPreferencesData {
-            repo_actions: Default::default(),
-            expanded: Default::default(),
-            context_bar_position: None,
-            pane_sizes: Default::default(),
-            collapsed_paths: Default::default(),
-            file_search_repo_id: None,
-            is_left_sidebar_visible: None,
-            is_right_sidebar_visible: None,
-            is_terminal_visible: None,
-            workspace_panel_states: Default::default(),
-            workspace_filters: Default::default(),
-            workspace_sort: Default::default(),
-            selected_project_id: None,
-            create_draft_workspace_by_default: None,
-            kanban_project_view_selections: Default::default(),
-            kanban_project_view_preferences: Default::default(),
-            auto_move_cards_enabled: false,
-        };
+        let prefs: UiPreferencesData =
+            serde_json::from_value(serde_json::json!({ "auto_move_cards_enabled": false }))
+                .unwrap();
         db::models::scratch::Scratch::create(
             &pool,
             UI_PREFERENCES_ID,
             &CreateScratch {
-                payload: ScratchPayload::UiPreferences(prefs),
+                payload: ScratchPayload::UiPreferences(Box::new(prefs)),
             },
         )
         .await
