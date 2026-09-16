@@ -1,28 +1,28 @@
-"use client";
+'use client';
 
-import { Card } from "./Card";
+import { Card } from './Card';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "./RadixTooltip";
-import { cn } from "../lib/cn";
+} from './RadixTooltip';
+import { cn } from '../lib/cn';
 import {
   useDragActive,
   useDragCandidate,
   useDragCandidateIndex,
   useDragSourceIssueId,
-} from "./outliner/dragState";
-import { useDraggable, useDropTarget } from "./dnd";
-import { SOURCE_DATA_ATTRS } from "./dnd";
-import type { DragSource } from "./dnd";
+} from './outliner/dragState';
+import { useDraggable, useDropTarget } from './dnd';
+import { SOURCE_DATA_ATTRS } from './dnd';
+import type { DragSource } from './dnd';
 
 /** Source shape specific to kanban card drags; narrows `DragSource` for
  * the props below so card-only code reaches `.issueId` without a runtime
  * guard. Project-row drags are bound via the same `DragSource` union but
  * flow through a separate tree-node renderer (see `treeNodes.tsx`). */
-type IssueMoveSource = Extract<DragSource, { kind: "issue-move" }>;
+type IssueMoveSource = Extract<DragSource, { kind: 'issue-move' }>;
 import {
   Children,
   type KeyboardEvent,
@@ -31,16 +31,16 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
-} from "react";
-import { useTranslation } from "react-i18next";
-import { DotsSixVerticalIcon, PlusIcon } from "@phosphor-icons/react";
-import { Button } from "./Button";
+} from 'react';
+import { useTranslation } from 'react-i18next';
+import { DotsSixVerticalIcon, PlusIcon } from '@phosphor-icons/react';
+import { Button } from './Button';
 
 // Re-exported so existing imports keep compiling — the list-view adapter in
 // `KanbanContainer` retains hello-pangea for its own `DragDropContext` and
 // imports `DropResult` from here. The cross-surface path (this file) no
 // longer depends on the hello-pangea runtime types.
-export type { DropResult } from "@hello-pangea/dnd";
+export type { DropResult } from '@hello-pangea/dnd';
 
 export type Status = {
   id: string;
@@ -67,7 +67,7 @@ export type KanbanBoardProps = {
 
 export const KanbanBoard = ({ children, className }: KanbanBoardProps) => {
   return (
-    <div className={cn("flex flex-col min-h-40", className)}>{children}</div>
+    <div className={cn('flex flex-col min-h-40', className)}>{children}</div>
   );
 };
 
@@ -114,7 +114,7 @@ export const KanbanCard = ({
   // the issue's id (resolver → issue-swap) and the status it sits in
   // (controller → same-column filter).
   const dropTargetAttrs = useDropTarget(source.issueId, source.projectId, {
-    acceptKinds: ["issue-move"],
+    acceptKinds: ['issue-move'],
     statusId: source.statusId,
   });
   // P4-E1: on mobile, the drag binding lives on the handle
@@ -124,22 +124,22 @@ export const KanbanCard = ({
   // conflict, larger drag target helps accessibility).
   const cardPointerProps =
     !isMobile && onPointerDown
-      ? { onPointerDown, style: { touchAction: "none" as const } }
+      ? { onPointerDown, style: { touchAction: 'none' as const } }
       : {};
   const handlePointerProps =
     isMobile && onPointerDown
-      ? { onPointerDown, style: { touchAction: "none" as const } }
+      ? { onPointerDown, style: { touchAction: 'none' as const } }
       : {};
   return (
     <Card
       className={cn(
-        "p-base outline-none flex-col rounded-md bg-surface cursor-pointer shadow-sm transition-shadow hover:shadow-md",
-        (isSelected || isOpen) && "relative z-10",
+        'p-base outline-none flex-col rounded-md bg-surface cursor-pointer shadow-sm transition-shadow hover:shadow-md',
+        (isSelected || isOpen) && 'relative z-10',
         isSelected
-          ? "ring-2 ring-accent ring-inset bg-accent/5"
-          : isOpen && "ring-2 ring-brand ring-inset",
-        isDraggedSource && "opacity-50 transition-opacity",
-        className,
+          ? 'ring-2 ring-accent ring-inset bg-accent/5'
+          : isOpen && 'ring-2 ring-brand ring-inset',
+        isDraggedSource && 'opacity-50 transition-opacity',
+        className
       )}
       {...cardPointerProps}
       {...dropTargetAttrs}
@@ -217,7 +217,7 @@ export const KanbanCards = ({
     candidateId !== id;
   const isMovePreview =
     positionalReorderEnabled && isDragActive && candidateId === id;
-  const dropTargetAttrs = useDropTarget(id, activeProjectId ?? "");
+  const dropTargetAttrs = useDropTarget(id, activeProjectId ?? '');
   const columnRef = useRef<HTMLDivElement | null>(null);
   const previewRef = useRef<HTMLElement | null>(null);
   // Cross-column move preview: create one dimmed clone for the target
@@ -243,12 +243,12 @@ export const KanbanCards = ({
     if (!preview) {
       // Issue ids are bare UUIDs (safe selector chars — no CSS escaping needed).
       const sourceEl = document.querySelector<HTMLElement>(
-        `[data-dnd-card-issue-id="${sourceIssueId}"]`,
+        `[data-dnd-card-issue-id="${sourceIssueId}"]`
       );
       if (!sourceEl) return;
       preview = sourceEl.cloneNode(true) as HTMLElement;
-      preview.style.opacity = "0.5";
-      preview.style.pointerEvents = "none";
+      preview.style.opacity = '0.5';
+      preview.style.pointerEvents = 'none';
       // P5-E3: strip every source data attribute via the shared
       // `SOURCE_DATA_ATTRS` list (see `dnd/sourceAttrs.ts`). The ghost in
       // `DragController` and this preview clone were stripping
@@ -283,18 +283,18 @@ export const KanbanCards = ({
       // so we can resolve source/target indices directly without
       // depending on React's internal `.$` key prefix.
       srcIdx = issueIds.indexOf(sourceIssueId);
-      dstIdx = issueIds.indexOf(candidateId ?? "");
+      dstIdx = issueIds.indexOf(candidateId ?? '');
     } else {
-      const stripKeyPrefix = (k: string): string => k.replace(/^\.\$/, "");
+      const stripKeyPrefix = (k: string): string => k.replace(/^\.\$/, '');
       srcIdx = arr.findIndex(
         (c) =>
-          stripKeyPrefix(String((c as { key?: string | null }).key ?? "")) ===
-          sourceIssueId,
+          stripKeyPrefix(String((c as { key?: string | null }).key ?? '')) ===
+          sourceIssueId
       );
       dstIdx = arr.findIndex(
         (c) =>
-          stripKeyPrefix(String((c as { key?: string | null }).key ?? "")) ===
-          candidateId,
+          stripKeyPrefix(String((c as { key?: string | null }).key ?? '')) ===
+          candidateId
       );
     }
     if (srcIdx === -1 || dstIdx === -1 || srcIdx === dstIdx) return children;
@@ -309,8 +309,8 @@ export const KanbanCards = ({
     <div
       ref={columnRef}
       className={cn(
-        "flex flex-1 flex-col gap-half transition-colors",
-        className,
+        'flex flex-1 flex-col gap-half transition-colors',
+        className
       )}
       {...dropTargetAttrs}
     >
@@ -328,26 +328,26 @@ export type KanbanHeaderProps =
       children: ReactNode;
     }
   | {
-      name: Status["name"];
-      color: Status["color"];
+      name: Status['name'];
+      color: Status['color'];
       className?: string;
       onAddTask?: () => void;
       count?: number;
     };
 
 export const KanbanHeader = (props: KanbanHeaderProps) => {
-  const { t } = useTranslation("tasks");
+  const { t } = useTranslation('tasks');
 
-  if ("children" in props) {
+  if ('children' in props) {
     return props.children;
   }
 
   return (
     <Card
       className={cn(
-        "sticky top-0 z-20 flex shrink-0 items-center gap-base p-base flex gap-base",
-        "bg-background",
-        props.className,
+        'sticky top-0 z-20 flex shrink-0 items-center gap-base p-base flex gap-base',
+        'bg-background',
+        props.className
       )}
       style={{
         backgroundImage: `linear-gradient(hsl(var(${props.color}) / 0.03), hsl(var(${props.color}) / 0.03))`,
@@ -376,12 +376,12 @@ export const KanbanHeader = (props: KanbanHeaderProps) => {
               variant="ghost"
               className="m-0 p-0 h-0 text-foreground/50 hover:text-foreground"
               onClick={props.onAddTask}
-              aria-label={t("actions.addTask")}
+              aria-label={t('actions.addTask')}
             >
               <PlusIcon className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="top">{t("actions.addTask")}</TooltipContent>
+          <TooltipContent side="top">{t('actions.addTask')}</TooltipContent>
         </Tooltip>
       </TooltipProvider>
     </Card>
@@ -409,8 +409,8 @@ export const KanbanProvider = ({
   return (
     <div
       className={cn(
-        "inline-grid grid-flow-col auto-cols-[minmax(200px,400px)] gap-base items-stretch min-h-full",
-        className,
+        'inline-grid grid-flow-col auto-cols-[minmax(200px,400px)] gap-base items-stretch min-h-full',
+        className
       )}
     >
       {children}
