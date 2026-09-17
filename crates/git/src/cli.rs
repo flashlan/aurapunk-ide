@@ -653,19 +653,8 @@ impl GitCli {
         self.git(repo_path, ["checkout", base_branch]).map(|_| ())?;
         self.git(repo_path, ["merge", "--squash", "--no-commit", from_branch])
             .map(|_| ())?;
-        if let Err(error) = self.git(repo_path, ["commit", "-m", message]) {
-            // A squash of a branch whose changes are already present in the
-            // target can legitimately produce no index changes. Treat Git's
-            // empty-commit response as an idempotent merge.
-            let is_empty_commit = matches!(
-                &error,
-                GitCliError::CommandFailed(message)
-                    if message.to_ascii_lowercase().contains("nothing to commit")
-            );
-            if !is_empty_commit {
-                return Err(error);
-            }
-        }
+        self.git(repo_path, ["commit", "--allow-empty", "-m", message])
+            .map(|_| ())?;
         let sha = self
             .git(repo_path, ["rev-parse", "HEAD"])?
             .trim()

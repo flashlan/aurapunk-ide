@@ -372,20 +372,13 @@ pub async fn merge_workspace(
     let vk_id = resolve_vibe_kanban_identifier(&deployment, workspace.id).await;
     let commit_message = format!("{} (vibe-kanban {})", workspace_label, vk_id);
 
-    // A clean workspace can already point at the target HEAD (for example
-    // when an agent made no changes). Treat that as an idempotent integration
-    // instead of asking `git merge --squash` to create an empty commit.
-    let merge_commit_id = if task_head == target_head {
-        target_head.clone()
-    } else {
-        deployment.git().merge_changes(
-            &repo.path,
-            &worktree_path,
-            &workspace.branch,
-            &workspace_repo.target_branch,
-            &commit_message,
-        )?
-    };
+    let merge_commit_id = deployment.git().merge_changes(
+        &repo.path,
+        &worktree_path,
+        &workspace.branch,
+        &workspace_repo.target_branch,
+        &commit_message,
+    )?;
 
     Merge::create_direct(
         pool,
