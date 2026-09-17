@@ -233,6 +233,10 @@ async function serveDemo(request, response) {
     response.writeHead(200, {
       'Cache-Control': extension === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable',
       'Content-Type': MIME_TYPES[extension] ?? 'application/octet-stream',
+      // The demo is a client-routed SPA: every /demo/* path falls back to the
+      // same index.html. Without this, Google treats each path as an indexable
+      // page with no canonical ("Duplicate without user-selected canonical").
+      'X-Robots-Tag': 'noindex, nofollow',
     });
     createReadStream(filePath).pipe(response);
   } catch {
