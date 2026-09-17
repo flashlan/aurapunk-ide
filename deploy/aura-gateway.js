@@ -10,6 +10,11 @@ const websiteOrigin = process.env.WEBSITE_ORIGIN ?? 'http://127.0.0.1:3200';
 const vibeOrigin = process.env.VIBE_ORIGIN ?? 'http://127.0.0.1:3100';
 const demoRoot = process.env.DEMO_ROOT ?? '/opt/vibe-kanban-demo/frontend-demo';
 const demoPrefix = '/demo';
+const apexHost = (process.env.APEX_HOST ?? 'aurapunk.dev')
+  .trim()
+  .toLowerCase()
+  .replace(/^www\./, '')
+  .replace(/\.$/, '');
 const cloudIdeBaseDomain = (process.env.CLOUD_IDE_BASE_DOMAIN ?? '')
   .trim()
   .toLowerCase()
@@ -78,6 +83,22 @@ function cloudIdeTenantFromHost(hostHeader) {
   const tenant = hostname.slice(0, -suffix.length);
   if (!/^personal-[a-z0-9-]{1,49}$/.test(tenant) || tenant.includes('.')) return null;
   return tenant;
+}
+
+// `www.aurapunk.dev` served a full 200 duplicate of the apex, so Google
+// processed both hosts as the same content. Collapse it with a permanent
+// redirect, preserving the path and query string.
+function apexRedirectLocation(request) {
+  const forwarded = request.headers['x-forwarded-host'];
+  const rawHost = (Array.isArray(forwarded) ? forwarded[0] : forwarded)
+    ?? request.headers.host
+    ?? '';
+  const hostname = rawHost.split(',')[0].split(':')[0].trim().toLowerCase().replace(/\.$/, '');
+  if (hostname !== `www.${apexHost}`) return null;
+  const url = new URL(request.url ?? '/', `https://${apexHost}`);
+  url.protocol = 'https:';
+  url.host = apexHost;
+  return url.toString();
 }
 
 function proxyHeaders(
@@ -247,6 +268,14 @@ async function serveDemo(request, response) {
 
 const server = createServer((request, response) => {
   const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+
+  const apexRedirect = apexRedirectLocation(request);
+  if (apexRedirect) {
+    response.writeHead(301, { Location: apexRedirect });
+    response.end();
+    return;
+  }
+
   const cloudIdeTenant = cloudIdeTenantFromHost(request.headers.host);
 
   if (cloudIdeTenant) {
