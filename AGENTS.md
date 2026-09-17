@@ -171,3 +171,18 @@ fixed them. Newest last.
   caller's own write is what lands.
 - **Note:** the coalescing itself was added in this session's uncommitted
   work; this is the regression it introduced.
+
+### 2026-09-17 — Sidebar tree: project row navigates, selection reveals
+- **Owner feedback:** clicking a project's root entry should open the
+  project (not only expand); the tree should reveal the selected card/
+  workspace; expansion state must survive restarts.
+- **Changes:** `handleActivate` in `SidebarProjectTree.tsx` now navigates
+  on a project row click (the caret still toggles; the Unassigned
+  pseudo-project keeps disclosure). New pure helpers
+  `findNodeIdByPredicate` / `findAncestorIds` in `outliner/openState.ts`
+  power a reveal effect: the externally selected card/workspace opens its
+  ancestors, gets selected and scrolled into view, and those opens are
+  persisted alongside user toggles.
+- **Tests:** new `findNodePath.test.ts` (path/finder predicates) plus the
+  updated `SidebarProjectTree.test.tsx` activation test; full `@vibe/ui`
+  suite green (272).

@@ -310,28 +310,28 @@ describe('SidebarProjectTree tasks integration', () => {
     );
   });
 
-  it('row click toggles the project; the open-page icon navigates without toggling', async () => {
+  it('row click navigates to the project; the caret toggles without navigating', async () => {
     seedBlob({ 'project-1': true }); // project open, Tasks closed (default)
     const onOpenProjectPage = vi.fn();
     renderTree({ onOpenProjectPage });
 
     await waitFor(() => expect(screen.getByText('Tasks')).toBeTruthy());
-    // Row click toggles the project closed (children vanish).
+    // Owner decision (2026-09-17): activating the project row opens its
+    // kanban board instead of collapsing it.
     fireEvent.click(rowForText('Project One'));
-    await waitFor(() => expect(screen.queryByText('Tasks')).toBeNull());
-
-    // Re-open via caret, then the open-page icon navigates without toggling.
-    fireEvent.click(caretFor('Project One'));
-    await waitFor(() => expect(screen.getByText('Tasks')).toBeTruthy());
-    // The project row's icon is the first open-page icon in DOM order
-    // (the Tasks section also renders one).
-    const icon = screen.getAllByLabelText('sidebar.openProjectPage')[0]!;
-    fireEvent.click(icon);
     await waitFor(() =>
       expect(onOpenProjectPage).toHaveBeenCalledWith('project-1')
     );
-    // Project stays open (icon did not toggle).
+    // Project stays open — the row click was navigation, not disclosure.
     expect(screen.getByText('Tasks')).toBeTruthy();
+
+    // The caret still toggles: collapse, then re-open.
+    fireEvent.click(caretFor('Project One'));
+    await waitFor(() => expect(screen.queryByText('Tasks')).toBeNull());
+    fireEvent.click(caretFor('Project One'));
+    await waitFor(() => expect(screen.getByText('Tasks')).toBeTruthy());
+    // Caret clicks never navigate.
+    expect(onOpenProjectPage).toHaveBeenCalledTimes(1);
   });
 
   it('the caret toggles a project row open (collapse-by-default)', async () => {

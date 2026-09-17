@@ -4,6 +4,7 @@ import { SpinnerIcon } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '../lib/cn';
 import {
+  UNASSIGNED_PROJECT_ID,
   makeTasksSectionId,
   makeWorkspacesSectionId,
   type OutlinerWorkspace,
@@ -15,6 +16,8 @@ import {
 import { BUCKET_ORDER } from '../lib/buckets';
 import {
   buildSidebarTreeInitialOpenState,
+  findAncestorIds,
+  findNodeIdByPredicate,
   findTreeNodeById,
   isTasksSectionOpen,
   liveTreeNodeIds,
@@ -380,6 +383,45 @@ export function SidebarProjectTree({
     }
   }, [treeData, height]);
 
+  // Reveal an externally selected node: when the kanban (or any surface)
+  // selects a card or workspace, expand its ancestors, select it and scroll
+  // it into view. Runs on every treeData change so a card that appears after
+  // a lazy load is revealed too; `lastRevealedRef` avoids re-scrolling while
+  // the user keeps the same selection.
+  const lastRevealedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (height === 0 || !treeReadyRef.current) return;
+    const api = treeRef.current;
+    if (!api) return;
+
+    const targetId = activeIssueId
+      ? findNodeIdByPredicate(
+          treeData,
+          (node) => node.type === 'card' && node.issue.id === activeIssueId
+        )
+      : activeWorkspaceId
+        ? findNodeIdByPredicate(
+            treeData,
+            (node) =>
+              node.type === 'leaf' && node.workspace.id === activeWorkspaceId
+          )
+        : null;
+    if (!targetId) return;
+    if (lastRevealedRef.current === targetId) return;
+    lastRevealedRef.current = targetId;
+
+    for (const ancestorId of findAncestorIds(treeData, targetId)) {
+      api.open(ancestorId);
+      // `api.open` bypasses the user-toggle path, so persist explicitly:
+      // revealing a selection is a user intent worth remembering.
+      openStateRef.current = { ...openStateRef.current, [ancestorId]: true };
+    }
+    if (activeIssueId) api.open(targetId);
+    scheduleOpenStateWrite();
+    api.select(targetId);
+    api.scrollTo(targetId);
+  }, [activeIssueId, activeWorkspaceId, treeData, height, scheduleOpenStateWrite]);
+
   // Prune persisted entries for projects that no longer exist (deleted /
   // no longer visible). The read-time GC only filters on next load; without
   // this, deleted projects' `:tasks`/`:status:`/`:card:`/`:bucket:` keys
@@ -456,17 +498,28 @@ export function SidebarProjectTree({
             data.issue.parentIssueId
           );
         }
+      } else if (data.type === 'project') {
+        // Owner decision (2026-09-17): clicking the project row opens its
+        // kanban board — the project entry is an entry point, not just a
+        // disclosure triangle. Expanding/collapsing stays on the chevron
+        // (react-arborist's arrow toggles without firing onActivate). The
+        // Unassigned pseudo-project has no board to open, so it keeps the
+        // disclosure behavior.
+        if (onOpenProjectPage && data.id !== UNASSIGNED_PROJECT_ID) {
+          onOpenProjectPage(data.id);
+        } else {
+          node.toggle();
+        }
       } else if (
-        data.type === 'project' ||
         (data.type === 'section' && data.kind === 'tasks') ||
         data.type === 'status'
       ) {
         // Collapse-by-default (2026-08-07): row activation (click AND
-        // keyboard Enter/Space) TOGGLES expand/collapse for projects, Tasks
-        // sections, and status columns. Navigation to the kanban board /
-        // workspaces dashboard is handled by the dedicated open-page icons
-        // on those rows (see treeNodes.tsx), which stop propagation so this
-        // activate path never fires for an icon click. Card / leaf /
+        // keyboard Enter/Space) TOGGLES expand/collapse for Tasks sections
+        // and status columns. Navigation to the kanban board / workspaces
+        // dashboard is handled by the dedicated open-page icons on those
+        // rows (see treeNodes.tsx), which stop propagation so this activate
+        // path never fires for an icon click. Card / leaf /
         // orchestrator-prompt rows keep navigating on activation.
         node.toggle();
       } else if (data.type === 'orchestrator-prompt') {
@@ -480,7 +533,7 @@ export function SidebarProjectTree({
         onSelectOrchestratorPrompt?.(data.projectId);
       }
     },
-    [onSelectWorkspace, onSelectIssue, onSelectOrchestratorPrompt]
+    [onSelectWorkspace, onSelectIssue, onSelectOrchestratorPrompt, onOpenProjectPage]
   );
 
   const handleToggle = useCallback(

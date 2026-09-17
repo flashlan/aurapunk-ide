@@ -276,6 +276,57 @@ export function findTreeNodeById(
 }
 
 /**
+ * Id of the first node matching `predicate` (depth-first). Used by the
+ * selection-reveal path to translate an external selection (kanban card id /
+ * workspace id) into a tree node id without re-deriving the id scheme.
+ */
+export function findNodeIdByPredicate(
+  nodes: readonly SidebarTreeNode[],
+  predicate: (node: SidebarTreeNode) => boolean
+): string | null {
+  for (const node of nodes) {
+    if (predicate(node)) return node.id;
+    if (
+      node.type !== 'leaf' &&
+      'children' in node &&
+      node.children.length > 0
+    ) {
+      const found = findNodeIdByPredicate(node.children, predicate);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Ancestor ids of `targetId`, outermost first (empty when not found).
+ * Opening these in order makes a nested card/workspace visible.
+ */
+export function findAncestorIds(
+  nodes: readonly SidebarTreeNode[],
+  targetId: string
+): string[] {
+  const walk = (
+    list: readonly SidebarTreeNode[],
+    trail: string[]
+  ): string[] | null => {
+    for (const node of list) {
+      if (node.id === targetId) return trail;
+      if (
+        node.type !== 'leaf' &&
+        'children' in node &&
+        node.children.length > 0
+      ) {
+        const found = walk(node.children, [...trail, node.id]);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  return walk(nodes, []) ?? [];
+}
+
+/**
  * ADR-015: walk the built tree and return every node id as a Set. Used by
  * the prune effect to drop persisted open-state keys whose FULL node id is
  * no longer present (e.g. a nested-board `<childId>:workspaces` key from
