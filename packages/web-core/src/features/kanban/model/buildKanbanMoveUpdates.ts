@@ -62,12 +62,13 @@ export function buildKanbanMoveUpdates(
     return updates;
   }
 
+  const isStatusChange = from !== to;
   const destIssueIds = newItems[to] ?? [];
   destIssueIds.forEach((id, index) => {
     updates.push({
       id,
       changes: {
-        status_id: to,
+        ...(id === move.issueId && isStatusChange ? { status_id: to } : {}),
         sort_order: calculateSortOrder(to, index),
       },
     });

@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 use axum::{
@@ -14,10 +15,13 @@ use db::models::{
     integration_guard::IntegrationGuardLease as DbIntegrationGuardLease,
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
     repo::{Repo, RepoError},
+    scratch::{DraftFollowUpData, Scratch, ScratchPayload, ScratchType, UpdateScratch},
+    session::{CreateSession, Session},
     workspace::Workspace,
     workspace_repo::WorkspaceRepo,
 };
 use deployment::Deployment;
+use executors::{executors::BaseCodingAgent, profile::ExecutorConfig};
 use git::{ConflictOp, GitCli, GitCliError, GitServiceError};
 use serde::{Deserialize, Serialize};
 use services::services::container::ContainerService;
@@ -59,6 +63,16 @@ pub enum GitOperationError {
     AgentWorkConflict {
         message: String,
         conflicts: Vec<db::models::agent_work::AgentWorkConflict>,
+    },
+    /// Target checkout has uncommitted tracked modifications. Returned by the
+    /// Integration Guard cleanliness gate before the critical section, with
+    /// file lists the UI and agents can act on. Untracked files are reported
+    /// for visibility and never block the merge.
+    DirtyWorktree {
+        message: String,
+        branch: String,
+        modified: Vec<String>,
+        untracked: Vec<String>,
     },
     IntegrationInProgress {
         message: String,
@@ -167,6 +181,8 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/diff-since", get(get_diff_since))
         .route("/diff/ws", get(stream_diff_ws))
         .route("/merge", post(merge_workspace))
+        .route("/stash", post(stash_workspace_changes))
+        .route("/delegate-block", post(delegate_merge_block))
         .route("/commit", post(commit_workspace))
         .route("/push", post(push_workspace_branch))
         .route("/push/force", post(force_push_workspace_branch))
@@ -251,6 +267,35 @@ pub async fn merge_workspace(
     let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
         .await?
         .ok_or(RepoError::NotFound)?;
+
+    // Integration Guard cleanliness gate (validation phase): refuse a dirty
+    // target checkout with structured data instead of dying inside the CLI
+    // merge with raw stderr. Cheap and read-only, so it runs before the
+    // lease is acquired. Only tracked modifications block; untracked files
+    // are reported for visibility.
+    {
+        let cleanliness = deployment
+            .git()
+            .worktree_cleanliness(&repo.path, &workspace_repo.target_branch)?;
+        if !cleanliness.modified.is_empty() {
+            let message = format!(
+                "Branch '{}' has {} uncommitted tracked file{} ({} untracked reported). Stash, commit, or delegate cleanup before retrying the merge.",
+                workspace_repo.target_branch,
+                cleanliness.modified.len(),
+                if cleanliness.modified.len() == 1 { "" } else { "s" },
+                cleanliness.untracked.len(),
+            );
+            return Ok(ResponseJson(
+                ApiResponse::error_with_data(GitOperationError::DirtyWorktree {
+                    message: message.clone(),
+                    branch: workspace_repo.target_branch.clone(),
+                    modified: cleanliness.modified,
+                    untracked: cleanliness.untracked,
+                })
+                .with_message(message),
+            ));
+        }
+    }
 
     // All direct merges update a shared branch reference. The lease is stored
     // in SQLite so separate backend processes cannot validate and write the
@@ -417,6 +462,190 @@ pub async fn merge_workspace(
     }
 
     Ok(ResponseJson(ApiResponse::success(())))
+}
+
+#[derive(Debug, Deserialize, Serialize, TS)]
+pub struct StashWorkspaceRequest {
+    pub repo_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, TS)]
+pub struct StashWorkspaceResponse {
+    pub stashed: bool,
+    pub output: String,
+}
+
+/// Stash tracked modifications and untracked files in the target checkout so
+/// a blocked merge can be retried. Explicitly user-initiated through the
+/// merge dialog; the backend never stashes on its own.
+#[axum::debug_handler]
+pub async fn stash_workspace_changes(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<StashWorkspaceRequest>,
+) -> Result<ResponseJson<ApiResponse<StashWorkspaceResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let workspace_repo =
+        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, request.repo_id)
+            .await?
+            .ok_or(RepoError::NotFound)?;
+    let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
+    let cleanliness = deployment
+        .git()
+        .worktree_cleanliness(&repo.path, &workspace_repo.target_branch)?;
+    let Some(checkout) = cleanliness.checkout_path else {
+        return Err(ApiError::BadRequest(
+            "Target branch is not checked out anywhere; nothing to stash.".to_string(),
+        ));
+    };
+    let output = GitCli::new()
+        .stash_push(
+            &checkout,
+            "aurapunk: pre-merge stash (merge dialog)",
+        )
+        .map_err(|e| ApiError::BadRequest(format!("Git stash failed: {e}")))?;
+    Ok(ResponseJson(ApiResponse::success(StashWorkspaceResponse {
+        stashed: true,
+        output: output.chars().take(500).collect(),
+    })))
+}
+
+#[derive(Debug, Deserialize, Serialize, TS)]
+pub struct DelegateMergeBlockRequest {
+    pub repo_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, TS)]
+pub struct DelegateMergeBlockResponse {
+    pub delegated: bool,
+    pub reason: String,
+    pub session_id: Option<Uuid>,
+}
+
+/// Hand a merge block to the agent system: re-derives the dirty state,
+/// resolves the workspace's saved executor, and queues a cleanup follow-up
+/// on the latest session so the next agent run picks it up. Safe actions
+/// (stash, gitignore junk) are described as autonomous; anything ambiguous
+/// or destructive is flagged for the agent to ask the user about first.
+/// Returns `delegated: false` with a machine-readable reason when there is
+/// nothing to delegate (clean tree) or nobody to delegate to (no executor).
+#[axum::debug_handler]
+pub async fn delegate_merge_block(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<DelegateMergeBlockRequest>,
+) -> Result<ResponseJson<ApiResponse<DelegateMergeBlockResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let workspace_repo =
+        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, request.repo_id)
+            .await?
+            .ok_or(RepoError::NotFound)?;
+    let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
+    let cleanliness = deployment
+        .git()
+        .worktree_cleanliness(&repo.path, &workspace_repo.target_branch)?;
+    if cleanliness.modified.is_empty() {
+        return Ok(ResponseJson(ApiResponse::success(
+            DelegateMergeBlockResponse {
+                delegated: false,
+                reason: "already_clean".to_string(),
+                session_id: None,
+            },
+        )));
+    }
+
+    let chat_config = Scratch::find_by_id(pool, workspace.id, &ScratchType::WorkspaceChatConfig)
+        .await?
+        .and_then(|scratch| match scratch.payload {
+            ScratchPayload::WorkspaceChatConfig(config) => Some(config),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let executor = chat_config
+        .executor
+        .as_deref()
+        .map(|raw| raw.replace('-', "_").to_ascii_uppercase())
+        .and_then(|norm| BaseCodingAgent::from_str(&norm).ok());
+    let Some(executor) = executor else {
+        return Ok(ResponseJson(ApiResponse::success(
+            DelegateMergeBlockResponse {
+                delegated: false,
+                reason: "no_agent_configured".to_string(),
+                session_id: None,
+            },
+        )));
+    };
+    let executor_config = ExecutorConfig {
+        executor,
+        variant: chat_config.preset.clone(),
+        model_id: chat_config.model_id.clone(),
+        agent_id: chat_config.agent_id.clone(),
+        reasoning_id: chat_config.reasoning_id.clone(),
+        permission_policy: None,
+    };
+
+    let session = match Session::find_latest_by_workspace_id(pool, workspace.id).await? {
+        Some(session) => session,
+        None => {
+            Session::create(
+                pool,
+                &CreateSession {
+                    executor: None,
+                    name: None,
+                },
+                Uuid::new_v4(),
+                workspace.id,
+            )
+            .await?
+        }
+    };
+
+    fn summarize(files: &[String], max: usize) -> String {
+        if files.len() <= max {
+            return files.join(", ");
+        }
+        format!("{}, +{} more", files[..max].join(", "), files.len() - max)
+    }
+    let message = format!(
+        "Integration Guard delegated cleanup: merging into '{}' is blocked by {} uncommitted tracked file(s): {}. Untracked (informational, do not commit junk): {}. \
+Plan: 1) inspect `git status`; 2) keep generated junk (db.v2.sqlite, installer-output/, *.log) OUT of commits — add to .gitignore when missing; \
+3) stash (`git stash push -u`) or commit the real changes; 4) report exactly what was done. Do NOT push. Ask the user before anything destructive or ambiguous (commit messages, discarding changes). The user will retry the merge afterwards.",
+        workspace_repo.target_branch,
+        cleanliness.modified.len(),
+        summarize(&cleanliness.modified, 20),
+        if cleanliness.untracked.is_empty() {
+            "none".to_string()
+        } else {
+            summarize(&cleanliness.untracked, 20)
+        },
+    );
+    let follow_up = DraftFollowUpData {
+        message,
+        executor_config: executor_config.clone(),
+    };
+    Scratch::update(
+        pool,
+        session.id,
+        &ScratchType::DraftFollowUp,
+        &UpdateScratch {
+            payload: ScratchPayload::DraftFollowUp(follow_up.clone()),
+        },
+    )
+    .await?;
+    deployment
+        .queued_message_service()
+        .queue_message(session.id, follow_up);
+    Ok(ResponseJson(ApiResponse::success(
+        DelegateMergeBlockResponse {
+            delegated: true,
+            reason: "queued".to_string(),
+            session_id: Some(session.id),
+        },
+    )))
 }
 
 /// Commit all currently-uncommitted changes in the selected repo's worktree to

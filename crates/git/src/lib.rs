@@ -18,6 +18,17 @@ pub use cli::{GitCli, GitCliError, StatusEntry, WorktreeStatus};
 pub use utils::path::ALWAYS_SKIP_DIRS;
 pub use validation::is_valid_branch_prefix;
 
+/// Filesystem cleanliness report for an Integration Guard validation gate.
+#[derive(Clone, Debug, Default)]
+pub struct WorktreeCleanliness {
+    /// Where the branch is checked out, if anywhere.
+    pub checkout_path: Option<std::path::PathBuf>,
+    /// Tracked files with staged or unstaged modifications (block merges).
+    pub modified: Vec<String>,
+    /// Untracked files (reported for visibility, never block merges).
+    pub untracked: Vec<String>,
+}
+
 /// Statistics for a single file based on git history
 #[derive(Clone, Debug)]
 pub struct FileStat {
@@ -633,6 +644,43 @@ impl GitService {
             }
         }
         Ok(None)
+    }
+
+    /// Filesystem cleanliness of the checkout holding `branch_name`.
+    ///
+    /// Integration Guard validation gate: distinguishes tracked modifications
+    /// (which block `git merge`) from untracked files (reported for
+    /// visibility, never blocking). Returns an empty report when the branch
+    /// is not checked out anywhere (pure ref operations need no gate).
+    pub fn worktree_cleanliness(
+        &self,
+        repo_path: &Path,
+        branch_name: &str,
+    ) -> Result<WorktreeCleanliness, GitServiceError> {
+        let checkout_path = self.find_checkout_path_for_branch(repo_path, branch_name)?;
+        let Some(path) = checkout_path else {
+            return Ok(WorktreeCleanliness::default());
+        };
+        let status = GitCli::new()
+            .get_worktree_status(&path)
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?;
+        let mut modified = Vec::new();
+        let mut untracked = Vec::new();
+        for entry in status.entries {
+            let display = String::from_utf8_lossy(&entry.path).to_string();
+            if entry.is_untracked {
+                untracked.push(display);
+            } else if entry.staged != ' ' || entry.unstaged != ' ' {
+                modified.push(display);
+            }
+        }
+        modified.sort();
+        untracked.sort();
+        Ok(WorktreeCleanliness {
+            checkout_path: Some(path),
+            modified,
+            untracked,
+        })
     }
 
     /// Merge changes from a task branch into the base branch.

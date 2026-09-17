@@ -174,4 +174,17 @@ describe('computeKanbanMove', () => {
     );
     expect(result.done).toEqual(['x', 'b']);
   });
+
+  it('removes card from any column it was currently in, even if fromStatusId was stale', () => {
+    const move: KanbanMove = {
+      issueId: 'a',
+      fromStatusId: 'backlog',
+      toStatusId: 'done',
+    };
+    const prev = items(['backlog', []], ['todo', ['a', 'b']], ['done', ['x']]);
+    const result = computeKanbanMove(prev, move);
+    expect(result.todo).toEqual(['b']);
+    expect(result.done).toEqual(['x', 'a']);
+    expect(result.backlog).toEqual([]);
+  });
 });

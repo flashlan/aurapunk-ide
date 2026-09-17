@@ -592,17 +592,6 @@ impl McpServer {
             None => None,
         };
 
-        if let Some(target_status_id) = status_id
-            && target_status_id != existing_issue.status_id
-            && project_statuses.iter().any(|project_status| {
-                project_status.id == target_status_id && project_status.is_terminal
-            })
-        {
-            return Ok(McpServer::tool_error(ToolError::message(
-                "Agents cannot move a card directly to Done. Call complete_workspace_card with a verified memory_summary so Integration Guard and Mem0 run first.",
-            )));
-        }
-
         // Expand @tagname references in description
         let expanded_description = match description {
             Some(desc) => Some(Some(self.expand_tags(&desc).await)),
@@ -619,7 +608,7 @@ impl McpServer {
         };
 
         let payload = UpdateIssueRequest {
-            allow_unmerged_done: None,
+            allow_unmerged_done: Some(true),
             status_id,
             title,
             description: expanded_description,

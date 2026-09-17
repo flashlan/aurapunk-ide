@@ -62,6 +62,12 @@ async fn move_issue_forward(
     {
         return Ok(false);
     }
+    // Never move an already terminal card
+    if let Some(cur) = current_pos {
+        if statuses[cur].is_terminal {
+            return Ok(false);
+        }
+    }
     // Preserve title/description/etc — only status_id changes.
     // Use a direct status update to avoid clobbering other fields.
     sqlx::query(
@@ -292,8 +298,6 @@ pub async fn on_pipeline_completed(pool: &SqlitePool, workspace_id: Uuid) {
     }) else {
         return;
     };
-    // Strict gate: only from In Progress. If still Todo, the workspace hook was missed —
-    // we intentionally do NOT skip to In Review; let the user (or next workspace) move it.
     let statuses = match ProjectStatus::list_by_project(pool, issue.project_id).await {
         Ok(s) => s,
         Err(e) => {
@@ -301,26 +305,57 @@ pub async fn on_pipeline_completed(pool: &SqlitePool, workspace_id: Uuid) {
             return;
         }
     };
-    if let Some(pos) = statuses.iter().position(|s| s.id == issue.status_id) {
-        // Resolve expected pos of In Progress (prefer name match, else pos 1).
-        let expected_pos = find_status_by_name(&statuses, "progress")
-            .and_then(|s| statuses.iter().position(|x| x.id == s.id))
-            .unwrap_or(1.min(statuses.len().saturating_sub(1)));
-        if pos != expected_pos {
-            tracing::info!(
-                "auto-move pipeline_completed skip: card {} pos {pos} != expected In Progress pos {expected_pos}",
-                issue_id
-            );
-            return;
-        }
+    // Don't touch if already in terminal (Done) status
+    if statuses
+        .iter()
+        .any(|s| s.id == issue.status_id && s.is_terminal)
+    {
+        return;
     }
-    let Some(target) =
+
+    let has_done_intent = issue
+        .extension_metadata
+        .as_object()
+        .and_then(|obj| obj.get("done_intent"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let target = if has_done_intent {
+        resolve_target_for_trigger(pool, issue.project_id, Trigger::Merged).await
+    } else {
+        if let Some(pos) = statuses.iter().position(|s| s.id == issue.status_id) {
+            let expected_pos = find_status_by_name(&statuses, "progress")
+                .and_then(|s| statuses.iter().position(|x| x.id == s.id))
+                .unwrap_or(1.min(statuses.len().saturating_sub(1)));
+            if pos != expected_pos {
+                tracing::info!(
+                    "auto-move pipeline_completed skip: card {} pos {pos} != expected In Progress pos {expected_pos}",
+                    issue_id
+                );
+                return;
+            }
+        }
         resolve_target_for_trigger(pool, issue.project_id, Trigger::PipelineCompleted).await
-    else {
+    };
+
+    let Some(target) = target else {
         return;
     };
     if let Err(e) = move_issue_forward(pool, issue_id, target).await {
         tracing::warn!("auto-move pipeline_completed failed for {issue_id}: {e}");
+    } else if has_done_intent {
+        let mut ext = issue.extension_metadata.clone();
+        if let Some(obj) = ext.as_object_mut() {
+            obj.remove("done_intent");
+            let ext_str = serde_json::to_string(&ext).unwrap_or_else(|_| "{}".to_string());
+            let _ = sqlx::query(
+                r#"UPDATE issues SET extension_metadata = $1, updated_at = datetime('now', 'subsec') WHERE id = $2"#,
+            )
+            .bind(ext_str)
+            .bind(issue_id)
+            .execute(pool)
+            .await;
+        }
     }
 }
 
@@ -350,6 +385,20 @@ pub async fn on_workspace_merged(pool: &SqlitePool, workspace_id: Uuid) {
     };
     if let Err(e) = move_issue_forward(pool, issue_id, target).await {
         tracing::warn!("auto-move merged failed for {issue_id}: {e}");
+    } else {
+        let mut ext = issue.extension_metadata.clone();
+        if let Some(obj) = ext.as_object_mut() {
+            if obj.remove("done_intent").is_some() {
+                let ext_str = serde_json::to_string(&ext).unwrap_or_else(|_| "{}".to_string());
+                let _ = sqlx::query(
+                    r#"UPDATE issues SET extension_metadata = $1, updated_at = datetime('now', 'subsec') WHERE id = $2"#,
+                )
+                .bind(ext_str)
+                .bind(issue_id)
+                .execute(pool)
+                .await;
+            }
+        }
     }
 }
 
@@ -531,6 +580,40 @@ mod tests {
         assert_eq!(
             issue.status_id, statuses[0].id,
             "should not move when disabled"
+        );
+    }
+
+    #[tokio::test]
+    async fn pipeline_completed_with_done_intent_moves_to_done() {
+        let pool = pool().await;
+        let (pid, statuses) = seed_project_with_statuses(&pool).await;
+        let iid = create_issue(&pool, pid, statuses[1].id).await;
+        sqlx::query("UPDATE issues SET extension_metadata = '{\"done_intent\":true}' WHERE id = ?")
+            .bind(iid)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let ws_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO workspaces (id, branch) VALUES (?, 'b')")
+            .bind(ws_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        db::models::issue_workspace::IssueWorkspace::link(&pool, iid, ws_id)
+            .await
+            .unwrap();
+
+        on_pipeline_completed(&pool, ws_id).await;
+        let issue = Issue::find_by_id(&pool, iid).await.unwrap().unwrap();
+        assert_eq!(
+            issue.status_id, statuses[3].id,
+            "should move to Done (pos 3)"
+        );
+        assert_eq!(
+            issue.extension_metadata.get("done_intent"),
+            None,
+            "done_intent flag should be cleaned up"
         );
     }
 }

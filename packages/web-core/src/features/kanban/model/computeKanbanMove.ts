@@ -27,20 +27,16 @@ export function computeKanbanMove(
     column.splice(insertAt, 0, issueId);
     return { ...prev, [fromStatusId]: column };
   }
-  const sourceItems = [...(prev[fromStatusId] ?? [])].filter(
-    (id) => id !== issueId
-  );
-  const destItems = [...(prev[toStatusId] ?? [])].filter(
-    (id) => id !== issueId
-  );
+  const next: Record<string, string[]> = {};
+  for (const [colId, colItems] of Object.entries(prev)) {
+    next[colId] = colItems.filter((id) => id !== issueId);
+  }
+  const destItems = [...(next[toStatusId] ?? [])];
   const insertAt =
     index === undefined || index === null
       ? destItems.length
       : Math.max(0, Math.min(index, destItems.length));
   destItems.splice(insertAt, 0, issueId);
-  return {
-    ...prev,
-    [fromStatusId]: sourceItems,
-    [toStatusId]: destItems,
-  };
+  next[toStatusId] = destItems;
+  return next;
 }

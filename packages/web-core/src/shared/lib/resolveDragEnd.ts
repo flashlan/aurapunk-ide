@@ -114,19 +114,32 @@ export function resolveDragEnd(
     return { type: 'no-op' };
   }
 
-  // 6. Card target = a known issue in the same project. SWAP the two
-  //    issues' status_id fields. The target issue must belong to the
-  //    active project (cross-project swap is invalid).
+  const currentStatusId =
+    'statusId' in source && source.statusId ? source.statusId : issue.status_id;
+
+  // 6. Card target = a known issue in the same project.
+  //    - Same column: SWAP sort order/status between the two cards.
+  //    - Different column: MOVE the dragged card into the target card's column.
   const targetIssue = issuesById.get(targetId);
   if (targetIssue) {
     if (targetIssue.project_id !== activeProjectId) {
       return { type: 'invalid', reason: 'cross-project' };
     }
+    if (targetIssue.status_id === currentStatusId) {
+      return {
+        type: 'issue-swap',
+        sourceIssueId: source.issueId,
+        targetIssueId: targetIssue.id,
+        projectId: activeProjectId,
+      };
+    }
     return {
-      type: 'issue-swap',
-      sourceIssueId: source.issueId,
-      targetIssueId: targetIssue.id,
+      type: 'kanban-internal',
+      issueId: issue.id,
+      fromStatusId: currentStatusId,
+      toStatusId: targetIssue.status_id,
       projectId: activeProjectId,
+      index: completion.index,
     };
   }
 
@@ -153,9 +166,10 @@ export function resolveDragEnd(
     return { type: 'invalid', reason: 'not a valid status target' };
   }
 
+
   if (
     parsedDest.surface === 'kanban' &&
-    parsedDest.statusId === issue.status_id &&
+    parsedDest.statusId === currentStatusId &&
     (completion.index === null || completion.index === undefined)
   ) {
     return { type: 'no-op' };
@@ -163,7 +177,7 @@ export function resolveDragEnd(
 
   if (
     parsedDest.surface === 'tree-status' &&
-    parsedDest.statusId === issue.status_id
+    parsedDest.statusId === currentStatusId
   ) {
     return { type: 'no-op' };
   }
@@ -172,7 +186,7 @@ export function resolveDragEnd(
     return {
       type: 'kanban-internal',
       issueId: issue.id,
-      fromStatusId: issue.status_id,
+      fromStatusId: currentStatusId,
       toStatusId: parsedDest.statusId,
       projectId: activeProjectId,
       index: completion.index,

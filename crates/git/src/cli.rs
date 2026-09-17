@@ -296,6 +296,14 @@ impl GitCli {
         Ok(())
     }
 
+    /// Stash tracked modifications and untracked files with a message.
+    /// Used by the merge dialog's explicit "stash and retry" action; the
+    /// backend never stashes on its own.
+    pub fn stash_push(&self, worktree_path: &Path, message: &str) -> Result<String, GitCliError> {
+        let out = self.git(worktree_path, ["stash", "push", "-u", "-m", message])?;
+        Ok(out)
+    }
+
     pub fn list_worktrees(&self, repo_path: &Path) -> Result<Vec<WorktreeEntry>, GitCliError> {
         let out = self.git(repo_path, ["worktree", "list", "--porcelain"])?;
         let mut entries = Vec::new();
@@ -653,7 +661,19 @@ impl GitCli {
         self.git(repo_path, ["checkout", base_branch]).map(|_| ())?;
         self.git(repo_path, ["merge", "--squash", "--no-commit", from_branch])
             .map(|_| ())?;
-        self.git(repo_path, ["commit", "-m", message]).map(|_| ())?;
+        if let Err(error) = self.git(repo_path, ["commit", "-m", message]) {
+            // A squash of a branch whose changes are already present in the
+            // target can legitimately produce no index changes. Treat Git's
+            // empty-commit response as an idempotent merge.
+            let is_empty_commit = matches!(
+                &error,
+                GitCliError::CommandFailed(msg)
+                    if msg.to_ascii_lowercase().contains("nothing to commit")
+            );
+            if !is_empty_commit {
+                return Err(error);
+            }
+        }
         let sha = self
             .git(repo_path, ["rev-parse", "HEAD"])?
             .trim()

@@ -39,21 +39,24 @@ export function persistIssues(
   projectId: string,
   options?: PersistIssuesOptions
 ): void {
-  const refresh = () =>
-    refreshShapeSource(PROJECT_ISSUES_SHAPE, { project_id: projectId });
+  const refresh = async () => {
+    try {
+      await refreshShapeSource(PROJECT_ISSUES_SHAPE, {
+        project_id: projectId,
+      });
+    } catch {
+      // Refresh failure is non-fatal — the next shape sync heals it.
+      // Treating a refresh rejection as a bulk failure would mis-fire
+      // `onError` and double-trigger the refresh.
+    }
+  };
   bulkUpdateIssues(updates)
-    .then(() => {
-      try {
-        refresh();
-      } catch {
-        // Refresh failure is non-fatal — the next shape sync heals it.
-        // Treating a refresh rejection as a bulk failure would mis-fire
-        // `onError` and double-trigger the refresh.
-      }
+    .then(async () => {
+      await refresh();
     })
-    .catch((err: unknown) => {
+    .catch(async (err: unknown) => {
       options?.onError?.(err);
-      refresh();
+      await refresh();
     })
     .finally(() => {
       options?.onSettled?.();
@@ -73,23 +76,30 @@ export function persistIssueDelete(
   cleanupWorkspaces: boolean,
   options?: PersistIssuesOptions
 ): void {
-  const refresh = () => {
-    refreshShapeSource(PROJECT_ISSUES_SHAPE, { project_id: projectId });
-    if (cleanupWorkspaces) {
-      refreshShapeSource(PROJECT_WORKSPACES_SHAPE, { project_id: projectId });
+  const refresh = async () => {
+    try {
+      const promises: Promise<void>[] = [
+        refreshShapeSource(PROJECT_ISSUES_SHAPE, { project_id: projectId }),
+      ];
+      if (cleanupWorkspaces) {
+        promises.push(
+          refreshShapeSource(PROJECT_WORKSPACES_SHAPE, {
+            project_id: projectId,
+          })
+        );
+      }
+      await Promise.all(promises);
+    } catch {
+      // Refresh failure is non-fatal — the next shape sync heals it.
     }
   };
   deleteIssue(id, { cleanupWorkspaces })
-    .then(() => {
-      try {
-        refresh();
-      } catch {
-        // Refresh failure is non-fatal — the next shape sync heals it.
-      }
+    .then(async () => {
+      await refresh();
     })
-    .catch((err: unknown) => {
+    .catch(async (err: unknown) => {
       options?.onError?.(err);
-      refresh();
+      await refresh();
     })
     .finally(() => {
       options?.onSettled?.();
@@ -102,14 +112,18 @@ export function persistIssueSwap(
   projectId: string,
   options?: PersistIssuesOptions
 ): void {
+  if (a.status_id !== b.status_id) {
+    console.warn('[dnd] Cross-status swap rejected in persistIssueSwap');
+    return;
+  }
   const updates: PersistIssueSwapPair[] = [
     {
       id: a.id,
-      changes: { status_id: b.status_id, sort_order: b.sort_order },
+      changes: { status_id: a.status_id, sort_order: b.sort_order },
     },
     {
       id: b.id,
-      changes: { status_id: a.status_id, sort_order: a.sort_order },
+      changes: { status_id: b.status_id, sort_order: a.sort_order },
     },
   ];
   persistIssues(updates, projectId, options);
@@ -145,18 +159,20 @@ export function persistProjectReorder(
     id: p.id,
     changes: { sort_order: i * STEP },
   }));
-  const refresh = () => refreshShapeSource(PROJECTS_SHAPE, {});
+  const refresh = async () => {
+    try {
+      await refreshShapeSource(PROJECTS_SHAPE, {});
+    } catch {
+      // Non-fatal: next shape sync heals it.
+    }
+  };
   bulkUpdateProjects(updates)
-    .then(() => {
-      try {
-        refresh();
-      } catch {
-        // Non-fatal: next shape sync heals it.
-      }
+    .then(async () => {
+      await refresh();
     })
-    .catch((err: unknown) => {
+    .catch(async (err: unknown) => {
       options?.onError?.(err);
-      refresh();
+      await refresh();
     })
     .finally(() => {
       options?.onSettled?.();

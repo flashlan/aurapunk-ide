@@ -249,11 +249,11 @@ describe('resolveDragEnd', () => {
     });
   });
 
-  it('returns issue-swap when dragging a card onto another known issue (same project, swap status)', () => {
+  it('returns issue-swap when dragging a card onto another known issue in the same status', () => {
     const completion = makeCompletion(uuid(1), uuid(2));
     const issues = issuesById(
       { id: uuid(1), project_id: ACTIVE, status_id: COL_TODO },
-      { id: uuid(2), project_id: ACTIVE, status_id: COL_DONE }
+      { id: uuid(2), project_id: ACTIVE, status_id: COL_TODO }
     );
     expect(
       resolveDragEnd(completion, ACTIVE, issues, ACTIVE_STATUS_IDS)
@@ -262,6 +262,24 @@ describe('resolveDragEnd', () => {
       sourceIssueId: uuid(1),
       targetIssueId: uuid(2),
       projectId: ACTIVE,
+    });
+  });
+
+  it('returns kanban-internal when dragging a card onto another known issue in a different status', () => {
+    const completion = makeCompletion(uuid(1), uuid(2));
+    const issues = issuesById(
+      { id: uuid(1), project_id: ACTIVE, status_id: COL_TODO },
+      { id: uuid(2), project_id: ACTIVE, status_id: COL_DONE }
+    );
+    expect(
+      resolveDragEnd(completion, ACTIVE, issues, ACTIVE_STATUS_IDS)
+    ).toEqual({
+      type: 'kanban-internal',
+      issueId: uuid(1),
+      fromStatusId: COL_TODO,
+      toStatusId: COL_DONE,
+      projectId: ACTIVE,
+      index: null,
     });
   });
 

@@ -757,6 +757,42 @@ export const workspacesApi = {
     return handleApiResponse<void, GitOperationError>(response);
   },
 
+  stashWorkspaceChanges: async (
+    workspaceId: string,
+    data: { repo_id: string }
+  ): Promise<{ stashed: boolean; output: string }> => {
+    const response = await makeRequest(
+      `/api/workspaces/${workspaceId}/git/stash`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<{ stashed: boolean; output: string }>(response);
+  },
+
+  delegateMergeBlock: async (
+    workspaceId: string,
+    data: { repo_id: string }
+  ): Promise<{
+    delegated: boolean;
+    reason: string;
+    session_id: string | null;
+  }> => {
+    const response = await makeRequest(
+      `/api/workspaces/${workspaceId}/git/delegate-block`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<{
+      delegated: boolean;
+      reason: string;
+      session_id: string | null;
+    }>(response);
+  },
+
   commit: async (
     workspaceId: string,
     data: CommitWorkspaceRequest

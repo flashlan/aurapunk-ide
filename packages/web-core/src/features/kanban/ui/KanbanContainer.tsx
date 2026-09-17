@@ -30,6 +30,7 @@ import {
 } from '../model/hooks/useKanbanFilters';
 import {
   type BulkUpdateIssueItem,
+  bulkUpdateIssues,
   fetchIssueMetrics,
 } from '@/shared/lib/remoteApi';
 import { persistIssues, persistIssueSwap } from '@/shared/lib/persistIssues';
@@ -60,6 +61,10 @@ import { KanbanCardContent } from '@vibe/ui/components/KanbanCardContent';
 import { KanbanWorkspaceDispatch } from '@vibe/ui/components/KanbanWorkspaceDispatch';
 import { CardInfoDialog } from '@vibe/ui/components/CardInfoDialog';
 import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
+import {
+  MergeBlockedDialog,
+  getDirtyWorktreeBlock,
+} from './MergeBlockedDialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { workspacesApi } from '@/shared/lib/api';
 import {
@@ -226,6 +231,7 @@ function ProjectBreadcrumb({
 type KanbanIssueCardProps = {
   issue: Issue;
   projectId: string;
+  statusId?: string;
   isMobile: boolean;
   isOpen: boolean;
   isSelected: boolean;
@@ -264,6 +270,7 @@ type KanbanIssueCardProps = {
 const KanbanIssueCard = memo(function KanbanIssueCard({
   issue,
   projectId,
+  statusId,
   isMobile,
   isOpen,
   isSelected,
@@ -324,7 +331,7 @@ const KanbanIssueCard = memo(function KanbanIssueCard({
         kind: 'issue-move',
         issueId: issue.id,
         projectId,
-        statusId: issue.status_id,
+        statusId: statusId ?? issue.status_id,
       }}
       name={issue.title}
       className="group"
@@ -765,6 +772,7 @@ export function KanbanContainer() {
 
   // Track when drag-drop sync is in progress to prevent flicker
   const isSyncingCountRef = useRef(0);
+  const [syncCount, setSyncCount] = useState(0);
 
   // Single source of truth for `sortField === 'sort_order'`. Used by the
   // swap branch gate, the move branch gate (P4-B1), and the
@@ -850,7 +858,7 @@ export function KanbanContainer() {
   // Sync items from filtered issues when they change
   useEffect(() => {
     // Skip rebuild during drag-drop sync to prevent flicker
-    if (isSyncingCountRef.current > 0) {
+    if (syncCount > 0 || isSyncingCountRef.current > 0) {
       return;
     }
 
@@ -895,7 +903,7 @@ export function KanbanContainer() {
       grouped[status.id] = statusIssues.map((i) => i.id);
     }
     setItems(grouped);
-  }, [filteredIssues, statuses, kanbanFilters]);
+  }, [filteredIssues, statuses, kanbanFilters, syncCount]);
 
   // Full-Issue Record intentionally stays local: rendering needs fields beyond
   // the shared drag lookup projection.
@@ -1159,9 +1167,11 @@ export function KanbanContainer() {
   const applyKanbanMove = useCallback(
     (updates: BulkUpdateIssueItem[], projectIdArg: string) => {
       isSyncingCountRef.current += 1;
+      setSyncCount((c) => c + 1);
       const guard = createSyncGuard({
         decrement: () => {
           isSyncingCountRef.current -= 1;
+          setSyncCount((c) => Math.max(0, c - 1));
         },
       });
       persistIssues(updates, projectIdArg, {
@@ -1169,6 +1179,7 @@ export function KanbanContainer() {
           console.error('Failed to bulk update sort order:', err),
         onSettled: guard.bind(() => {
           isSyncingCountRef.current -= 1;
+          setSyncCount((c) => Math.max(0, c - 1));
         }),
       });
     },
@@ -1205,11 +1216,16 @@ export function KanbanContainer() {
         const b = issueMap[swapWithIssueId];
         if (!a || !b) return;
         if (move.swapWithIssueId === move.issueId) return;
-        // Defensive: a cross-status swap is not implementable here (we
-        // would need to rewrite both `status_id` and the new column's
-        // neighbouring sort_orders). The controller never produces one,
-        // so just bail.
-        if (a.status_id !== b.status_id) return;
+        // Defensive: if a cross-status swap reaches here, treat it as a
+        // move of card `a` to card `b`'s status column.
+        if (a.status_id !== b.status_id) {
+          handleKanbanMove({
+            issueId: a.id,
+            fromStatusId: a.status_id,
+            toStatusId: b.status_id,
+          });
+          return;
+        }
         setItems((prev) => {
           const next = { ...prev };
           const aCol = [...(next[a.status_id] ?? [])];
@@ -1219,21 +1235,25 @@ export function KanbanContainer() {
             [aCol[ai], aCol[bi]] = [aCol[bi], aCol[ai]];
             next[a.status_id] = aCol;
           }
+          itemsRef.current = next;
           return next;
         });
         isSyncingCountRef.current += 1;
+        setSyncCount((c) => c + 1);
         // P4-BUG1: same 10s safety net as the move branch — a swap
         // whose `bulkUpdateIssues` never settles must NOT freeze the
         // items-rebuild gate.
         const guard = createSyncGuard({
           decrement: () => {
             isSyncingCountRef.current -= 1;
+            setSyncCount((c) => Math.max(0, c - 1));
           },
         });
         persistIssueSwap(a, b, projectId, {
           onError: (err) => console.error('[dnd] kanban swap failed:', err),
           onSettled: guard.bind(() => {
             isSyncingCountRef.current -= 1;
+            setSyncCount((c) => Math.max(0, c - 1));
           }),
         });
         return;
@@ -1278,15 +1298,19 @@ export function KanbanContainer() {
           isManualSort,
           calculateSortOrder,
           statusColumnIndexMap,
-        }).map((update) =>
-          update.id === moveToCommit.issueId && allowUnmergedDone
-            ? {
-                ...update,
-                changes: { ...update.changes, allow_unmerged_done: true },
-              }
-            : update
-        );
+        }).map((update) => {
+          const isDoneMove =
+            allowUnmergedDone || doneStatusIds.has(resolvedMove.toStatusId);
+          if (isDoneMove) {
+            return {
+              ...update,
+              changes: { ...update.changes, allow_unmerged_done: true },
+            };
+          }
+          return update;
+        });
 
+        itemsRef.current = newItems;
         setItems(newItems);
         applyKanbanMove(updates, projectId);
       };
@@ -1308,62 +1332,145 @@ export function KanbanContainer() {
 
           if (decision === 'canceled') return;
 
-          if (decision === 'confirmed') {
-            const linkedWorkspace = getWorkspacesForIssue(move.issueId)
-              .map((linked) => linked.local_workspace_id)
-              .filter((id): id is string => !!id)
-              .map((id) =>
-                activeWorkspaces.find((workspace) => workspace.id === id)
-              )
-              .find(
-                (workspace): workspace is (typeof activeWorkspaces)[number] =>
-                  !!workspace
-              );
+          if (decision === 'alternative') {
+            // Operator explicitly chose "Move without merging":
+            // "apenas move para done sem fazer nada"
+            commitMove(move, true);
+            return;
+          }
 
-            if (!linkedWorkspace) {
-              await ConfirmDialog.show({
-                title: 'Cannot merge card',
-                message:
-                  'No active workspace is linked to this card. The card was left open.',
-                confirmText: 'OK',
-                showCancelButton: false,
-              });
+          if (decision === 'confirmed') {
+            const linkedWorkspaces = getWorkspacesForIssue(move.issueId);
+            const linkedWs = linkedWorkspaces.find(
+              (w) => w.local_workspace_id || w.id
+            );
+            const workspaceId = linkedWs?.local_workspace_id || linkedWs?.id;
+
+            if (!workspaceId) {
+              // No linked workspace to merge: move to Done directly
+              commitMove(move, true);
               return;
             }
 
+            // Route through In Progress with done_intent
+            const inProgressStatus =
+              statuses.find((s) => s.name.toLowerCase().includes('progress')) ||
+              statuses[1];
+            const inProgressStatusId = inProgressStatus?.id || from;
+
+            if (inProgressStatusId !== from) {
+              commitMove({ ...move, toStatusId: inProgressStatusId }, false);
+            }
+
+            let repoIdForMergeRetry: string | null = null;
             try {
-              const repos = await workspacesApi.getRepos(linkedWorkspace.id);
+              await bulkUpdateIssues([
+                {
+                  id: move.issueId,
+                  changes: {
+                    status_id: inProgressStatusId,
+                    extension_metadata: { done_intent: true },
+                  },
+                },
+              ]);
+
+              const repos = await workspacesApi.getRepos(workspaceId);
               const repo = repos[0];
               if (!repo) {
                 throw new Error(
                   'The linked workspace has no repository configured.'
                 );
               }
-              await workspacesApi.merge(linkedWorkspace.id, {
+              repoIdForMergeRetry = repo.id;
+              await workspacesApi.merge(workspaceId, {
                 repo_id: repo.id,
               });
+              commitMove(move, true);
+              return;
             } catch (error) {
+              const block = getDirtyWorktreeBlock(error);
+              if (block && repoIdForMergeRetry) {
+                const action = await MergeBlockedDialog.show({ ...block });
+                if (action === 'move-without-merge') {
+                  commitMove(move, true);
+                  return;
+                }
+                if (action === 'stash-retry') {
+                  try {
+                    await workspacesApi.stashWorkspaceChanges(workspaceId, {
+                      repo_id: repoIdForMergeRetry,
+                    });
+                    await workspacesApi.merge(workspaceId, {
+                      repo_id: repoIdForMergeRetry,
+                    });
+                    commitMove(move, true);
+                  } catch (retryError) {
+                    await ConfirmDialog.show({
+                      title: 'Retry failed',
+                      message:
+                        retryError instanceof Error
+                          ? retryError.message
+                          : 'Stash or retry failed. The card was left in progress.',
+                      confirmText: 'OK',
+                      showCancelButton: false,
+                    });
+                  }
+                  return;
+                }
+                if (action === 'delegate') {
+                  try {
+                    const delegation =
+                      await workspacesApi.delegateMergeBlock(workspaceId, {
+                        repo_id: repoIdForMergeRetry,
+                      });
+                    if (delegation.delegated) {
+                      await ConfirmDialog.show({
+                        title: 'Cleanup delegated to agent',
+                        message:
+                          'The agent will clean the working tree on its next run. Retry the merge after it reports back.',
+                        confirmText: 'OK',
+                        showCancelButton: false,
+                      });
+                    } else if (delegation.reason === 'already_clean') {
+                      await workspacesApi.merge(workspaceId, {
+                        repo_id: repoIdForMergeRetry,
+                      });
+                      commitMove(move, true);
+                    } else {
+                      await ConfirmDialog.show({
+                        title: 'No agent to delegate to',
+                        message:
+                          'This workspace has no configured agent executor. Start an agent run first, then delegate the cleanup.',
+                        confirmText: 'OK',
+                        showCancelButton: false,
+                      });
+                    }
+                  } catch (delegateError) {
+                    await ConfirmDialog.show({
+                      title: 'Delegation failed',
+                      message:
+                        delegateError instanceof Error
+                          ? delegateError.message
+                          : 'Could not delegate the cleanup. The card was left in progress.',
+                      confirmText: 'OK',
+                      showCancelButton: false,
+                    });
+                  }
+                  return;
+                }
+                return;
+              }
               await ConfirmDialog.show({
                 title: 'Merge blocked',
                 message:
                   error instanceof Error
                     ? error.message
-                    : 'Integration failed. The card was left open.',
+                    : 'Integration failed. The card was left in progress.',
                 confirmText: 'OK',
                 showCancelButton: false,
               });
               return;
             }
-
-            // The merge record now authorizes the terminal status transition.
-            commitMove();
-            return;
-          }
-
-          if (decision === 'alternative') {
-            // This is an explicit operator choice. Preserve the requested
-            // Done destination and mark it for the backend.
-            commitMove(move, true);
           }
         })();
         return;
@@ -1761,6 +1868,7 @@ export function KanbanContainer() {
                               <KanbanIssueCard
                                 key={issue.id}
                                 issue={issue}
+                                statusId={status.id}
                                 projectId={projectId}
                                 isMobile={isMobile}
                                 isOpen={selectedKanbanIssueId === issue.id}

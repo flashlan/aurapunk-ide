@@ -150,4 +150,5 @@ xdg = "3.0"
 [profile.release]
 debug = 1
 split-debuginfo = "packed"
-strip = true
+strip = false
+

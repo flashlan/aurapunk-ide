@@ -15,7 +15,7 @@ const statusColumnIndexMap = new Map<string, number>([
 ]);
 
 describe('buildKanbanMoveUpdates', () => {
-  it('manual sort: writes status_id + sort_order for every dest card and reindexes source column', () => {
+  it('manual sort: writes status_id + sort_order for moved card, and only sort_order for other dest cards and source cards', () => {
     const move: KanbanMove = {
       issueId: 'i1',
       fromStatusId: 'A',
@@ -33,11 +33,11 @@ describe('buildKanbanMoveUpdates', () => {
       calculateSortOrder,
       statusColumnIndexMap,
     });
-    // Dest: i4, i1, i5 → sort_orders 2001, 2002, 2003 (column B index 2).
+    // Dest: i4, i5 only update sort_order (already in B). Only i1 updates status_id + sort_order.
     expect(updates).toEqual([
-      { id: 'i4', changes: { status_id: 'B', sort_order: 2001 } },
+      { id: 'i4', changes: { sort_order: 2001 } },
       { id: 'i1', changes: { status_id: 'B', sort_order: 2002 } },
-      { id: 'i5', changes: { status_id: 'B', sort_order: 2003 } },
+      { id: 'i5', changes: { sort_order: 2003 } },
       // Source: i2, i3 → sort_orders 1001, 1002 (column A index 1).
       { id: 'i2', changes: { sort_order: 1001 } },
       { id: 'i3', changes: { sort_order: 1002 } },
@@ -162,9 +162,9 @@ describe('buildKanbanMoveUpdates', () => {
       statusColumnIndexMap,
     });
     expect(updates).toEqual([
-      { id: 'i2', changes: { status_id: 'A', sort_order: 1001 } },
-      { id: 'i1', changes: { status_id: 'A', sort_order: 1002 } },
-      { id: 'i3', changes: { status_id: 'A', sort_order: 1003 } },
+      { id: 'i2', changes: { sort_order: 1001 } },
+      { id: 'i1', changes: { sort_order: 1002 } },
+      { id: 'i3', changes: { sort_order: 1003 } },
     ]);
   });
 
@@ -189,7 +189,7 @@ describe('buildKanbanMoveUpdates', () => {
     });
     expect(updates).toEqual([
       { id: 'i1', changes: { status_id: 'B', sort_order: 0 } },
-      { id: 'i2', changes: { status_id: 'B', sort_order: 7 } },
+      { id: 'i2', changes: { sort_order: 7 } },
     ]);
   });
 });

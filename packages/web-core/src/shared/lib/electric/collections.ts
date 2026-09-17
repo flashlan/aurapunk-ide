@@ -162,10 +162,10 @@ function getOrCreateSourceRuntime(sourceKey: string): SourceRuntime {
 export function refreshShapeSource(
   shape: ShapeDefinition<unknown>,
   params: Record<string, string>
-): void {
+): Promise<void> {
   const sourceKey = buildSourceKey(shape.table, params);
   invalidateFallbackCache(sourceKey);
-  refreshFallbackSource(sourceKey);
+  return refreshFallbackSource(sourceKey);
 }
 
 function registerFallbackRefresher(
@@ -183,11 +183,12 @@ function invalidateFallbackCache(sourceKey: string): void {
   fallbackSnapshotCache.delete(sourceKey);
 }
 
-function refreshFallbackSource(sourceKey: string): void {
+function refreshFallbackSource(sourceKey: string): Promise<void> {
   const runtime = getOrCreateSourceRuntime(sourceKey);
-  for (const refresher of runtime.refreshers) {
-    void refresher();
-  }
+  const promises = Array.from(runtime.refreshers).map((refresher) =>
+    refresher()
+  );
+  return Promise.all(promises).then(() => {});
 }
 
 function isAbortError(error: unknown): boolean {
@@ -269,33 +270,39 @@ function createFallbackSync(args: {
   return (syncParams: SyncParams) => {
     let isCleanedUp = false;
     let refreshPromise: Promise<void> | null = null;
+    let hasPendingRefresh = false;
 
     const refreshNow = async () => {
       if (refreshPromise) {
+        hasPendingRefresh = true;
         return refreshPromise;
       }
 
       refreshPromise = (async () => {
         try {
-          const response = await makeRequest(
-            buildFallbackRequestPath(args.shape.fallbackUrl, args.params),
-            { method: 'GET', cache: 'no-store' }
-          );
-
-          if (!response.ok) {
-            const message = await parseResponseError(
-              response,
-              `Failed to fetch fallback ${args.shape.table}`
+          let latestRows: Array<ElectricRow> | null = null;
+          do {
+            hasPendingRefresh = false;
+            const response = await makeRequest(
+              buildFallbackRequestPath(args.shape.fallbackUrl, args.params),
+              { method: 'GET', cache: 'no-store' }
             );
-            throw new Error(message);
-          }
 
-          const payload = (await response.json()) as unknown;
-          const rows = extractFallbackRows(payload, args.shape.table);
-          fallbackSnapshotCache.set(args.sourceKey, rows);
+            if (!response.ok) {
+              const message = await parseResponseError(
+                response,
+                `Failed to fetch fallback ${args.shape.table}`
+              );
+              throw new Error(message);
+            }
 
-          if (!isCleanedUp) {
-            applySnapshot(syncParams, rows);
+            const payload = (await response.json()) as unknown;
+            latestRows = extractFallbackRows(payload, args.shape.table);
+            fallbackSnapshotCache.set(args.sourceKey, latestRows);
+          } while (hasPendingRefresh && !isCleanedUp);
+
+          if (!isCleanedUp && latestRows) {
+            applySnapshot(syncParams, latestRows);
           }
         } catch (error) {
           if (isAbortError(error)) return;

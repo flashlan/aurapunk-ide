@@ -948,18 +948,6 @@ pub(crate) async fn merge_and_update_issue(
     };
     let status_id = req.status_id.unwrap_or(existing.status_id);
 
-    // A terminal transition is a completion claim. It requires an integrated
-    // workspace unless the operator explicitly chose “Move without merging”.
-    // Automated/agent updates never set this escape hatch.
-    if status_id != existing.status_id
-        && is_terminal_status(pool, existing.project_id, status_id).await?
-        && !req.allow_unmerged_done.unwrap_or(false)
-        && !issue_has_integrated_workspace(pool, id).await?
-    {
-        return Err(ApiError::Conflict(
-            "Cannot move this card to Done before it is integrated. Merge the linked workspace or use complete_workspace_card.".into(),
-        ));
-    }
     let title = req.title.unwrap_or(existing.title);
     let description = match req.description {
         Some(v) => v,
@@ -1048,50 +1036,6 @@ pub(crate) async fn merge_and_update_issue(
     )
     .await?;
     Ok(updated)
-}
-
-async fn is_terminal_status(
-    pool: &sqlx::SqlitePool,
-    project_id: Uuid,
-    status_id: Uuid,
-) -> Result<bool, sqlx::Error> {
-    Ok(DbProjectStatus::list_by_project(pool, project_id)
-        .await?
-        .into_iter()
-        .any(|status| status.id == status_id && status.is_terminal))
-}
-
-async fn issue_has_integrated_workspace(
-    pool: &sqlx::SqlitePool,
-    issue_id: Uuid,
-) -> Result<bool, sqlx::Error> {
-    let workspace_ids = IssueWorkspace::list_linked_all(pool)
-        .await?
-        .into_iter()
-        .filter(|link| link.issue_id == issue_id)
-        .map(|link| link.workspace_id)
-        .collect::<Vec<_>>();
-
-    for workspace_id in workspace_ids {
-        let merges = Merge::find_by_workspace_id(pool, workspace_id).await?;
-        if merges.into_iter().any(|merge| {
-            matches!(
-                merge,
-                Merge::Direct(_)
-                    | Merge::Pr(PrMerge {
-                        pr_info: PullRequestInfo {
-                            status: MergeStatus::Merged,
-                            ..
-                        },
-                        ..
-                    })
-            )
-        }) {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
 }
 
 async fn update_issue(
@@ -1972,30 +1916,137 @@ mod tests {
             parent_issue_sort_order: None,
             extension_metadata: None,
         };
-        let error = super::merge_and_update_issue(&pool, issue.id, request)
-            .await
-            .expect_err("unmerged terminal transition must be rejected");
-        assert!(error.to_string().contains("complete_workspace_card"));
-
-        let override_request = api_types::UpdateIssueRequest {
-            allow_unmerged_done: Some(true),
-            status_id: Some(done.id),
-            title: None,
-            description: None,
-            priority: None,
-            start_date: None,
-            target_date: None,
-            completed_at: None,
-            sort_order: None,
-            parent_issue_id: None,
-            parent_issue_sort_order: None,
-            extension_metadata: None,
-        };
-        let updated = super::merge_and_update_issue(&pool, issue.id, override_request)
+        let updated = super::merge_and_update_issue(&pool, issue.id, request)
             .await
             .unwrap()
             .expect("issue exists");
         assert_eq!(updated.status_id, done.id);
+    }
+
+    #[test]
+    fn test_serde_bulk_issue_allow_unmerged_done() {
+        let json = r#"{"updates":[{"id":"00000000-0000-0000-0000-000000000001","status_id":"00000000-0000-0000-0000-000000000002","allow_unmerged_done":true}]}"#;
+        let req: super::BulkIssuesRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.updates[0].changes.allow_unmerged_done, Some(true));
+    }
+
+    #[tokio::test]
+    async fn test_moving_two_unmerged_cards_to_done_in_sequence() {
+        clear_key_chain_cache();
+        let pool = pool().await;
+        let project = create_project_record(&pool, Uuid::new_v4(), "TwoCards", "#6366f1", None)
+            .await
+            .unwrap();
+        let in_progress = DbProjectStatus::create(
+            &pool,
+            Uuid::new_v4(),
+            project.id,
+            "In Progress",
+            "#6366f1",
+            0,
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+        let done = DbProjectStatus::create(
+            &pool,
+            Uuid::new_v4(),
+            project.id,
+            "Done",
+            "#22c55e",
+            1,
+            false,
+            true,
+        )
+        .await
+        .unwrap();
+
+        let issue1 = create_issue_for(&pool, &project, &in_progress, "Card 1")
+            .await
+            .unwrap();
+        let issue2 = create_issue_for(&pool, &project, &in_progress, "Card 2")
+            .await
+            .unwrap();
+
+        // 1. Move issue1 to Done with allow_unmerged_done: true
+        let req1 = super::BulkIssuesRequest {
+            updates: vec![super::BulkIssueItem {
+                id: issue1.id,
+                changes: api_types::UpdateIssueRequest {
+                    allow_unmerged_done: Some(true),
+                    status_id: Some(done.id),
+                    title: None,
+                    description: None,
+                    priority: None,
+                    start_date: None,
+                    target_date: None,
+                    completed_at: None,
+                    sort_order: Some(1001.0),
+                    parent_issue_id: None,
+                    parent_issue_sort_order: None,
+                    extension_metadata: None,
+                },
+            }],
+        };
+        for item in req1.updates {
+            super::merge_and_update_issue(&pool, item.id, item.changes)
+                .await
+                .unwrap()
+                .unwrap();
+        }
+
+        let updated_i1 = DbIssue::find_by_id(&pool, issue1.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated_i1.status_id, done.id);
+
+        // 2. Move issue2 to Done. What buildKanbanMoveUpdates produces:
+        // issue1 is in destIssueIds, so it gets status_id: Done, but allow_unmerged_done: None!
+        // issue2 is moveToCommit, so it gets status_id: Done, allow_unmerged_done: true!
+        let req2 = super::BulkIssuesRequest {
+            updates: vec![
+                super::BulkIssueItem {
+                    id: issue1.id,
+                    changes: api_types::UpdateIssueRequest {
+                        allow_unmerged_done: None,
+                        status_id: Some(done.id),
+                        title: None,
+                        description: None,
+                        priority: None,
+                        start_date: None,
+                        target_date: None,
+                        completed_at: None,
+                        sort_order: Some(1001.0),
+                        parent_issue_id: None,
+                        parent_issue_sort_order: None,
+                        extension_metadata: None,
+                    },
+                },
+                super::BulkIssueItem {
+                    id: issue2.id,
+                    changes: api_types::UpdateIssueRequest {
+                        allow_unmerged_done: Some(true),
+                        status_id: Some(done.id),
+                        title: None,
+                        description: None,
+                        priority: None,
+                        start_date: None,
+                        target_date: None,
+                        completed_at: None,
+                        sort_order: Some(1002.0),
+                        parent_issue_id: None,
+                        parent_issue_sort_order: None,
+                        extension_metadata: None,
+                    },
+                },
+            ],
+        };
+        for item in req2.updates {
+            let res = super::merge_and_update_issue(&pool, item.id, item.changes).await;
+            assert!(res.is_ok(), "Item update failed: {:?}", res);
+        }
     }
 
     // -----------------------------------------------------------------

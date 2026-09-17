@@ -561,27 +561,33 @@ export function SharedAppLayout() {
           const sourceIssue = byId.get(outcome.sourceIssueId);
           const targetIssue = byId.get(outcome.targetIssueId);
           if (!sourceIssue || !targetIssue) return;
-          // Prefer the kanban board's handler: it commits the swap to the
-          // local items map optimistically, so the drop doesn't flash back
-          // to the old order while the shape refresh round-trips. Fall back
-          // to a direct bulkUpdate when no board is mounted (tree-only view).
-          //
-          // P5-E6: the tree-only fallback is intentionally NOT gated on the
-          // sort field. `issue-swap` candidates come from the card-on-card
-          // (same-column swap) target path; the controller filters card
-          // targets to `data-drop-target-status === source.statusId`, so a
-          // and b necessarily share the same column. The kanban handler
-          // already applies its own `isManualSort` gate inside
-          // `handleKanbanMove` (P4-D2). The fallback below is ONLY
-          // reachable when no board is mounted (tree-only view) — i.e. the
-          // sort field lives in the board's filter store, which isn't
-          // accessible here. Without a board, there's no sort-mode state to
-          // gate on. The kanban handler is responsible for the
-          // non-manual-sort no-op; this fallback just writes the swap.
-          //
-          // Log label matches `KanbanContainer.tsx:809`'s `'[dnd] kanban
-          // swap failed:'` so a developer grep-ing for swap failures sees
-          // both paths under the same label.
+          if (sourceIssue.status_id !== targetIssue.status_id) {
+            if (kanbanHandlerRef.current) {
+              kanbanHandlerRef.current({
+                issueId: sourceIssue.id,
+                fromStatusId: sourceIssue.status_id,
+                toStatusId: targetIssue.status_id,
+              });
+              return;
+            }
+            persistIssues(
+              [
+                {
+                  id: sourceIssue.id,
+                  changes: {
+                    status_id: targetIssue.status_id,
+                    allow_unmerged_done: true,
+                  },
+                },
+              ],
+              outcome.projectId,
+              {
+                onError: (err) =>
+                  console.error('[dnd] cross-surface move failed:', err),
+              }
+            );
+            return;
+          }
           if (kanbanHandlerRef.current) {
             kanbanHandlerRef.current({
               issueId: sourceIssue.id,

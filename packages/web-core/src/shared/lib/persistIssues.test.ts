@@ -64,7 +64,7 @@ describe('persistIssues', () => {
       { project_id: 'project-1' }
     );
     expect(onError).not.toHaveBeenCalled();
-    await Promise.resolve();
+    await new Promise((res) => setTimeout(res, 0));
     expect(onSettled).toHaveBeenCalledTimes(1);
   });
 
@@ -170,14 +170,14 @@ describe('persistIssueSwap', () => {
     const onError = vi.fn();
     persistIssueSwap(
       { id: 'a', status_id: 'status-A', sort_order: 1 },
-      { id: 'b', status_id: 'status-B', sort_order: 2 },
+      { id: 'b', status_id: 'status-A', sort_order: 2 },
       'project-1',
       { onError }
     );
 
     expect(bulkUpdateIssues).toHaveBeenCalledTimes(1);
     const expected: PersistIssueSwapPair[] = [
-      { id: 'a', changes: { status_id: 'status-B', sort_order: 2 } },
+      { id: 'a', changes: { status_id: 'status-A', sort_order: 2 } },
       { id: 'b', changes: { status_id: 'status-A', sort_order: 1 } },
     ];
     expect(bulkUpdateIssues).toHaveBeenCalledWith(expected);
@@ -198,7 +198,7 @@ describe('persistIssueSwap', () => {
     const onSettled = vi.fn();
     persistIssueSwap(
       { id: 'a', status_id: 'status-A', sort_order: 1 },
-      { id: 'b', status_id: 'status-B', sort_order: 2 },
+      { id: 'b', status_id: 'status-A', sort_order: 2 },
       'project-1',
       { onError, onSettled }
     );
