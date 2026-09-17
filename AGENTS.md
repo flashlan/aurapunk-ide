@@ -154,3 +154,20 @@ fixed them. Newest last.
 - **Validation:** `cargo check -p git/server` clean, `tsc` clean on
   touched files, kanban vitest suites green (50), narrowing proven with
   throwaway tests against the real serialized shapes (removed after).
+
+### 2026-09-17 — "card reverts after a move" race in shape fallback sync
+- **Symptom (reported as the old bug returning):** drag a card, it snaps
+  back; moving a second card reverts the first — live, without reopening.
+- **Root cause:** `createFallbackSync` in
+  `packages/web-core/src/shared/lib/electric/collections.ts` cleared
+  `refreshPromise` in a `finally`, i.e. AFTER `applySnapshot`. A bulk
+  write's refresh call landing while the snapshot applied saw a non-null
+  `refreshPromise`, set `hasPendingRefresh`, and got back the
+  already-finished promise — so its post-write refetch was swallowed and
+  the pre-write rows (full `truncate()` + rewrite) won. Every move could
+  resurrect the previous column.
+- **Fix:** clear `refreshPromise` BEFORE `applySnapshot`, then re-run
+  `refreshNow()` if `hasPendingRefresh` was set while applying, so the
+  caller's own write is what lands.
+- **Note:** the coalescing itself was added in this session's uncommitted
+  work; this is the regression it introduced.

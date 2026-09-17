@@ -301,8 +301,23 @@ function createFallbackSync(args: {
             fallbackSnapshotCache.set(args.sourceKey, latestRows);
           } while (hasPendingRefresh && !isCleanedUp);
 
-          if (!isCleanedUp && latestRows) {
-            applySnapshot(syncParams, latestRows);
+          if (isCleanedUp || !latestRows) return;
+
+          // CRITICAL: clear the in-flight marker BEFORE applying the
+          // snapshot. A write that lands while `applySnapshot` runs (its
+          // refresh call happens right after a bulk update) would otherwise
+          // see `refreshPromise !== null`, set `hasPendingRefresh`, and get
+          // back this already-finished promise — so its post-write refetch is
+          // swallowed and these pre-write rows (full truncate + rewrite) win,
+          // visually reverting the card the operator just moved. Clearing
+          // first lets that refresh start a genuinely new fetch.
+          refreshPromise = null;
+          applySnapshot(syncParams, latestRows);
+
+          // A caller asked for freshness while we were applying: run once
+          // more so the state it expected (its own write) is what lands.
+          if (hasPendingRefresh && !isCleanedUp) {
+            await refreshNow();
           }
         } catch (error) {
           if (isAbortError(error)) return;
