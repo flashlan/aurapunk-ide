@@ -57,11 +57,56 @@ function appendAgentTurnEntries(
     );
   }
 
-  turnEntries.push(...turn.visibleEntries);
+  // A tool that never received a completion event cannot still be pending
+  // once its process stopped. When the executor dies mid-call (e.g. an I/O
+  // error against its server) the last tool status stays `created`, which
+  // renders as an endless spinner: the operator cannot tell whether the run
+  // finished or failed, and there is nothing left to stop. Finalize those
+  // entries as failed whenever the turn is no longer running.
+  turnEntries.push(
+    ...finalizeStaleToolStatuses(
+      turn.visibleEntries,
+      turn.kind === 'agent_running'
+    )
+  );
 
   if (turn.shouldEmitLoading) {
     turnEntries.push(makeLoadingPatch(turn.process.executionProcess.id));
   }
+}
+
+/**
+ * Rewrite still-pending tool statuses to `failed` for a process that is no
+ * longer running. Returns the input untouched while the process runs, so a
+ * live `created`/`pending_approval` tool keeps its real state.
+ */
+function finalizeStaleToolStatuses(
+  entries: readonly PatchTypeWithKey[],
+  processStillRunning: boolean
+): PatchTypeWithKey[] {
+  if (processStillRunning) return [...entries];
+  return entries.map((entry) => {
+    if (entry.type !== 'NORMALIZED_ENTRY') return entry;
+    const entryType = entry.content.entry_type;
+    if (entryType.type !== 'tool_use') return entry;
+    const status = entryType.status;
+    if (
+      status.status !== 'created' &&
+      status.status !== 'pending_approval'
+    ) {
+      return entry;
+    }
+    return {
+      ...entry,
+      content: {
+        ...entry.content,
+        entry_type: {
+          ...entryType,
+          status: { status: 'failed' },
+        },
+      },
+    } as PatchTypeWithKey;
+  });
 }
 
 function appendScriptTurnEntries(
