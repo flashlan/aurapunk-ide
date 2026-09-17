@@ -82,6 +82,9 @@ impl PtyService {
             } else {
                 cmd.arg("-l");
                 // Unix shells — login mode loads .zshrc/.bashrc/.profile
+                // Set both names so shell hooks migrated from Vibe Kanban keep
+                // working alongside the renamed variable.
+                cmd.env("AURAPUNK_TERMINAL", "1");
                 cmd.env("VIBE_KANBAN_TERMINAL", "1");
             }
 

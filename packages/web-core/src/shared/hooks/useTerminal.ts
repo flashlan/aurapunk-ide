@@ -21,7 +21,7 @@ export interface TerminalTab {
   executionProcessId?: string;
   /** Persistent tmux session name for re-attachment after page reload. */
   tmuxSessionName?: string;
-  /** When true, launches the vibe-tui cockpit. */
+  /** When true, launches the aurapunk-tui cockpit. */
   isTui?: boolean;
 }
 

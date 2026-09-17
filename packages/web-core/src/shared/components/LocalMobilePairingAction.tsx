@@ -5,7 +5,7 @@ import { LocalMobilePairingDialog } from '@/shared/dialogs/mobile/LocalMobilePai
 export function LocalMobilePairingAction() {
   return (
     <SidebarBarButton
-      label="Connect phone"
+      label="Connect"
       icon={QrCodeIcon}
       onClick={() => void LocalMobilePairingDialog.show({})}
       title="Pair AuraPunk Mobile over the local network"

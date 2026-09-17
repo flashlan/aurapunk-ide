@@ -1,10 +1,10 @@
 [package]
-name = "vibe-kanban-tauri"
+name = "aurapunk-tauri"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "vibe-kanban-tauri"
+name = "aurapunk-tauri"
 path = "src/main.rs"
 
 [features]

@@ -1,4 +1,4 @@
-//! vibe-tui — a terminal cockpit for the vibe-kanban backend.
+//! aurapunk-tui — a terminal cockpit for the aurapunk backend.
 //!
 //! Architecture: one render loop driven by a unified `AppEvent` mpsc. Background
 //! tasks (terminal input, tick, and — in later milestones — WebSocket streams
@@ -39,12 +39,14 @@ async fn main() -> Result<()> {
     // print normally to stderr instead of being swallowed by the alt-screen.
     let client = match ApiClient::connect().await {
         Ok(c) => {
-            eprintln!("vibe-tui → backend {}", c.base());
+            eprintln!("aurapunk-tui → backend {}", c.base());
             c
         }
         Err(e) => {
-            eprintln!("vibe-tui: {e}");
-            eprintln!("hint: start the backend (`cargo run -p server`) or set VIBE_BACKEND_URL.");
+            eprintln!("aurapunk-tui: {e}");
+            eprintln!(
+                "hint: start the backend (`cargo run -p server`) or set AURAPUNK_BACKEND_URL."
+            );
             std::process::exit(1);
         }
     };
@@ -84,10 +86,10 @@ async fn run(
 }
 
 fn init_logging() -> WorkerGuard {
-    let dir = std::env::var("VIBE_TUI_LOG_DIR")
+    let dir = utils::env_compat::renamed_os("TUI_LOG_DIR")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir());
-    let file_appender = tracing_appender::rolling::never(&dir, "vibe-tui.log");
+        .unwrap_or_else(std::env::temp_dir);
+    let file_appender = tracing_appender::rolling::never(&dir, "aurapunk-tui.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()

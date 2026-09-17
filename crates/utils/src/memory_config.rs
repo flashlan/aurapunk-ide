@@ -89,10 +89,7 @@ pub fn config_path() -> PathBuf {
         return PathBuf::from(path);
     }
 
-    dirs::home_dir()
-        .map(|home| home.join(".vibe-kanban"))
-        .unwrap_or_else(crate::assets::asset_dir)
-        .join("memory.toml")
+    crate::path::config_home_dir().join("memory.toml")
 }
 
 /// Loads the saved config and applies explicit environment overrides. This
@@ -111,7 +108,7 @@ pub fn load() -> MemoryConfig {
         });
     let mut config = saved_config.clone().unwrap_or_default();
     if saved_config.is_none()
-        && env::var("VIBE_KANBAN_MODE")
+        && crate::env_compat::renamed("MODE")
             .map(|value| value.trim().eq_ignore_ascii_case("cloud"))
             .unwrap_or(false)
     {
@@ -171,7 +168,7 @@ pub fn load() -> MemoryConfig {
     if config.source == "cloud"
         && config.adapter == MemoryAdapter::Mem0Platform
         && config.mem0_url.is_none()
-        && env::var("VIBE_KANBAN_MODE")
+        && crate::env_compat::renamed("MODE")
             .map(|value| value.trim().eq_ignore_ascii_case("cloud"))
             .unwrap_or(false)
     {

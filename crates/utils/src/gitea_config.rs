@@ -35,20 +35,18 @@ pub struct GiteaSecretConfig {
 /// Resolves the Gitea config path.
 ///
 /// Priority:
-/// 1. `$VIBE_KANBAN_GITEA_CONFIG` if set and non-empty (used in tests/CI).
-/// 2. `~/.vibe-kanban/gitea.toml` (user-level config directory).
+/// 1. `$AURAPUNK_GITEA_CONFIG` (legacy: `$VIBE_KANBAN_GITEA_CONFIG`) if set and
+///    non-empty (used in tests/CI).
+/// 2. `~/.aurapunk/gitea.toml` (legacy: `~/.vibe-kanban/gitea.toml`).
 ///
 /// Mirrors [`telegram_config::config_path`](crate::telegram_config::config_path).
 pub fn config_path() -> PathBuf {
-    if let Ok(p) = env::var("VIBE_KANBAN_GITEA_CONFIG")
+    if let Some(p) = crate::env_compat::get(&["AURAPUNK_GITEA_CONFIG", "VIBE_KANBAN_GITEA_CONFIG"])
         && !p.is_empty()
     {
         return PathBuf::from(p);
     }
-    dirs::home_dir()
-        .map(|home| home.join(".vibe-kanban"))
-        .unwrap_or_else(crate::assets::asset_dir)
-        .join("gitea.toml")
+    crate::path::config_home_dir().join("gitea.toml")
 }
 
 /// Loads Gitea secret config from the config path.

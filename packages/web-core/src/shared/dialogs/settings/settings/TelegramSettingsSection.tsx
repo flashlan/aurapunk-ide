@@ -142,7 +142,7 @@ export function TelegramSettingsSection() {
                 offLabel={t('settings.telegram.status.off')}
               />
             </StatusRow>
-            <StatusRow label="vibe-telegram-bridge">
+            <StatusRow label="aurapunk-telegram-bridge">
               <span className="text-right">
                 <Bool
                   value={status.bridge_connected}

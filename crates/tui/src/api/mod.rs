@@ -1,6 +1,6 @@
 //! Thin reqwest-based client for the vibe-kanban backend `/api`.
 //!
-//! Backend discovery mirrors `crates/mcp/src/bin/vibe_kanban_mcp.rs`: honor
+//! Backend discovery mirrors `crates/mcp/src/bin/aurapunk_mcp.rs`: honor
 //! `VIBE_BACKEND_URL`, then `HOST`/`BACKEND_PORT`/`PORT`, then fall back to the
 //! port file written by the server (`utils::port_file::read_port_file`).
 
@@ -559,20 +559,20 @@ async fn unwrap_mutation<T: DeserializeOwned>(resp: reqwest::Response) -> Result
 }
 
 async fn resolve_base() -> Result<(String, String), ApiError> {
-    if let Ok(url) = std::env::var("VIBE_BACKEND_URL") {
+    if let Some(url) = utils::env_compat::get(&["AURAPUNK_BACKEND_URL", "VIBE_BACKEND_URL"]) {
         let url = url.trim_end_matches('/').to_string();
         let ws = http_to_ws(&url);
         return Ok((format!("{url}/api"), format!("{ws}/api")));
     }
 
     // "localhost", not "127.0.0.1" — see the matching comment in
-    // crates/mcp/src/bin/vibe_kanban_mcp.rs's resolve_base_url.
+    // crates/mcp/src/bin/aurapunk_mcp.rs's resolve_base_url.
     let host = std::env::var("HOST").unwrap_or_else(|_| "localhost".to_string());
     let port = match std::env::var("BACKEND_PORT").or_else(|_| std::env::var("PORT")) {
         Ok(p) => p
             .parse::<u16>()
             .map_err(|e| ApiError::Discovery(format!("invalid port '{p}': {e}")))?,
-        Err(_) => utils::port_file::read_port_file("vibe-kanban")
+        Err(_) => utils::port_file::read_port_file(utils::port_file::PORT_FILE_APP)
             .await
             .map_err(|e| {
                 ApiError::Discovery(format!("no port file — is the backend running? ({e})"))

@@ -82,7 +82,8 @@ pub enum GitOperationError {
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct MergeWorkspaceRequest {
     pub repo_id: Uuid,
-    #[serde(default)]    #[ts(optional)]
+    #[serde(default)]
+    #[ts(optional)]
     pub suppress_auto_move: Option<bool>,
     #[serde(default)]
     #[ts(optional)]
@@ -290,7 +291,11 @@ pub async fn merge_workspace(
                 "Branch '{}' has {} uncommitted tracked file{} ({} untracked reported). Stash, commit, or delegate cleanup before retrying the merge.",
                 workspace_repo.target_branch,
                 cleanliness.modified.len(),
-                if cleanliness.modified.len() == 1 { "" } else { "s" },
+                if cleanliness.modified.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                },
                 cleanliness.untracked.len(),
             );
             return Ok(ResponseJson(
@@ -497,9 +502,9 @@ pub async fn merge_workspace(
     // back instead of letting WIP sit forgotten in the stash list.
     let pending_stashes = GitCli::new().aurapunk_stashes(&repo.path);
 
-    Ok(ResponseJson(ApiResponse::success(
-        MergeWorkspaceResponse { pending_stashes },
-    )))
+    Ok(ResponseJson(ApiResponse::success(MergeWorkspaceResponse {
+        pending_stashes,
+    })))
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -539,10 +544,7 @@ pub async fn stash_workspace_changes(
         ));
     };
     let output = GitCli::new()
-        .stash_push(
-            &checkout,
-            "aurapunk: pre-merge stash (merge dialog)",
-        )
+        .stash_push(&checkout, "aurapunk: pre-merge stash (merge dialog)")
         .map_err(|e| ApiError::BadRequest(format!("Git stash failed: {e}")))?;
     Ok(ResponseJson(ApiResponse::success(StashWorkspaceResponse {
         stashed: true,
@@ -705,7 +707,8 @@ pub async fn delegate_merge_block(
         }
         format!("{}, +{} more", files[..max].join(", "), files.len() - max)
     }
-        let mut message = if request.note.as_deref() == Some("merge-conflict") {        format!(
+    let mut message = if request.note.as_deref() == Some("merge-conflict") {
+        format!(
             "Integration Guard delegated conflict resolution: merging into '{}' hit textual conflicts in: {}. \
 Plan: 1) open each file and resolve the conflict markers, keeping the intended behavior of both sides; \
 2) `git add` the resolved files and COMMIT the result on '{}' with a clear message (this completes the integration; the user retries afterwards for the idempotent success path); \
@@ -735,7 +738,9 @@ Plan: 1) inspect `git status`; 2) keep generated junk (db.v2.sqlite, installer-o
     if let Some(note) = request.user_note.as_deref() {
         let note = note.trim();
         if !note.is_empty() {
-            message.push_str("\n\nOperator instructions (follow literally, they override the defaults above): ");
+            message.push_str(
+                "\n\nOperator instructions (follow literally, they override the defaults above): ",
+            );
             message.push_str(&note.chars().take(2000).collect::<String>());
         }
     }

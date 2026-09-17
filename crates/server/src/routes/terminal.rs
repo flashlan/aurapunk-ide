@@ -46,7 +46,7 @@ struct TerminalQuery {
     /// persistent terminal sessions that survive page reloads).
     #[serde(default)]
     pub tmux_session: Option<String>,
-    /// When true, spawns the vibe-tui cockpit inside the terminal session.
+    /// When true, spawns the aurapunk-tui cockpit inside the terminal session.
     #[serde(default)]
     pub is_tui: Option<bool>,
     #[serde(default = "default_cols")]
@@ -55,13 +55,13 @@ struct TerminalQuery {
     pub rows: u16,
 }
 
-/// Locate the `vibe-tui` binary embedded by a desktop installer, next to the
-/// current server executable, or fall back to `cargo run -p tui --`.
+/// Locate the `aurapunk-tui` binary embedded by a desktop installer, next to
+/// the current server executable, or fall back to `cargo run -p tui --`.
 fn resolve_tui_command() -> (String, Vec<String>) {
     let binary_name = if cfg!(target_os = "windows") {
-        "vibe-tui.exe"
+        "aurapunk-tui.exe"
     } else {
-        "vibe-tui"
+        "aurapunk-tui"
     };
     if let Some(tui_bin) = std::env::var_os("AURAPUNK_BUNDLED_BIN_DIR")
         .map(std::path::PathBuf::from)
@@ -512,7 +512,7 @@ async fn handle_terminal_ws(
 
     // A TUI cockpit runs as its own detached `vk-tui-*` tmux session. Closing
     // the terminal tab only detaches the WS/PTY viewer; without explicitly
-    // killing the tmux session the `vibe-tui` process keeps running in the
+    // killing the tmux session the `aurapunk-tui` process keeps running in the
     // background forever. Kill it so closing the tab actually stops the cockpit.
     // Attach/resume sessions are intentionally persistent and never killed here.
     if is_tui && let Some(name) = &session_name {

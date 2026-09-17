@@ -3,7 +3,7 @@
     "command": "npx",
     "args": [
       "-y",
-      "vibe-kanban-alternative@latest",
+      "aurapunk-ide@latest",
       "--mcp",
       "--mode",
       "global"

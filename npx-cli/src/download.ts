@@ -18,9 +18,18 @@ export const CACHE_DIR = path.join(os.homedir(), '.aurapunk-ide', 'bin');
 // Local development mode: use binaries from npx-cli/dist/ instead of GitHub
 // Only activate if dist/ exists (i.e., running from source after local-build.sh)
 export const LOCAL_DIST_DIR = path.join(__dirname, '..', 'dist');
+
+/**
+ * Read an AuraPunk-first environment variable, falling back to the pre-rename
+ * Vibe Kanban name. AuraPunk is the rename of Vibe Kanban; the fallback keeps
+ * existing shells, CI jobs, and agent configs working.
+ */
+export function envCompat(suffix: string, legacy: string): string | undefined {
+  return process.env[`AURAPUNK_${suffix}`] || process.env[legacy];
+}
+
 export const LOCAL_DEV_MODE =
-  fs.existsSync(LOCAL_DIST_DIR) ||
-  process.env.VIBE_KANBAN_LOCAL === '1';
+  fs.existsSync(LOCAL_DIST_DIR) || envCompat('LOCAL', 'VIBE_KANBAN_LOCAL') === '1';
 
 export interface BinaryInfo {
   sha256: string;

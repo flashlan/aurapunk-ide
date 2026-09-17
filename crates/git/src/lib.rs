@@ -20,7 +20,8 @@ pub use validation::is_valid_branch_prefix;
 
 /// Filesystem cleanliness report for an Integration Guard validation gate.
 #[derive(Clone, Debug, Default)]
-pub struct WorktreeCleanliness {    /// Where the branch is checked out, if anywhere.
+pub struct WorktreeCleanliness {
+    /// Where the branch is checked out, if anywhere.
     pub checkout_path: Option<std::path::PathBuf>,
     /// Tracked files with staged or unstaged modifications (block merges).
     pub modified: Vec<String>,

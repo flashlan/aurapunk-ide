@@ -63,10 +63,10 @@ async fn move_issue_forward(
         return Ok(false);
     }
     // Never move an already terminal card
-    if let Some(cur) = current_pos {
-        if statuses[cur].is_terminal {
-            return Ok(false);
-        }
+    if let Some(cur) = current_pos
+        && statuses[cur].is_terminal
+    {
+        return Ok(false);
     }
     // Preserve title/description/etc — only status_id changes.
     // Use a direct status update to avoid clobbering other fields.
@@ -387,17 +387,17 @@ pub async fn on_workspace_merged(pool: &SqlitePool, workspace_id: Uuid) {
         tracing::warn!("auto-move merged failed for {issue_id}: {e}");
     } else {
         let mut ext = issue.extension_metadata.clone();
-        if let Some(obj) = ext.as_object_mut() {
-            if obj.remove("done_intent").is_some() {
-                let ext_str = serde_json::to_string(&ext).unwrap_or_else(|_| "{}".to_string());
-                let _ = sqlx::query(
-                    r#"UPDATE issues SET extension_metadata = $1, updated_at = datetime('now', 'subsec') WHERE id = $2"#,
-                )
-                .bind(ext_str)
-                .bind(issue_id)
-                .execute(pool)
-                .await;
-            }
+        if let Some(obj) = ext.as_object_mut()
+            && obj.remove("done_intent").is_some()
+        {
+            let ext_str = serde_json::to_string(&ext).unwrap_or_else(|_| "{}".to_string());
+            let _ = sqlx::query(
+                r#"UPDATE issues SET extension_metadata = $1, updated_at = datetime('now', 'subsec') WHERE id = $2"#,
+            )
+            .bind(ext_str)
+            .bind(issue_id)
+            .execute(pool)
+            .await;
         }
     }
 }

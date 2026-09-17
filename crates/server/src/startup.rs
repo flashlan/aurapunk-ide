@@ -318,7 +318,7 @@ pub async fn start_with_bind(
     // Write the port file here too, not just in the standalone `server`
     // binary's `main()` — this is also the path the packaged Tauri app uses
     // (via `server::startup::start()`), and its port is freshly auto-assigned
-    // (`localhost:0`) on every launch. Without this, `vibe-kanban-mcp` (and
+    // (`localhost:0`) on every launch. Without this, `aurapunk-mcp` (and
     // anything else that port-file-discovers the backend, e.g. the TUI) can
     // silently read a stale port left behind by an earlier dev-mode run,
     // instead of failing loudly or finding the real one.

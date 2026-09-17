@@ -211,7 +211,7 @@ jobs:
         run: |
           set -x
           cargo fmt --all -- --check & pid_fmt=$!
-          cargo clippy --workspace --all-targets --exclude vibe-kanban-tauri -- -D warnings
+          cargo clippy --workspace --all-targets --exclude aurapunk-tauri -- -D warnings
           wait $pid_fmt
 
   backend-test:
@@ -238,7 +238,7 @@ jobs:
           rev: 6e4a9d6f2c4964f30ff54a8cd5466f8869267daa # cargo-nextest-0.9.132
 
       - name: Run Cargo tests
-        run: cargo nextest run --workspace --exclude vibe-kanban-tauri
+        run: cargo nextest run --workspace --exclude aurapunk-tauri
 
   tauri-checks:
     needs: changes
@@ -268,4 +268,4 @@ jobs:
         run: |
           cargo fmt --all --manifest-path crates/tauri-app/Cargo.toml -- --check
           cargo clippy --all-targets --manifest-path crates/tauri-app/Cargo.toml -- -D warnings
-          cargo check -p vibe-kanban-tauri
+          cargo check -p aurapunk-tauri

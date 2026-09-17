@@ -258,7 +258,7 @@ A per-machine activity dashboard in **Settings → Usage**, straight from the lo
 
 ## Terminal UI (TUI)
 
-`vibe-tui` is a terminal cockpit for the backend — list workspaces and sessions, watch live agent transcripts, manage a kanban board, and approve/deny/answer agent blockers, without leaving the terminal:
+`aurapunk-tui` is a terminal cockpit for the backend — list workspaces and sessions, watch live agent transcripts, manage a kanban board, and approve/deny/answer agent blockers, without leaving the terminal:
 
 ```bash
 cargo run -p tui
@@ -273,7 +273,7 @@ cargo run -p tui
 
 ## Telegram Orchestration
 
-`vibe-telegram-bridge` is a send-only daemon that streams coding-agent escalations to a Telegram supergroup with topics, so a blocked agent can be unblocked remotely from your phone:
+`aurapunk-telegram-bridge` is a send-only daemon that streams coding-agent escalations to a Telegram supergroup with topics, so a blocked agent can be unblocked remotely from your phone:
 
 ```toml
 # ~/.vibe-kanban/telegram.toml

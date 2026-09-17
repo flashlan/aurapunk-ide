@@ -100,19 +100,18 @@ struct ProjectConfig {
     orchestrator_prompt: Option<String>,
 }
 
-/// Default export/import path: `$VIBE_KANBAN_PROJECTS_CONFIG`, otherwise
-/// `~/.vibe-kanban/projects.toml` (falling back to `<asset_dir>/projects.toml`
-/// only if the home directory can't be determined).
+/// Default export/import path: `$AURAPUNK_PROJECTS_CONFIG` (legacy:
+/// `$VIBE_KANBAN_PROJECTS_CONFIG`), otherwise `~/.aurapunk/projects.toml`
+/// (legacy: `~/.vibe-kanban/projects.toml`; falling back to
+/// `<asset_dir>/projects.toml` only if the home directory can't be determined).
 pub fn config_path() -> PathBuf {
-    if let Ok(p) = std::env::var("VIBE_KANBAN_PROJECTS_CONFIG")
+    if let Some(p) =
+        utils::env_compat::get(&["AURAPUNK_PROJECTS_CONFIG", "VIBE_KANBAN_PROJECTS_CONFIG"])
         && !p.is_empty()
     {
         return PathBuf::from(p);
     }
-    dirs::home_dir()
-        .map(|home| home.join(".vibe-kanban"))
-        .unwrap_or_else(utils::assets::asset_dir)
-        .join("projects.toml")
+    utils::path::config_home_dir().join("projects.toml")
 }
 
 fn expand_tilde(input: &str) -> String {

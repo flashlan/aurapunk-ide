@@ -7,7 +7,7 @@
 #
 # Prereqs:
 #   - backend running:   BACKEND_PORT=8910 cargo run --bin server
-#   - mcp binary built:  cargo build --release --bin vibe-kanban-mcp
+#   - mcp binary built:  cargo build --release --bin aurapunk-mcp
 #   - sombrax-telegram listener configured (token in
 #     ~/.claude/channels/telegram/.env)
 set -euo pipefail

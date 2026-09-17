@@ -155,7 +155,7 @@ fn parse_bounded_interval(s: &str) -> Result<Duration, String> {
 }
 
 fn config_path() -> PathBuf {
-    utils::path::get_vibe_kanban_home_dir().join("orchestrator.toml")
+    utils::path::get_aurapunk_home_dir().join("orchestrator.toml")
 }
 
 // ---------------------------------------------------------------------

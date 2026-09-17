@@ -28,9 +28,11 @@ pub static PRECONFIGURED_MCP_SERVERS: LazyLock<Value> = LazyLock::new(|| {
 });
 
 const LEGACY_VIBE_KANBAN_MCP_PACKAGE: &str = "vibe-kanban@latest";
-const VIBE_KANBAN_MCP_PACKAGE: &str = "vibe-kanban-alternative@latest";
+const LEGACY_VIBE_KANBAN_ALTERNATIVE_MCP_PACKAGE: &str = "vibe-kanban-alternative@latest";
+const AURAPUNK_MCP_PACKAGE: &str = "aurapunk-ide@latest";
 
-/// Upgrade the former upstream Vibe Kanban MCP preset in a Codex config.
+/// Upgrade a former Vibe Kanban MCP preset in a Codex config to the AuraPunk
+/// package.
 ///
 /// Only the exact, previously generated command is migrated. User-managed
 /// servers with another package or invocation are intentionally left alone.
@@ -49,11 +51,14 @@ pub fn migrate_legacy_codex_vibe_kanban_mcp(config: &mut Value) -> bool {
             .get("args")
             .and_then(Value::as_array)
             .is_some_and(|args| {
-                args.iter().map(Value::as_str).eq([
-                    Some("-y"),
-                    Some(LEGACY_VIBE_KANBAN_MCP_PACKAGE),
-                    Some("--mcp"),
-                ])
+                let mut parts = args.iter().map(Value::as_str);
+                parts.next() == Some(Some("-y"))
+                    && matches!(
+                        parts.next(),
+                        Some(Some(LEGACY_VIBE_KANBAN_MCP_PACKAGE))
+                            | Some(Some(LEGACY_VIBE_KANBAN_ALTERNATIVE_MCP_PACKAGE))
+                    )
+                    && parts.next() == Some(Some("--mcp"))
             });
 
     if !is_legacy {
@@ -62,7 +67,7 @@ pub fn migrate_legacy_codex_vibe_kanban_mcp(config: &mut Value) -> bool {
 
     server.insert(
         "args".to_string(),
-        serde_json::json!(["-y", VIBE_KANBAN_MCP_PACKAGE, "--mcp", "--mode", "global"]),
+        serde_json::json!(["-y", AURAPUNK_MCP_PACKAGE, "--mcp", "--mode", "global"]),
     );
     true
 }
@@ -482,7 +487,7 @@ mod tests {
             vibe_kanban.get("args").and_then(Value::as_array),
             Some(&vec![
                 Value::String("-y".to_string()),
-                Value::String("vibe-kanban-alternative@latest".to_string()),
+                Value::String("aurapunk-ide@latest".to_string()),
                 Value::String("--mcp".to_string()),
                 Value::String("--mode".to_string()),
                 Value::String("global".to_string()),
@@ -513,13 +518,7 @@ mod tests {
         assert!(migrate_legacy_codex_vibe_kanban_mcp(&mut config));
         assert_eq!(
             config["mcp_servers"]["vibe_kanban"]["args"],
-            serde_json::json!([
-                "-y",
-                "vibe-kanban-alternative@latest",
-                "--mcp",
-                "--mode",
-                "global"
-            ])
+            serde_json::json!(["-y", "aurapunk-ide@latest", "--mcp", "--mode", "global"])
         );
         assert_eq!(
             config["mcp_servers"]["vibe_kanban"]["env"],

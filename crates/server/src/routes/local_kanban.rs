@@ -29,7 +29,6 @@ use db::models::{
     issue_relationship::IssueRelationship as DbIssueRelationship,
     issue_workspace::{IssueWorkspace, LinkedWorkspaceRow},
     kanban_tag::{IssueTag as DbIssueTag, KanbanTag},
-    merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
     project::{self, NewProject, Project as DbProject, ProjectUpdate},
     project_repo::ProjectRepo,
     project_status::ProjectStatus as DbProjectStatus,
