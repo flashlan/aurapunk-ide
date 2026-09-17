@@ -44,7 +44,7 @@
     "prepare-db": "node scripts/prepare-db.js",
     "prepare-db:check": "node scripts/prepare-db.js --check",
     "build:bippy-bundle": "node scripts/build-bippy-bundle.mjs",
-    "build:npx": "bash ../scripts/local-build.sh",
+    "build:npx": "bash scripts/local-build.sh",
     "build:npx-cli": "cd npx-cli && npm ci && npm run build",
     "check:npx-cli": "tsc --noEmit -p npx-cli/tsconfig.json",
     "prepack": "pnpm run build:npx && pnpm run build:npx-cli",
