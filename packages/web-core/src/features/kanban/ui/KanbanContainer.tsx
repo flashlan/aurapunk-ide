@@ -848,6 +848,14 @@ export function KanbanContainer() {
   // inside the setItems updater, which is fragile under concurrent React).
   const itemsRef = useRef<Record<string, string[]>>({});
   itemsRef.current = items;
+  // Optimistic status overrides for cards the operator just moved. The
+  // fallback shape snapshot is a full truncate+rewrite, so a fetch that
+  // started before a write (or a stale lookup) would otherwise re-render
+  // the card in its old column. Overrides win until the snapshot agrees.
+  const pendingStatusRef = useRef<Map<string, { statusId: string; at: number }>>(
+    new Map()
+  );
+  const PENDING_STATUS_TTL_MS = 15_000;
   const [isFiltersDialogOpen, setIsFiltersDialogOpen] = useState(false);
   const isProjectTerminalOpen = useUiPreferencesStore(
     (s) => s.isProjectTerminalOpen
@@ -866,10 +874,35 @@ export function KanbanContainer() {
     const { sortField, sortDirection } = kanbanFilters;
     const grouped: Record<string, string[]> = {};
 
+    // Resolve optimistic overrides before grouping: a card the operator
+    // just moved keeps its new column even if the incoming snapshot still
+    // reports the old status (full truncate+rewrite snapshots, stale
+    // in-flight fetches). Drop entries once the snapshot agrees or the
+    // short TTL expires, so real external changes still win afterwards.
+    const pending = pendingStatusRef.current;
+    if (pending.size > 0) {
+      const currentStatusById = new Map(
+        filteredIssues.map((issue) => [issue.id, issue.status_id] as const)
+      );
+      const now = Date.now();
+      for (const [issueId, entry] of pending) {
+        const current = currentStatusById.get(issueId);
+        if (current === undefined || current === entry.statusId) {
+          pending.delete(issueId);
+          continue;
+        }
+        if (now - entry.at > PENDING_STATUS_TTL_MS) {
+          pending.delete(issueId);
+        }
+      }
+    }
+    const effectiveStatus = (issue: { id: string; status_id: string }) =>
+      pending.get(issue.id)?.statusId ?? issue.status_id;
+
     for (const status of statuses) {
       // Filter issues for this status
       let statusIssues = filteredIssues.filter(
-        (i) => i.status_id === status.id
+        (i) => effectiveStatus(i) === status.id
       );
 
       // Sort within column based on user preference
@@ -1313,6 +1346,15 @@ export function KanbanContainer() {
 
         itemsRef.current = newItems;
         setItems(newItems);
+        // Optimistic status protection: remember the operator's intended
+        // status for the moved card so a shape snapshot that still carries
+        // the pre-move row (in-flight fallback fetch, stale lookup) cannot
+        // snap the card back. Cleared automatically once the fetched row
+        // agrees, or after a short TTL.
+        pendingStatusRef.current.set(moveToCommit.issueId, {
+          statusId: moveToCommit.toStatusId,
+          at: Date.now(),
+        });
         applyKanbanMove(updates, projectId);
       };
 

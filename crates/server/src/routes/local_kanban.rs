@@ -1065,6 +1065,36 @@ async fn bulk_issues(
     ResponseJson(req): ResponseJson<BulkIssuesRequest>,
 ) -> Result<ResponseJson<MutationResponse<Vec<DbIssue>>>, ApiError> {
     let pool = &deployment.db().pool;
+    // Backward-move detector: the board never intends to send a card to an
+    // earlier column. When it happens (a stale board state, a mis-resolved
+    // drop, a swap with stale statuses), log it with enough context to find
+    // the caller instead of silently regressing the card.
+    for item in &req.updates {
+        let Some(new_status) = item.changes.status_id else {
+            continue;
+        };
+        let Some(existing) = DbIssue::find_by_id(pool, item.id).await? else {
+            continue;
+        };
+        if existing.status_id == new_status {
+            continue;
+        }
+        let statuses = DbProjectStatus::list_by_project(pool, existing.project_id).await?;
+        let position = |id: Uuid| statuses.iter().position(|status| status.id == id);
+        if let (Some(current_pos), Some(new_pos)) =
+            (position(existing.status_id), position(new_status))
+            && new_pos < current_pos
+        {
+            tracing::warn!(
+                issue_id = %item.id,
+                from_status = %existing.status_id,
+                to_status = %new_status,
+                allow_unmerged_done = item.changes.allow_unmerged_done.unwrap_or(false),
+                same_request_updates = req.updates.len(),
+                "bulk_issues moved a card BACKWARD (regression)"
+            );
+        }
+    }
     let mut out = Vec::with_capacity(req.updates.len());
     for item in req.updates {
         if let Some(issue) = merge_and_update_issue(pool, item.id, item.changes).await? {
