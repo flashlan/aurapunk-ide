@@ -287,9 +287,10 @@ fn main() {
         builder = builder.plugin(tauri_plugin_macos_fps::init());
     }
 
-    // Only register the updater plugin in release builds — dev builds have a
-    // placeholder endpoint that fails config deserialization.
-    if !cfg!(debug_assertions) {
+    // Register the updater for release builds and packaged debug bundles. The
+    // latter need UpdaterState as well, while regular `tauri dev` uses no
+    // updater and keeps the placeholder endpoint out of the dev workflow.
+    if !cfg!(debug_assertions) || cfg!(feature = "packaged") {
         builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
     }
 
