@@ -15,6 +15,7 @@ export interface ConfirmDialogProps {
   title: string;
   message: string;
   confirmText?: string;
+  alternativeText?: string;
   cancelText?: string;
   variant?: 'default' | 'destructive' | 'info' | 'success';
   icon?: boolean;
@@ -26,6 +27,7 @@ const ConfirmDialogImpl = create<ConfirmDialogProps>((props) => {
     title,
     message,
     confirmText = 'Confirm',
+    alternativeText,
     cancelText = 'Cancel',
     variant = 'default',
     icon = true,
@@ -37,6 +39,10 @@ const ConfirmDialogImpl = create<ConfirmDialogProps>((props) => {
 
   const handleCancel = () => {
     modal.resolve('canceled' as ConfirmResult);
+  };
+
+  const handleAlternative = () => {
+    modal.resolve('alternative' as ConfirmResult);
   };
 
   const getIcon = () => {
@@ -74,6 +80,11 @@ const ConfirmDialogImpl = create<ConfirmDialogProps>((props) => {
           <Button variant="outline" onClick={handleCancel}>
             {cancelText}
           </Button>
+          {alternativeText && (
+            <Button variant="outline" onClick={handleAlternative}>
+              {alternativeText}
+            </Button>
+          )}
           <Button variant={getConfirmButtonVariant()} onClick={handleConfirm}>
             {confirmText}
           </Button>

@@ -36,7 +36,7 @@ export function defineModal<P, R>(
 }
 
 // Common modal result types for standardization
-export type ConfirmResult = 'confirmed' | 'canceled';
+export type ConfirmResult = 'confirmed' | 'canceled' | 'alternative';
 export type DeleteResult = 'deleted' | 'canceled';
 export type SaveResult = 'saved' | 'canceled';
 

@@ -663,6 +663,17 @@ export function KanbanContainer() {
     return ids;
   }, [statuses]);
 
+  // The unmerged completion path returns the card to the active work column.
+  // Resolve it by semantic name so column reordering cannot change behavior.
+  const inProgressStatusId = useMemo(
+    () =>
+      statuses.find((status) => {
+        const name = status.name.trim().toLowerCase().replace(/[-_]/g, ' ');
+        return name === 'in progress' || name === 'doing';
+      })?.id,
+    [statuses]
+  );
+
   // Sub-issue board (parentIssueId set): every candidate already has a
   // `parent_issue_id`. The `showSubIssues` filter DROPS exactly those, so if
   // the user has it off (the default) the board would be empty. Force it on
@@ -1263,13 +1274,15 @@ export function KanbanContainer() {
       // sync re-derives order from the active sort. Drop the index so
       // `computeKanbanMove` appends, and ask `buildKanbanMoveUpdates`
       // for a status-only update (no sort_order rewrite).
-      const effectiveMove = isManualSort ? move : { ...move, index: undefined };
-
-      const commitMove = () => {
-        const newItems = computeKanbanMove(itemsRef.current, effectiveMove);
+      const commitMove = (moveToCommit: KanbanMove = move) => {
+        const resolvedMove =
+          isManualSort || moveToCommit === move
+            ? moveToCommit
+            : { ...moveToCommit, index: undefined };
+        const newItems = computeKanbanMove(itemsRef.current, resolvedMove);
         const updates = buildKanbanMoveUpdates({
           newItems,
-          move,
+          move: resolvedMove,
           isManualSort,
           calculateSortOrder,
           statusColumnIndexMap,
@@ -1287,8 +1300,9 @@ export function KanbanContainer() {
           const decision = await ConfirmDialog.show({
             title: 'Complete card',
             message:
-              'Moving this card to Done requires merging its linked workspace.',
+              'This card has not been integrated yet. Choose how to move it.',
             confirmText: 'Move and merge',
+            alternativeText: 'Move without merging',
             cancelText: 'Cancel',
             variant: 'info',
           });
@@ -1346,6 +1360,25 @@ export function KanbanContainer() {
             commitMove();
             return;
           }
+
+          if (decision === 'alternative') {
+            if (!inProgressStatusId) {
+              await ConfirmDialog.show({
+                title: 'Cannot move card',
+                message:
+                  'No In Progress status is configured for this project.',
+                confirmText: 'OK',
+                showCancelButton: false,
+              });
+              return;
+            }
+            // Never persist the requested terminal status for this path.
+            commitMove({
+              ...move,
+              toStatusId: inProgressStatusId,
+              index: undefined,
+            });
+          }
         })();
         return;
       }
@@ -1362,6 +1395,7 @@ export function KanbanContainer() {
       doneStatusIds,
       getWorkspacesForIssue,
       activeWorkspaces,
+      inProgressStatusId,
     ]
   );
 
