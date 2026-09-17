@@ -63,6 +63,7 @@ pub mod workspaces;
 pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
     let api_routes = Router::new()
         .route("/health", get(health::health_check))
+        .route("/build-info", get(health::build_info))
         .merge(android_mirror::router())
         .merge(app_mode::router())
         .merge(config::router())

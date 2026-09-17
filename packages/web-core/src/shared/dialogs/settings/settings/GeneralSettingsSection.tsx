@@ -803,9 +803,47 @@ export function GeneralSettingsSection() {
         onSave={handleSave}
         onDiscard={handleDiscard}
       />
+      <BuildStamp />
     </>
   );
 }
 
 // Alias for backwards compatibility
 export { GeneralSettingsSection as GeneralSettingsSectionContent };
+
+/**
+ * Build stamp: version plus the compile-time build number and commit, so any
+ * running bundle (dev server, DMG, cloud lease) can be traced back to the
+ * exact source it was built from. No i18n key: identifiers, not prose.
+ */
+function BuildStamp() {
+  const [stamp, setStamp] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    void fetch('/api/build-info', { credentials: 'same-origin' })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const body = (await response.json().catch(() => null)) as {
+          data?: { version?: string; build_number?: string; commit?: string };
+        } | null;
+        const data = body?.data;
+        if (active && data) {
+          setStamp(
+            `${data.version ?? '?'} · build ${data.build_number ?? '?'} (${data.commit ?? '?'})`
+          );
+        }
+      })
+      .catch(() => {
+        // Stamp is informational; never break Settings on failure.
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  if (!stamp) return null;
+  return (
+    <p className="mt-2 text-center text-xs text-low" title={stamp}>
+      {stamp}
+    </p>
+  );
+}

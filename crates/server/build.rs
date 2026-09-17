@@ -9,9 +9,33 @@ fn main() {
         println!("cargo:rerun-if-changed={}", env_file.display());
     }
 
-    // Create packages/local-web/dist directory if it doesn't exist so the
-    // embedded asset build has something to read when the web app hasn't been
-    // built yet (e.g. `cargo check` against a fresh checkout).
+    // Build identity for the About/build tracker: an always-increasing
+    // commit count plus the short SHA, baked at compile time. Best-effort:
+    // missing git metadata must never fail the build (CI tarballs, etc.).
+    let git_dir = workspace_root.join(".git");
+    if git_dir.exists() {
+        println!("cargo:rerun-if-changed={}", git_dir.join("HEAD").display());
+    }
+    let build_number = std::process::Command::new("git")
+        .args(["rev-list", "--count", "HEAD"])
+        .current_dir(&workspace_root)
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "0".to_string());
+    let build_sha = std::process::Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .current_dir(&workspace_root)
+        .output()
+        .ok()
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
+    println!("cargo:rustc-env=AURAPUNK_BUILD_NUMBER={build_number}");
+    println!("cargo:rustc-env=AURAPUNK_BUILD_SHA={build_sha}");
     let dist_path = Path::new("../../packages/local-web/dist");
     if !dist_path.exists() {
         println!("cargo:warning=Creating dummy packages/local-web/dist directory for compilation");
