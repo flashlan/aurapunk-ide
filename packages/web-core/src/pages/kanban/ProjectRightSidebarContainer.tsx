@@ -7,7 +7,12 @@ import {
   type ReactNode,
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowDownIcon, ArrowsOutIcon, XIcon } from '@phosphor-icons/react';
+import {
+  ArrowDownIcon,
+  ArrowsOutIcon,
+  ChatDotsIcon,
+  XIcon,
+} from '@phosphor-icons/react';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { useWorkspacesContext } from '@/shared/hooks/useWorkspacesContext';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
@@ -33,6 +38,7 @@ import {
   closeKanbanIssueComposer,
   useKanbanIssueComposer,
 } from '@/shared/stores/useKanbanIssueComposerStore';
+import { useThinkingExpanded } from '@/shared/stores/useUiPreferencesStore';
 
 interface WorkspaceSessionPanelProps {
   workspaceId: string;
@@ -156,6 +162,7 @@ function WorkspaceSessionPanel({
   } = useWorkspaceContext();
   const conversationListRef = useRef<ConversationListHandle>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [thinkingExpanded, setThinkingExpanded] = useThinkingExpanded();
 
   const workspaceSummary = useMemo(
     () =>
@@ -263,6 +270,25 @@ function WorkspaceSessionPanel({
                 </div>
 
                 <div className="flex items-center gap-half">
+                  <button
+                    type="button"
+                    onClick={() => setThinkingExpanded(!thinkingExpanded)}
+                    className={
+                      thinkingExpanded
+                        ? 'p-half rounded-sm text-normal hover:text-high hover:bg-panel transition-colors'
+                        : 'p-half rounded-sm text-low hover:text-normal hover:bg-panel transition-colors'
+                    }
+                    aria-label={
+                      thinkingExpanded ? 'Hide thinking' : 'Show thinking'
+                    }
+                    aria-pressed={thinkingExpanded}
+                    title={thinkingExpanded ? 'Hide thinking' : 'Show thinking'}
+                  >
+                    <ChatDotsIcon
+                      className="size-icon-sm"
+                      weight={thinkingExpanded ? 'fill' : 'regular'}
+                    />
+                  </button>
                   <button
                     type="button"
                     onClick={handleOpenWorkspaceView}

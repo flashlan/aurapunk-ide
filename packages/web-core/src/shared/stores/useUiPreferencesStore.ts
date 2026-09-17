@@ -337,6 +337,22 @@ const loadAnimateRunningOutline = (): boolean => {
   return true;
 };
 
+// Global thinking visibility. Controls whether every reasoning/thinking block in
+// the chat is expanded (visible) or collapsed. Individual blocks can still be
+// toggled on their own; the header button flips this global preference and
+// applies it to all blocks at once.
+const THINKING_EXPANDED_KEY = 'vk-thinking-expanded';
+
+const loadThinkingExpanded = (): boolean => {
+  try {
+    const stored = localStorage.getItem(THINKING_EXPANDED_KEY);
+    if (stored !== null) return stored !== 'false';
+  } catch {
+    // localStorage may be unavailable
+  }
+  return true;
+};
+
 // Persisted pane sizes (fallback to localStorage for instant hydration)
 const PANE_SIZES_KEY = 'vk-pane-sizes';
 
@@ -660,6 +676,9 @@ type State = {
   // Animated border around the working message box (toggleable in settings)
   animateRunningOutline: boolean;
 
+  // Global thinking visibility (header button expands/collapses all blocks)
+  thinkingExpanded: boolean;
+
   // Auto-compaction threshold ('75' | '85' | '95' | 'full')
   compactionThreshold: CompactionThreshold;
   setCompactionThreshold: (threshold: CompactionThreshold) => void;
@@ -771,6 +790,9 @@ type State = {
   // Animated running outline actions
   setAnimateRunningOutline: (value: boolean) => void;
 
+  // Global thinking visibility action
+  setThinkingExpanded: (value: boolean) => void;
+
   // Typography and custom appearance
   uiFontFamily: UiFontFamily;
   codeFontFamily: CodeFontFamily;
@@ -851,6 +873,9 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
 
   // Animated running outline (default on)
   animateRunningOutline: loadAnimateRunningOutline(),
+
+  // Global thinking visibility (default expanded)
+  thinkingExpanded: loadThinkingExpanded(),
 
   // Auto-compaction threshold
   compactionThreshold: loadCompactionThreshold(),
@@ -1338,6 +1363,29 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
     set({ animateRunningOutline: value });
   },
 
+  // Global thinking visibility: flips the preference and applies it to every
+  // persisted thinking block so a single click expands/collapses them all.
+  setThinkingExpanded: (value) => {
+    try {
+      if (value) {
+        localStorage.removeItem(THINKING_EXPANDED_KEY);
+      } else {
+        localStorage.setItem(THINKING_EXPANDED_KEY, 'false');
+      }
+    } catch {
+      // localStorage may be unavailable
+    }
+    set((s) => {
+      const nextExpanded = { ...s.expanded };
+      for (const key of Object.keys(nextExpanded)) {
+        if (key.startsWith('thinking:')) {
+          nextExpanded[key] = value;
+        }
+      }
+      return { thinkingExpanded: value, expanded: nextExpanded };
+    });
+  },
+
   // Last selected project actions
   setSelectedProjectId: (projectId) => set({ selectedProjectId: projectId }),
   setLastWorkspaceId: (workspaceId) => {
@@ -1495,6 +1543,13 @@ export function useDefaultPipelineSelectionPref(): [
 export function useAnimateRunningOutline() {
   const value = useUiPreferencesStore((s) => s.animateRunningOutline);
   const set = useUiPreferencesStore((s) => s.setAnimateRunningOutline);
+  return [value, set] as const;
+}
+
+// Hook for the global thinking visibility toggle
+export function useThinkingExpanded() {
+  const value = useUiPreferencesStore((s) => s.thinkingExpanded);
+  const set = useUiPreferencesStore((s) => s.setThinkingExpanded);
   return [value, set] as const;
 }
 

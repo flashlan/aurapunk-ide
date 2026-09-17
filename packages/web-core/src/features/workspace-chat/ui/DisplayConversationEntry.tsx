@@ -14,6 +14,7 @@ import type { WorkspaceWithSession } from '@/shared/types/attempt';
 import { parseDiffStats } from '@/shared/lib/diffStatsParser';
 import {
   usePersistedExpanded,
+  useThinkingExpanded,
   type PersistKey,
 } from '@/shared/stores/useUiPreferencesStore';
 import { getActualTheme } from '@/shared/lib/theme';
@@ -1125,9 +1126,10 @@ function ThinkingMessageEntry({
   sessionId: string | undefined;
   expansionKey: string;
 }) {
+  const [thinkingExpanded] = useThinkingExpanded();
   const [expanded, toggle] = usePersistedExpanded(
     `thinking:${expansionKey}`,
-    true
+    thinkingExpanded
   );
 
   return (
@@ -1376,11 +1378,12 @@ function AggregatedThinkingGroupEntry({
   sessionId: string | undefined;
 }) {
   const firstEntryKey = group.entries[0]?.patchKey;
+  const [thinkingExpanded] = useThinkingExpanded();
   const [expanded, toggle] = usePersistedExpanded(
     (firstEntryKey
-      ? `entry:${firstEntryKey}`
-      : `entry:${group.patchKey}`) as PersistKey,
-    true
+      ? `thinking:${firstEntryKey}`
+      : `thinking:${group.patchKey}`) as PersistKey,
+    thinkingExpanded
   );
   const [isHovered, setIsHovered] = useState(false);
 
