@@ -62,7 +62,9 @@ function isCloudApiRequest(pathname) {
     '/api/admin',
     '/api/billing',
     '/api/cloud-contract',
+    '/api/account',
     '/api/cloud-ide',
+    '/api/cloud-repos',
     '/api/cloud-workspace',
     '/api/dashboard',
     '/api/dashboard-api',
@@ -104,7 +106,7 @@ function apexRedirectLocation(request) {
 function proxyHeaders(
   request,
   target,
-  { forwardCookie = false, forwardAuthorization = false } = {},
+  { forwardCookie = false, forwardAuthorization = false, spoofOrigin = '' } = {},
 ) {
   const headers = {};
   for (const [name, value] of Object.entries(request.headers)) {
@@ -112,9 +114,14 @@ function proxyHeaders(
     if (value === undefined || lower === 'connection' || lower === 'content-length' || lower === 'host') continue;
     if (!forwardCookie && lower === 'cookie') continue;
     if (!forwardAuthorization && lower === 'authorization') continue;
+    if (spoofOrigin && lower === 'origin') continue;
     headers[name] = Array.isArray(value) ? value.join(', ') : value;
   }
   headers.host = target.host;
+  // The IDE server enforces an origin allowlist (VK_ALLOWED_ORIGINS) holding
+  // the apex origin, not tenant subdomains. Present the apex origin upstream;
+  // the tenant session was already verified before proxying.
+  if (spoofOrigin) headers.origin = spoofOrigin;
   return headers;
 }
 
@@ -180,7 +187,7 @@ async function proxyCloudIde(request, response, tenant) {
       return;
     }
     const origin = `http://${resolved.body.host}:${resolved.body.port}`;
-    proxyRequest(request, response, origin);
+    proxyRequest(request, response, origin, { spoofOrigin: cloudIdeAuthOrigin });
   } catch (error) {
     console.error('Cloud IDE resolution error:', error);
     writeJson(response, 502, { error: 'Cloud IDE gateway unavailable' });
@@ -316,12 +323,16 @@ server.on('upgrade', (request, socket, head) => {
         const headers = Object.entries(request.headers)
           .filter(([name, value]) => {
             const lower = name.toLowerCase();
-            return value !== undefined && lower !== 'host' && lower !== 'cookie' && lower !== 'authorization' && lower !== 'connection';
+            return value !== undefined && lower !== 'host' && lower !== 'cookie' && lower !== 'authorization' && lower !== 'connection' && lower !== 'origin';
           })
           .map(([name, value]) => `${name}: ${Array.isArray(value) ? value.join(', ') : value}`)
           .join('\r\n');
+        // The IDE server enforces an origin allowlist (VK_ALLOWED_ORIGINS)
+        // holding the apex origin, not tenant subdomains. Present the apex
+        // origin upstream; the tenant session was already verified above.
+        const originHeader = cloudIdeAuthOrigin ? `Origin: ${cloudIdeAuthOrigin}\r\n` : '';
         upstream.write(
-          `${request.method} ${pathname}${new URL(request.url ?? '/', 'http://localhost').search} HTTP/1.1\r\nHost: ${resolved.body.host}:${resolved.body.port}\r\nConnection: Upgrade\r\n${headers}\r\n\r\n`,
+          `${request.method} ${pathname}${new URL(request.url ?? '/', 'http://localhost').search} HTTP/1.1\r\nHost: ${resolved.body.host}:${resolved.body.port}\r\nConnection: Upgrade\r\n${originHeader}${headers}\r\n\r\n`,
         );
         if (head.length) upstream.write(head);
         socket.pipe(upstream).pipe(socket);
