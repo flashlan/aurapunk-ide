@@ -852,9 +852,9 @@ export function KanbanContainer() {
   // fallback shape snapshot is a full truncate+rewrite, so a fetch that
   // started before a write (or a stale lookup) would otherwise re-render
   // the card in its old column. Overrides win until the snapshot agrees.
-  const pendingStatusRef = useRef<Map<string, { statusId: string; at: number }>>(
-    new Map()
-  );
+  const pendingStatusRef = useRef<
+    Map<string, { statusId: string; at: number }>
+  >(new Map());
   const PENDING_STATUS_TTL_MS = 15_000;
   const [isFiltersDialogOpen, setIsFiltersDialogOpen] = useState(false);
   const isProjectTerminalOpen = useUiPreferencesStore(
@@ -1508,11 +1508,13 @@ export function KanbanContainer() {
                 }
                 if (action === 'delegate') {
                   try {
-                    const delegation =
-                      await workspacesApi.delegateMergeBlock(workspaceId, {
+                    const delegation = await workspacesApi.delegateMergeBlock(
+                      workspaceId,
+                      {
                         repo_id: repoIdForMergeRetry,
                         ...(userNote ? { user_note: userNote } : {}),
-                      });
+                      }
+                    );
                     if (delegation.delegated) {
                       await ConfirmDialog.show({
                         title: 'Cleanup delegated to agent',
@@ -1522,9 +1524,12 @@ export function KanbanContainer() {
                         showCancelButton: false,
                       });
                     } else if (delegation.reason === 'already_clean') {
-                      const retryResult = await workspacesApi.merge(workspaceId, {
-                        repo_id: repoIdForMergeRetry,
-                      });
+                      const retryResult = await workspacesApi.merge(
+                        workspaceId,
+                        {
+                          repo_id: repoIdForMergeRetry,
+                        }
+                      );
                       commitMove(move, true);
                       await offerStashPop(retryResult, repoIdForMergeRetry);
                     } else {
@@ -1568,12 +1573,14 @@ export function KanbanContainer() {
                 }
                 if (action === 'delegate') {
                   try {
-                    const delegation =
-                      await workspacesApi.delegateMergeBlock(workspaceId, {
+                    const delegation = await workspacesApi.delegateMergeBlock(
+                      workspaceId,
+                      {
                         repo_id: repoIdForMergeRetry,
                         note: 'merge-conflict',
                         ...(userNote ? { user_note: userNote } : {}),
-                      });
+                      }
+                    );
                     if (delegation.delegated) {
                       await ConfirmDialog.show({
                         title: 'Resolution delegated to agent',
@@ -1583,9 +1590,12 @@ export function KanbanContainer() {
                         showCancelButton: false,
                       });
                     } else if (delegation.reason === 'already_clean') {
-                      const retryResult = await workspacesApi.merge(workspaceId, {
-                        repo_id: repoIdForMergeRetry,
-                      });
+                      const retryResult = await workspacesApi.merge(
+                        workspaceId,
+                        {
+                          repo_id: repoIdForMergeRetry,
+                        }
+                      );
                       commitMove(move, true);
                       await offerStashPop(retryResult, repoIdForMergeRetry);
                     } else {

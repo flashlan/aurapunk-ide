@@ -166,7 +166,6 @@ export function resolveDragEnd(
     return { type: 'invalid', reason: 'not a valid status target' };
   }
 
-
   if (
     parsedDest.surface === 'kanban' &&
     parsedDest.statusId === currentStatusId &&

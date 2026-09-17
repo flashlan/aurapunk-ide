@@ -13,7 +13,11 @@ export function useMerge(
 ) {
   const queryClient = useQueryClient();
 
-  return useMutation<{ pending_stashes?: string[] } | void, unknown, MergeParams>({
+  return useMutation<
+    { pending_stashes?: string[] } | void,
+    unknown,
+    MergeParams
+  >({
     mutationFn: (params: MergeParams) => {
       if (!workspaceId) return Promise.resolve();
       return workspacesApi.merge(workspaceId, {

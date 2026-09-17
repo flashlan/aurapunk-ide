@@ -1024,9 +1024,7 @@ async fn get_context_for(
 /// The residual risk is a device with a wrong clock: a future-dated write
 /// would win every future comparison and permanently block real edits, so
 /// anything beyond a small tolerance is treated as "now" instead.
-fn clamp_future_timestamp(
-    value: chrono::DateTime<chrono::Utc>,
-) -> chrono::DateTime<chrono::Utc> {
+fn clamp_future_timestamp(value: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
     let now = chrono::Utc::now();
     if value > now + chrono::Duration::minutes(5) {
         tracing::warn!(
@@ -1199,12 +1197,11 @@ async fn import_cloud_context(
         // issue_number); keep it when it is newer than the incoming card
         // (so a stale snapshot can never undo a fresh local move) and only
         // insert when no row matches either key.
-        let local_updated: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
-            "SELECT updated_at FROM issues WHERE id = ?",
-        )
-        .bind(issue.id)
-        .fetch_optional(&mut *transaction)
-        .await?;
+        let local_updated: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar("SELECT updated_at FROM issues WHERE id = ?")
+                .bind(issue.id)
+                .fetch_optional(&mut *transaction)
+                .await?;
         let local_updated = match local_updated {
             Some(timestamp) => Some(timestamp),
             None => {
