@@ -1017,6 +1017,29 @@ async fn get_context_for(
 /// the local context to Cloud is not enough: the first authenticated startup
 /// must also materialize the account's projects, columns, cards and workspace
 /// links locally. Every write is an idempotent upsert keyed by the Cloud UUID.
+/// Clamp a client-provided timestamp that is ahead of the server clock.
+///
+/// Every instance serializes `DateTime<Utc>`, so values from different
+/// timezones are comparable as-is — the timezone itself is never a problem.
+/// The residual risk is a device with a wrong clock: a future-dated write
+/// would win every future comparison and permanently block real edits, so
+/// anything beyond a small tolerance is treated as "now" instead.
+fn clamp_future_timestamp(
+    value: chrono::DateTime<chrono::Utc>,
+) -> chrono::DateTime<chrono::Utc> {
+    let now = chrono::Utc::now();
+    if value > now + chrono::Duration::minutes(5) {
+        tracing::warn!(
+            incoming = %value,
+            server_now = %now,
+            "import-context: incoming timestamp is in the future (client clock skew); clamping to now"
+        );
+        now
+    } else {
+        value
+    }
+}
+
 async fn import_cloud_context(
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<CloudImportRequest>,
@@ -1153,56 +1176,120 @@ async fn import_cloud_context(
 
     // As with projects, defer self-referencing issue parents until all cards
     // are present. The status/project foreign keys are already available.
+    //
+    // `issues` carries UNIQUE(project_id, issue_number): the cloud and a
+    // local device can hold the SAME card under different ids (independent
+    // creation, or an id regenerated elsewhere). An upsert keyed only on
+    // `id` then hits the unique constraint and fails the whole import with
+    // SQLITE_CONSTRAINT, which is what kept the release app from ever
+    // reconciling its board. Match by id first, then by
+    // (project_id, issue_number), and insert only when neither exists — the
+    // local row id is preserved so linked workspaces keep resolving.
     for issue in &issues {
         let extension_metadata = serde_json::to_string(&issue.extension_metadata)
             .map_err(|error| ApiError::BadRequest(error.to_string()))?;
-        sqlx::query(
-            r#"INSERT INTO issues (
-                    id, project_id, issue_number, simple_id, status_id, title,
-                    description, priority, start_date, target_date,
-                    completed_at, sort_order, parent_issue_id,
-                    parent_issue_sort_order, extension_metadata, archived,
-                    archived_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    project_id = excluded.project_id,
-                    issue_number = excluded.issue_number,
-                    simple_id = excluded.simple_id,
-                    status_id = excluded.status_id,
-                    title = excluded.title,
-                    description = excluded.description,
-                    priority = excluded.priority,
-                    start_date = excluded.start_date,
-                    target_date = excluded.target_date,
-                    completed_at = excluded.completed_at,
-                    sort_order = excluded.sort_order,
-                    parent_issue_sort_order = excluded.parent_issue_sort_order,
-                    extension_metadata = excluded.extension_metadata,
-                    archived = excluded.archived,
-                    archived_at = excluded.archived_at,
-                    created_at = excluded.created_at,
-                    updated_at = excluded.updated_at"#,
+
+        // Last-writer-wins reconciliation. `issues` also carries
+        // UNIQUE(project_id, issue_number): the cloud and a local device can
+        // hold the SAME card under different ids (independent creation, or an
+        // id regenerated elsewhere). An upsert keyed only on `id` then hits
+        // that unique constraint and fails the whole import with a 500,
+        // which is what kept the release app from ever reconciling its board.
+        // Resolve the local row by id first, then by (project_id,
+        // issue_number); keep it when it is newer than the incoming card
+        // (so a stale snapshot can never undo a fresh local move) and only
+        // insert when no row matches either key.
+        let local_updated: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
+            "SELECT updated_at FROM issues WHERE id = ?",
         )
         .bind(issue.id)
-        .bind(issue.project_id)
-        .bind(issue.issue_number)
-        .bind(&issue.simple_id)
-        .bind(issue.status_id)
-        .bind(&issue.title)
-        .bind(&issue.description)
-        .bind(&issue.priority)
-        .bind(issue.start_date)
-        .bind(issue.target_date)
-        .bind(issue.completed_at)
-        .bind(issue.sort_order)
-        .bind(issue.parent_issue_sort_order)
-        .bind(extension_metadata)
-        .bind(issue.archived)
-        .bind(issue.archived_at)
-        .bind(issue.created_at)
-        .bind(issue.updated_at)
-        .execute(&mut *transaction)
+        .fetch_optional(&mut *transaction)
         .await?;
+        let local_updated = match local_updated {
+            Some(timestamp) => Some(timestamp),
+            None => {
+                sqlx::query_scalar(
+                    "SELECT updated_at FROM issues WHERE project_id = ? AND issue_number = ?",
+                )
+                .bind(issue.project_id)
+                .bind(issue.issue_number)
+                .fetch_optional(&mut *transaction)
+                .await?
+            }
+        };
+
+        let incoming_updated_at = clamp_future_timestamp(issue.updated_at);
+        match local_updated {
+            Some(local_timestamp) => {
+                if local_timestamp > incoming_updated_at {
+                    continue;
+                }
+                sqlx::query(
+                    r#"UPDATE issues SET
+                            id = ?, project_id = ?, issue_number = ?, simple_id = ?,
+                            status_id = ?, title = ?, description = ?, priority = ?,
+                            start_date = ?, target_date = ?, completed_at = ?,
+                            sort_order = ?, parent_issue_sort_order = ?,
+                            extension_metadata = ?, archived = ?, archived_at = ?,
+                            created_at = ?, updated_at = ?
+                        WHERE id = ? OR (project_id = ? AND issue_number = ?)"#,
+                )
+                .bind(issue.id)
+                .bind(issue.project_id)
+                .bind(issue.issue_number)
+                .bind(&issue.simple_id)
+                .bind(issue.status_id)
+                .bind(&issue.title)
+                .bind(&issue.description)
+                .bind(&issue.priority)
+                .bind(issue.start_date)
+                .bind(issue.target_date)
+                .bind(issue.completed_at)
+                .bind(issue.sort_order)
+                .bind(issue.parent_issue_sort_order)
+                .bind(&extension_metadata)
+                .bind(issue.archived)
+                .bind(issue.archived_at)
+                .bind(issue.created_at)
+                .bind(incoming_updated_at)
+                .bind(issue.id)
+                .bind(issue.project_id)
+                .bind(issue.issue_number)
+                .execute(&mut *transaction)
+                .await?;
+            }
+            None => {
+                sqlx::query(
+                    r#"INSERT INTO issues (
+                            id, project_id, issue_number, simple_id, status_id, title,
+                            description, priority, start_date, target_date,
+                            completed_at, sort_order, parent_issue_id,
+                            parent_issue_sort_order, extension_metadata, archived,
+                            archived_at, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)"#,
+                )
+                .bind(issue.id)
+                .bind(issue.project_id)
+                .bind(issue.issue_number)
+                .bind(&issue.simple_id)
+                .bind(issue.status_id)
+                .bind(&issue.title)
+                .bind(&issue.description)
+                .bind(&issue.priority)
+                .bind(issue.start_date)
+                .bind(issue.target_date)
+                .bind(issue.completed_at)
+                .bind(issue.sort_order)
+                .bind(issue.parent_issue_sort_order)
+                .bind(&extension_metadata)
+                .bind(issue.archived)
+                .bind(issue.archived_at)
+                .bind(issue.created_at)
+                .bind(incoming_updated_at)
+                .execute(&mut *transaction)
+                .await?;
+            }
+        }
     }
     for issue in &issues {
         if let Some(parent_issue_id) = issue.parent_issue_id {
