@@ -543,12 +543,38 @@ export function SharedAppLayout() {
       );
       switch (outcome.type) {
         case 'no-op':
+          // A real drop that resolved to nothing (not a cancelled drag:
+          // the controller only calls back on valid targets). Surface it
+          // instead of snapping back silently — a no-op here means the
+          // resolver and the controller disagree, which is a bug signal.
+          void ConfirmDialog.show({
+            title: 'Move not applied',
+            message:
+              'The drop looked like a no-op (same position). If the card ' +
+              'should have moved, try again; if it persists, report the card and columns.',
+            confirmText: 'OK',
+            showCancelButton: false,
+            variant: 'info',
+          });
           return;
-        case 'invalid':
-          // Snap-back is automatic when no state change fires; console
-          // for now so devs see why a drop was rejected during smoke.
-          console.debug('[dnd] drop rejected:', outcome.reason);
+        case 'invalid': {
+          // Snap-back is automatic when no state change fires; tell the
+          // operator why, with the resolver's view attached, instead of
+          // failing silently.
+          const detail =
+            completion.source.kind === 'issue-move'
+              ? ` Card ${completion.source.issueId.slice(0, 8)} seen in ` +
+                `${completion.source.statusId ?? 'unknown status'}, target ${completion.targetId}.`
+              : '';
+          void ConfirmDialog.show({
+            title: 'Move rejected',
+            message: `The board could not apply this drop (${outcome.reason}).${detail}`,
+            confirmText: 'OK',
+            showCancelButton: false,
+            variant: 'info',
+          });
           return;
+        }
         case 'kanban-internal':
           kanbanHandlerRef.current?.({
             issueId: outcome.issueId,

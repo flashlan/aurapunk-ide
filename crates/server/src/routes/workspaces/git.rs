@@ -82,12 +82,19 @@ pub enum GitOperationError {
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct MergeWorkspaceRequest {
     pub repo_id: Uuid,
-    #[serde(default)]
-    #[ts(optional)]
+    #[serde(default)]    #[ts(optional)]
     pub suppress_auto_move: Option<bool>,
     #[serde(default)]
     #[ts(optional)]
     pub keep_workspace_open: Option<bool>,
+}
+
+/// Successful merge result. `pending_stashes` lists our own stash entries
+/// (`aurapunk:` prefix) still sitting in the repo so the UI can offer to
+/// pop the latest back — WIP is never left forgotten silently.
+#[derive(Debug, Deserialize, Serialize, TS)]
+pub struct MergeWorkspaceResponse {
+    pub pending_stashes: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -182,6 +189,7 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/diff/ws", get(stream_diff_ws))
         .route("/merge", post(merge_workspace))
         .route("/stash", post(stash_workspace_changes))
+        .route("/stash-pop", post(pop_workspace_stash))
         .route("/delegate-block", post(delegate_merge_block))
         .route("/commit", post(commit_workspace))
         .route("/push", post(push_workspace_branch))
@@ -256,7 +264,7 @@ pub async fn merge_workspace(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<MergeWorkspaceRequest>,
-) -> Result<ResponseJson<ApiResponse<(), GitOperationError>>, ApiError> {
+) -> Result<ResponseJson<ApiResponse<MergeWorkspaceResponse, GitOperationError>>, ApiError> {
     let pool = &deployment.db().pool;
 
     let workspace_repo =
@@ -484,7 +492,14 @@ pub async fn merge_workspace(
         tracing::error!("Failed to archive workspace {}: {}", workspace.id, e);
     }
 
-    Ok(ResponseJson(ApiResponse::success(())))
+    // Our own stash entries (pre-merge stashes, agent cleanups) survive the
+    // merge by design. Report them so the UI can offer to pop the latest
+    // back instead of letting WIP sit forgotten in the stash list.
+    let pending_stashes = GitCli::new().aurapunk_stashes(&repo.path);
+
+    Ok(ResponseJson(ApiResponse::success(
+        MergeWorkspaceResponse { pending_stashes },
+    )))
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -536,12 +551,65 @@ pub async fn stash_workspace_changes(
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
+pub struct PopWorkspaceStashRequest {
+    pub repo_id: Uuid,
+}
+
+#[derive(Debug, Deserialize, Serialize, TS)]
+pub struct PopWorkspaceStashResponse {
+    pub popped: bool,
+    pub output: String,
+}
+
+/// Restore the most recent stash entry in the target checkout. Offered to
+/// the operator right after a stash-and-retry merge succeeds, so WIP never
+/// sits forgotten in the stash list. Fails loudly on conflicts instead of
+/// guessing, so the operator (or a delegated agent) resolves them.
+#[axum::debug_handler]
+pub async fn pop_workspace_stash(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<PopWorkspaceStashRequest>,
+) -> Result<ResponseJson<ApiResponse<PopWorkspaceStashResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let workspace_repo =
+        WorkspaceRepo::find_by_workspace_and_repo_id(pool, workspace.id, request.repo_id)
+            .await?
+            .ok_or(RepoError::NotFound)?;
+    let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
+        .await?
+        .ok_or(RepoError::NotFound)?;
+    let cleanliness = deployment
+        .git()
+        .worktree_cleanliness(&repo.path, &workspace_repo.target_branch)?;
+    let Some(checkout) = cleanliness.checkout_path else {
+        return Err(ApiError::BadRequest(
+            "Target branch is not checked out anywhere; nothing to pop into.".to_string(),
+        ));
+    };
+    let output = GitCli::new()
+        .stash_pop(&checkout)
+        .map_err(|e| ApiError::BadRequest(format!("Git stash pop failed: {e}")))?;
+    Ok(ResponseJson(ApiResponse::success(
+        PopWorkspaceStashResponse {
+            popped: true,
+            output: output.chars().take(500).collect(),
+        },
+    )))
+}
+
+#[derive(Debug, Deserialize, Serialize, TS)]
 pub struct DelegateMergeBlockRequest {
     pub repo_id: Uuid,
     /// Optional caller context (e.g. "merge-conflict") prepended to the
     /// agent instruction so resolution advice matches the block kind.
     #[serde(default)]
     pub note: Option<String>,
+    /// Free-text operator instructions typed in the merge dialog (e.g.
+    /// "commit A and B, stash the rest, gitignore X but not Y"). Appended
+    /// verbatim so selective intent survives to the agent.
+    #[serde(default)]
+    pub user_note: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -637,8 +705,7 @@ pub async fn delegate_merge_block(
         }
         format!("{}, +{} more", files[..max].join(", "), files.len() - max)
     }
-    let message = if request.note.as_deref() == Some("merge-conflict") {
-        format!(
+        let mut message = if request.note.as_deref() == Some("merge-conflict") {        format!(
             "Integration Guard delegated conflict resolution: merging into '{}' hit textual conflicts in: {}. \
 Plan: 1) open each file and resolve the conflict markers, keeping the intended behavior of both sides; \
 2) `git add` the resolved files and COMMIT the result on '{}' with a clear message (this completes the integration; the user retries afterwards for the idempotent success path); \
@@ -663,6 +730,15 @@ Plan: 1) inspect `git status`; 2) keep generated junk (db.v2.sqlite, installer-o
             },
         )
     };
+    // Operator's own selective instructions (typed in the merge dialog)
+    // travel verbatim so intent like "commit A, stash the rest" survives.
+    if let Some(note) = request.user_note.as_deref() {
+        let note = note.trim();
+        if !note.is_empty() {
+            message.push_str("\n\nOperator instructions (follow literally, they override the defaults above): ");
+            message.push_str(&note.chars().take(2000).collect::<String>());
+        }
+    }
     let follow_up = DraftFollowUpData {
         message,
         executor_config: executor_config.clone(),

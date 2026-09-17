@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { create, useModal } from '@ebay/nice-modal-react';
 import { ShieldAlert } from 'lucide-react';
 import { Button } from '@vibe/ui/components/Button';
@@ -16,6 +17,12 @@ export type MergeBlockedAction =
   | 'delegate'
   | 'move-without-merge'
   | 'cancel';
+
+export interface MergeBlockedResolution {
+  action: MergeBlockedAction;
+  /** Free-text instructions the operator typed for the agent (delegate only). */
+  instructions: string;
+}
 
 export interface DirtyWorktreeBlock {
   branch: string;
@@ -135,9 +142,10 @@ const MergeBlockedDialogImpl = create<MergeBlockedDialogProps>((props) => {
   const modal = useModal();
   const { branch, modified, untracked, message, mode = 'dirty' } = props;
   const isConflict = mode === 'conflicts';
+  const [instructions, setInstructions] = useState('');
 
   const resolve = (action: MergeBlockedAction) => () => {
-    modal.resolve(action);
+    modal.resolve({ action, instructions: instructions.trim() });
     modal.hide();
   };
 
@@ -166,6 +174,21 @@ const MergeBlockedDialogImpl = create<MergeBlockedDialogProps>((props) => {
           title="Untracked files (informational, never block)"
           files={untracked}
         />
+        <div className="mt-2">
+          <label
+            htmlFor="merge-block-instructions"
+            className="text-xs font-medium text-normal"
+          >
+            Instructions for the agent (optional, used on delegate)
+          </label>
+          <textarea
+            id="merge-block-instructions"
+            className="mt-1 max-h-24 min-h-16 w-full resize-y rounded-sm border border-input bg-sunken p-2 text-xs text-normal placeholder:text-low"
+            placeholder="e.g. commit Cargo.toml and crates/git, stash the rest, gitignore installer-output/ but keep db.v2.sqlite"
+            value={instructions}
+            onChange={(event) => setInstructions(event.target.value)}
+          />
+        </div>
         <DialogFooter className="flex-col gap-2 sm:flex-col">
           {!isConflict && (
             <Button className="w-full" onClick={resolve('stash-retry')}>
@@ -205,5 +228,5 @@ const MergeBlockedDialogImpl = create<MergeBlockedDialogProps>((props) => {
 
 export const MergeBlockedDialog = defineModal<
   MergeBlockedDialogProps,
-  MergeBlockedAction
+  MergeBlockedResolution
 >(MergeBlockedDialogImpl);

@@ -46,6 +46,15 @@ A card whose description has no such reference has nothing to fetch — proceed 
 
 When the selected pipeline reaches `Integration Guard → Done`, the execution agent must commit its verified work in the workspace and call `complete_workspace_card` itself as the final action. Do not stop after committing, ask the operator to click Merge or Done, wait for the UI, or claim integration without a successful tool response. Do not run `git merge`, `git rebase`, `git update-ref`, or `git push` manually for this stage. If the tool reports a conflict, dirty target, concurrent integration, or Mem0 failure, leave the card open and report the blocker.
 
+> **Merge blocks are delegable, not dead ends.** Since 2026-09-17 the merge
+> endpoints return structured refusals (`DirtyWorktree`, `MergeConflicts`)
+> and the kanban UI offers *Stash & retry* / *Delegate to agent*. An agent
+> that receives a delegated cleanup prompt must: inspect `git status`,
+> stash or commit the real changes, keep generated junk (`db.v2.sqlite`,
+> `installer-output/`, `*.log`) OUT of commits (gitignore when missing),
+> never push, report exactly what was done, and ask the operator before
+> anything destructive or ambiguous. See ADR-044.
+
 ## Project Rules Protocol (MCP)
 
 Unlike the pipeline pointer above, this one is **unconditional** — general project rules apply to every card, so there's no pointer text to look for in the description.
@@ -115,3 +124,33 @@ Do not manually edit shared/types.ts, instead edit crates/server/src/bin/generat
 ## Security & Config Tips
 - Use `.env` for local overrides; never commit secrets. Key envs: `FRONTEND_PORT`, `BACKEND_PORT`, `HOST`
 - Dev ports are fixed: frontend `3001`, backend `3002`, preview proxy `3003`. Dev assets live in `dev_assets/` (seeded from `dev_assets_seed/`).
+
+## Session Log
+
+Dated notes on what changed and why, so repeat regressions (especially
+merge-related ones) can be traced back to the session that introduced or
+fixed them. Newest last.
+
+### 2026-09-17 — Merge-block handling end-to-end (dirty tree + conflicts)
+- **Problem (seen twice):** moving a card with merge failed with raw git
+  stderr (`Invalid repository: CLI merge failed: ...Changes not staged...`
+  and later real `CONFLICT (content)` in `AGENTS.md`/`README.md`); the UI
+  showed an OK-only dialog and the card silently stayed put.
+- **Root causes found:** (1) the guard validated staged changes only —
+  unstaged died inside `merge_squash_commit`; (2) textual conflicts were
+  wrapped as generic `InvalidRepository`; (3) the frontend narrowed the
+  wrong enum shape (`DirtyWorktree` vs actual `type: "dirty_worktree"` —
+  the enum is `#[serde(tag = "type")]`), so the new dialog never opened.
+- **Implemented:** cleanliness gate in `merge_workspace` (tracked mods
+  block, untracked reported); structured `DirtyWorktree` refusal;
+  conflict-file parsing → structured `MergeConflicts`;
+  `POST .../git/stash` (explicit only) and `POST .../git/delegate-block`
+  (queues cleanup instruction to the workspace executor, asks nothing
+  unless ambiguous); `MergeBlockedDialog` with Stash & retry / Delegate /
+  Move without merging / Cancel (stash hidden in conflict mode).
+- **Also shipped:** build stamp (`/api/build-info` + Settings footer:
+  version · build N · commit) to trace bundles; `DirtyWorktree` never
+  touches `auto_move` (forward-only by design).
+- **Validation:** `cargo check -p git/server` clean, `tsc` clean on
+  touched files, kanban vitest suites green (50), narrowing proven with
+  throwaway tests against the real serialized shapes (removed after).

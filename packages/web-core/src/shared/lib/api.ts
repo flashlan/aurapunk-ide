@@ -746,7 +746,7 @@ export const workspacesApi = {
   merge: async (
     workspaceId: string,
     data: MergeWorkspaceRequest
-  ): Promise<void> => {
+  ): Promise<{ pending_stashes?: string[] }> => {
     const response = await makeRequest(
       `/api/workspaces/${workspaceId}/git/merge`,
       {
@@ -754,7 +754,9 @@ export const workspacesApi = {
         body: JSON.stringify(data),
       }
     );
-    return handleApiResponse<void, GitOperationError>(response);
+    return handleApiResponse<{ pending_stashes?: string[] }, GitOperationError>(
+      response
+    );
   },
 
   stashWorkspaceChanges: async (
@@ -771,9 +773,23 @@ export const workspacesApi = {
     return handleApiResponse<{ stashed: boolean; output: string }>(response);
   },
 
+  popWorkspaceStash: async (
+    workspaceId: string,
+    data: { repo_id: string }
+  ): Promise<{ popped: boolean; output: string }> => {
+    const response = await makeRequest(
+      `/api/workspaces/${workspaceId}/git/stash-pop`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<{ popped: boolean; output: string }>(response);
+  },
+
   delegateMergeBlock: async (
     workspaceId: string,
-    data: { repo_id: string; note?: string }
+    data: { repo_id: string; note?: string; user_note?: string }
   ): Promise<{
     delegated: boolean;
     reason: string;

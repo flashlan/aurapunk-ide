@@ -304,6 +304,29 @@ impl GitCli {
         Ok(out)
     }
 
+    /// Restore the most recent stash entry (`git stash pop`). Used by the
+    /// merge dialog's follow-up offer after a stash-and-retry merge
+    /// succeeds, so WIP never sits forgotten in the stash list.
+    pub fn stash_pop(&self, worktree_path: &Path) -> Result<String, GitCliError> {
+        let out = self.git(worktree_path, ["stash", "pop"])?;
+        Ok(out)
+    }
+
+    /// Subjects of our own stash entries (identified by the `aurapunk:`
+    /// message prefix). Best-effort: listing failures yield an empty list
+    /// instead of failing the caller (e.g. the merge success path).
+    pub fn aurapunk_stashes(&self, repo_path: &Path) -> Vec<String> {
+        let out = match self.git(repo_path, ["stash", "list", "--format=%gs"]) {
+            Ok(out) => out,
+            Err(_) => return Vec::new(),
+        };
+        out.lines()
+            .map(str::trim)
+            .filter(|line| line.starts_with("aurapunk:"))
+            .map(str::to_string)
+            .collect()
+    }
+
     pub fn list_worktrees(&self, repo_path: &Path) -> Result<Vec<WorktreeEntry>, GitCliError> {
         let out = self.git(repo_path, ["worktree", "list", "--porcelain"])?;
         let mut entries = Vec::new();

@@ -1364,6 +1364,48 @@ export function KanbanContainer() {
             }
 
             let repoIdForMergeRetry: string | null = null;
+            // After any successful merge, offer to pop our own leftover
+            // stashes (pre-merge stash, agent cleanups) so WIP never sits
+            // forgotten — whoever stashed it, the pop is offered here.
+            // Defined outside try/catch: both the success path and the
+            // dialog handlers below use it.
+            const offerStashPop = async (
+              mergeResult: { pending_stashes?: string[] } | void,
+              repoId: string
+            ) => {
+              const pending = mergeResult?.pending_stashes ?? [];
+              if (pending.length === 0) return;
+              const popDecision = await ConfirmDialog.show({
+                title: 'Merge succeeded',
+                message: `There ${
+                  pending.length === 1
+                    ? 'is 1 stashed change set'
+                    : `are ${pending.length} stashed change sets`
+                } from earlier cleanup (${pending[0]}${
+                  pending.length > 1 ? ', …' : ''
+                }). Pop the latest back into the working tree now?`,
+                confirmText: 'Pop stash',
+                alternativeText: 'Later',
+                cancelText: 'Later',
+                variant: 'info',
+              });
+              if (popDecision !== 'confirmed') return;
+              try {
+                await workspacesApi.popWorkspaceStash(workspaceId, {
+                  repo_id: repoId,
+                });
+              } catch (popError) {
+                await ConfirmDialog.show({
+                  title: 'Stash pop failed',
+                  message:
+                    popError instanceof Error
+                      ? popError.message
+                      : 'Could not restore the stash. Resolve manually with git stash pop.',
+                  confirmText: 'OK',
+                  showCancelButton: false,
+                });
+              }
+            };
             try {
               await bulkUpdateIssues([
                 {
@@ -1383,15 +1425,18 @@ export function KanbanContainer() {
                 );
               }
               repoIdForMergeRetry = repo.id;
-              await workspacesApi.merge(workspaceId, {
+              const mergeResult = await workspacesApi.merge(workspaceId, {
                 repo_id: repo.id,
               });
               commitMove(move, true);
+              await offerStashPop(mergeResult, repo.id);
               return;
             } catch (error) {
               const block = getDirtyWorktreeBlock(error);
               if (block && repoIdForMergeRetry) {
-                const action = await MergeBlockedDialog.show({ ...block });
+                const resolution = await MergeBlockedDialog.show({ ...block });
+                const action = resolution.action;
+                const userNote = resolution.instructions;
                 if (action === 'move-without-merge') {
                   commitMove(move, true);
                   return;
@@ -1401,10 +1446,11 @@ export function KanbanContainer() {
                     await workspacesApi.stashWorkspaceChanges(workspaceId, {
                       repo_id: repoIdForMergeRetry,
                     });
-                    await workspacesApi.merge(workspaceId, {
+                    const retryResult = await workspacesApi.merge(workspaceId, {
                       repo_id: repoIdForMergeRetry,
                     });
                     commitMove(move, true);
+                    await offerStashPop(retryResult, repoIdForMergeRetry);
                   } catch (retryError) {
                     await ConfirmDialog.show({
                       title: 'Retry failed',
@@ -1423,6 +1469,7 @@ export function KanbanContainer() {
                     const delegation =
                       await workspacesApi.delegateMergeBlock(workspaceId, {
                         repo_id: repoIdForMergeRetry,
+                        ...(userNote ? { user_note: userNote } : {}),
                       });
                     if (delegation.delegated) {
                       await ConfirmDialog.show({
@@ -1433,10 +1480,11 @@ export function KanbanContainer() {
                         showCancelButton: false,
                       });
                     } else if (delegation.reason === 'already_clean') {
-                      await workspacesApi.merge(workspaceId, {
+                      const retryResult = await workspacesApi.merge(workspaceId, {
                         repo_id: repoIdForMergeRetry,
                       });
                       commitMove(move, true);
+                      await offerStashPop(retryResult, repoIdForMergeRetry);
                     } else {
                       await ConfirmDialog.show({
                         title: 'No agent to delegate to',
@@ -1463,13 +1511,15 @@ export function KanbanContainer() {
               }
               const conflict = getMergeConflictsBlock(error);
               if (conflict && repoIdForMergeRetry) {
-                const action = await MergeBlockedDialog.show({
+                const resolution = await MergeBlockedDialog.show({
                   branch: conflict.targetBranch,
                   modified: conflict.conflictedFiles,
                   untracked: [],
                   message: conflict.message,
                   mode: 'conflicts',
                 });
+                const action = resolution.action;
+                const userNote = resolution.instructions;
                 if (action === 'move-without-merge') {
                   commitMove(move, true);
                   return;
@@ -1480,6 +1530,7 @@ export function KanbanContainer() {
                       await workspacesApi.delegateMergeBlock(workspaceId, {
                         repo_id: repoIdForMergeRetry,
                         note: 'merge-conflict',
+                        ...(userNote ? { user_note: userNote } : {}),
                       });
                     if (delegation.delegated) {
                       await ConfirmDialog.show({
@@ -1490,10 +1541,11 @@ export function KanbanContainer() {
                         showCancelButton: false,
                       });
                     } else if (delegation.reason === 'already_clean') {
-                      await workspacesApi.merge(workspaceId, {
+                      const retryResult = await workspacesApi.merge(workspaceId, {
                         repo_id: repoIdForMergeRetry,
                       });
                       commitMove(move, true);
+                      await offerStashPop(retryResult, repoIdForMergeRetry);
                     } else {
                       await ConfirmDialog.show({
                         title: 'No agent to delegate to',
