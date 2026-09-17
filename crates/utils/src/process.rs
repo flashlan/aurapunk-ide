@@ -2,8 +2,8 @@ use command_group::AsyncGroupChild;
 #[cfg(unix)]
 use tokio::time::Duration;
 
-/// Kill any `opencode serve --hostname 127.0.0.1 --port 0` processes still
-/// running from a previous instance of this app.
+/// Kill any `opencode serve --hostname 127.0.0.1` processes still running from
+/// a previous instance of this app.
 ///
 /// The OpenCode executor spawns a fresh detached HTTP server for every single
 /// turn (not once per workspace — see `executors::opencode`), and normally
@@ -15,9 +15,14 @@ use tokio::time::Duration;
 /// process matching this exact signature that's already running cannot
 /// belong to this instance — it's safe to kill unconditionally. Only this
 /// one exact command-line pattern is targeted; nothing else is touched.
+///
+/// The match deliberately omits the `--port` value: the executor pins a
+/// per-turn free port, so the argv ends in `--port <n>` (older builds passed
+/// `--port 0`). Matching the prefix reaps both. The headed TUI does not use
+/// the `serve` subcommand, so it is never touched.
 #[cfg(unix)]
 pub async fn kill_stale_opencode_servers() {
-    const SIGNATURE: &str = "opencode serve --hostname 127.0.0.1 --port 0";
+    const SIGNATURE: &str = "opencode serve --hostname 127.0.0.1";
 
     let output = match tokio::process::Command::new("pgrep")
         .args(["-f", SIGNATURE])

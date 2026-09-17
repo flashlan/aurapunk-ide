@@ -88,18 +88,43 @@ impl Drop for OpencodeServer {
 
 type ServerPassword = String;
 
+/// Ask the OS for a currently-unused loopback TCP port.
+///
+/// OpenCode interprets `--port 0` as its default `4096`, not as an ephemeral
+/// port, so concurrent headless servers must be given an explicit free port to
+/// avoid clashing on 4096. There is an inherent TOCTOU window between closing
+/// this listener and OpenCode binding the port; the same approach is already
+/// used for headed sessions, and a collision merely falls back to OpenCode's
+/// own port selection.
+fn allocate_free_port() -> u16 {
+    std::net::TcpListener::bind(("127.0.0.1", 0))
+        .and_then(|listener| listener.local_addr().map(|addr| addr.port()))
+        .unwrap_or(0)
+}
+
 impl Opencode {
-    fn build_command_builder(&self) -> Result<CommandBuilder, CommandBuildError> {
+    fn build_command_builder(&self, port: u16) -> Result<CommandBuilder, CommandBuildError> {
         // Spawn the locally-installed `opencode` binary directly (resolved on
         // PATH) instead of wrapping it in `npx -y opencode-ai@...`. The npx
         // wrapper puts the real opencode in a grandchild process group that
         // the backend's killpg() cannot reliably kill on macOS (EPERM), so
         // spawned servers leaked and piled up. A direct child is killed
         // cleanly.
-        let builder = CommandBuilder::new("opencode")
-            // Pass hostname/port as separate args so OpenCode treats them as explicitly set
-            // (it checks `process.argv.includes(\"--port\")` / `\"--hostname\"`).
-            .extend_params(["serve", "--hostname", "127.0.0.1", "--port", "0"]);
+        //
+        // `--port 0` is NOT an ephemeral-port request for OpenCode: it maps a
+        // zero port to its default `4096`, so every headless turn collided on
+        // 4096 and a doomed turn surfaced as
+        // `I/O error: error sending request for url (http://127.0.0.1:4096/...)`.
+        // Pin a genuinely free port instead (same approach as the headed path),
+        // passing hostname/port as separate args so OpenCode treats them as
+        // explicitly set.
+        let builder = CommandBuilder::new("opencode").extend_params([
+            "serve",
+            "--hostname",
+            "127.0.0.1",
+            "--port",
+            &port.to_string(),
+        ]);
         apply_overrides(builder, &self.cmd)
     }
 
@@ -114,7 +139,8 @@ impl Opencode {
         current_dir: &Path,
         env: &ExecutionEnv,
     ) -> Result<(AsyncGroupChild, ServerPassword), ExecutorError> {
-        let command_parts = self.build_command_builder()?.build_initial()?;
+        let port = allocate_free_port();
+        let command_parts = self.build_command_builder(port)?.build_initial()?;
         let (program_path, args) = command_parts.into_resolved().await?;
 
         let server_password = generate_server_password();
