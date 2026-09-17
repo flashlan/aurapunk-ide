@@ -112,3 +112,7 @@ SPEC.md
 
 # Local mem0 volume backups (may contain private project memory)
 mem0-vk/backups/
+
+# Local runtime data / build artifacts
+db.v2.sqlite
+installer-output/
