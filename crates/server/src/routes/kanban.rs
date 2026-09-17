@@ -29,6 +29,7 @@ use api_types::{
 use axum::{
     Router,
     extract::{Json, Path, Query, State},
+    http::HeaderMap,
     response::Json as ResponseJson,
     routing::{delete, get, post},
 };
@@ -603,11 +604,39 @@ async fn create_issue(
     Ok(mutated(to_api_issue(issue)))
 }
 
+/// RFC3339 timestamp header carried by Cloud-originated issue writes (the
+/// live command stream). The local board remains authoritative: when this
+/// instance already holds a row at least as new as the incoming event, that
+/// event is a replay of an older state and must be ignored. Skipping equal
+/// timestamps also avoids re-stamping the local row on every replay, which
+/// would otherwise let this instance drift ahead of the real edit time and
+/// start discarding genuinely newer Cloud changes.
+const CLIENT_UPDATED_AT_HEADER: &str = "x-client-updated-at";
+
+fn client_updated_at_header(headers: &HeaderMap) -> Option<chrono::DateTime<chrono::Utc>> {
+    headers
+        .get(CLIENT_UPDATED_AT_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&chrono::Utc))
+}
+
 async fn update_issue(
     State(deployment): State<DeploymentImpl>,
     Path(id): Path<Uuid>,
+    headers: HeaderMap,
     Json(req): Json<UpdateIssueRequest>,
 ) -> Result<ResponseJson<ApiResponse<MutationResponse<ApiIssue>>>, ApiError> {
+    // Last-writer-wins for Cloud-sourced writes: a stale event replayed by the
+    // command cursor must never undo a fresher local move (e.g. the operator
+    // just dragged the card to Done). Ordinary local UI writes omit the header
+    // and stay authoritative.
+    if let Some(client_updated_at) = client_updated_at_header(&headers)
+        && let Some(existing) = DbIssue::find_by_id(&deployment.db().pool, id).await?
+        && existing.updated_at >= client_updated_at
+    {
+        return Ok(mutated(to_api_issue(existing)));
+    }
     let issue = merge_and_update_issue(&deployment.db().pool, id, req)
         .await?
         .ok_or_else(|| ApiError::BadRequest("issue not found".into()))?;

@@ -523,13 +523,25 @@ export function CloudAuthActions() {
               );
             }
           } else if (event.entityType === 'issue') {
-            const payload = event.payload as { status_id?: string };
+            const payload = event.payload as {
+              status_id?: string;
+              updated_at?: string;
+            };
             if (!payload.status_id || !event.entityId) continue;
+            const headers: Record<string, string> = {
+              'Content-Type': 'application/json',
+            };
+            // Carry the source row's timestamp so the Desktop can keep its
+            // own newer edit: a replayed/stale Cloud event must never drag a
+            // locally moved card back to its previous column.
+            if (payload.updated_at) {
+              headers['X-Client-Updated-At'] = payload.updated_at;
+            }
             const localResponse = await makeLocalApiRequest(
               `/api/issues/${event.entityId}`,
               {
                 method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({ status_id: payload.status_id }),
                 signal,
               }
