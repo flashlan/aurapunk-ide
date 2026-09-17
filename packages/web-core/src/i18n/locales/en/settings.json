@@ -36,7 +36,47 @@
         "memory": "Memory",
         "memoryDesc": "mem0 graph memory and extraction providers",
         "backup": "Backup",
-        "backupDesc": "Export / import local data"
+        "backupDesc": "Export / import local data",
+        "addons": "Add-ons",
+        "addonsDesc": "Optional add-ons that extend the app"
+      }
+    },
+    "addons": {
+      "subtitle": "Enable optional add-ons. Each add-on extends the app with a focused integration.",
+      "enable": "Enabled",
+      "homepage": "View on GitHub",
+      "disabledHint": "Enable this add-on to use it.",
+      "graphify": {
+        "name": "Graphify",
+        "tagline": "Memory graph renderer",
+        "description": "Renders the mem0 knowledge graph as an interactive, queryable map — nodes, relations and communities you can click, search and traverse — in the spirit of Graphify's graph.html."
+      },
+      "viewer": {
+        "userId": "Memory user",
+        "userIdHint": "mem0 user_id whose graph is rendered (one per repository).",
+        "reload": "Reload graph",
+        "search": "Search nodes…",
+        "matches": "{{count}} matching nodes",
+        "loading": "Loading memory graph…",
+        "empty": "No graph nodes for this user yet. Save memories first, then reload.",
+        "truncated": "Bounded projection — showing a subset of the full graph.",
+        "stats": "{{nodes}} nodes · {{edges}} edges",
+        "legend": "Node types",
+        "allTypes": "All",
+        "details": {
+          "title": "Node details",
+          "type": "Type",
+          "degree": "Degree",
+          "description": "Description",
+          "outgoing": "Outgoing",
+          "incoming": "Incoming",
+          "noDescription": "No description recorded.",
+          "close": "Clear selection"
+        },
+        "zoomIn": "Zoom in",
+        "zoomOut": "Zoom out",
+        "zoomReset": "Reset view",
+        "graphLabel": "Interactive mem0 knowledge graph"
       }
     },
     "hostPicker": {
