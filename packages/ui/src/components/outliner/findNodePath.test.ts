@@ -94,9 +94,7 @@ describe('findNodeIdByPredicate', () => {
   });
 
   it('returns null when nothing matches', () => {
-    expect(
-      findNodeIdByPredicate(tree(), () => false)
-    ).toBeNull();
+    expect(findNodeIdByPredicate(tree(), () => false)).toBeNull();
   });
 });
 

@@ -473,7 +473,7 @@ export type ContinueRebaseRequest = { repo_id: string, };
 
 export type AbortConflictsRequest = { repo_id: string, };
 
-export type GitOperationError = { "type": "merge_conflicts", message: string, op: ConflictOp, conflicted_files: Array<string>, target_branch: string, } | { "type": "rebase_in_progress" } | { "type": "agent_work_conflict", message: string, conflicts: Array<AgentWorkConflict>, } | { "type": "integration_in_progress", message: string, };
+export type GitOperationError = { "type": "merge_conflicts", message: string, op: ConflictOp, conflicted_files: Array<string>, target_branch: string, } | { "type": "rebase_in_progress" } | { "type": "agent_work_conflict", message: string, conflicts: Array<AgentWorkConflict>, } | { "type": "dirty_worktree", message: string, branch: string, modified: Array<string>, untracked: Array<string>, } | { "type": "integration_in_progress", message: string, };
 
 export type PushError = { "type": "force_push_required" };
 

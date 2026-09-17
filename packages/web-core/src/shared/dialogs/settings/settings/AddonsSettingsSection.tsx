@@ -1,10 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ArrowSquareOutIcon } from '@phosphor-icons/react';
-import {
-  SettingsCard,
-  SettingsCheckbox,
-} from './SettingsComponents';
+import { SettingsCard, SettingsCheckbox } from './SettingsComponents';
 import { MemoryGraphViewer } from './MemoryGraphViewer';
 
 /**
@@ -72,9 +69,7 @@ function AddonCard({
       )}
       description={
         <>
-          <span className="block">
-            {t(`${base}.description`, '')}
-          </span>
+          <span className="block">{t(`${base}.description`, '')}</span>
           <a
             href={addon.homepage}
             target="_blank"
@@ -99,10 +94,7 @@ function AddonCard({
         addon.renderPanel()
       ) : (
         <p className="text-sm text-low">
-          {t(
-            'settings.addons.disabledHint',
-            'Enable this add-on to use it.'
-          )}
+          {t('settings.addons.disabledHint', 'Enable this add-on to use it.')}
         </p>
       )}
     </SettingsCard>

@@ -39,11 +39,16 @@ describe('computeGraphLayout', () => {
   });
 
   it('ignores edges that reference unknown nodes', () => {
-    const layout = computeGraphLayout(NODES, [
-      ...EDGES,
-      { subject: 'Ghost', object: 'Auth' },
-      { subject: 'Cache', object: 'Missing' },
-    ], 880, 340);
+    const layout = computeGraphLayout(
+      NODES,
+      [
+        ...EDGES,
+        { subject: 'Ghost', object: 'Auth' },
+        { subject: 'Cache', object: 'Missing' },
+      ],
+      880,
+      340
+    );
     expect(layout.size).toBe(3);
   });
 
@@ -53,7 +58,11 @@ describe('computeGraphLayout', () => {
 });
 
 describe('nodeMatchesQuery', () => {
-  const node = { id: 'RateLimiter', type: 'module', description: 'Caps requests' };
+  const node = {
+    id: 'RateLimiter',
+    type: 'module',
+    description: 'Caps requests',
+  };
 
   it('matches case-insensitively across id, type and description', () => {
     expect(nodeMatchesQuery(node, 'ratelimiter')).toBe(true);

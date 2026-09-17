@@ -90,10 +90,7 @@ function finalizeStaleToolStatuses(
     const entryType = entry.content.entry_type;
     if (entryType.type !== 'tool_use') return entry;
     const status = entryType.status;
-    if (
-      status.status !== 'created' &&
-      status.status !== 'pending_approval'
-    ) {
+    if (status.status !== 'created' && status.status !== 'pending_approval') {
       return entry;
     }
     return {

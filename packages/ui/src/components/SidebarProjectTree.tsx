@@ -420,7 +420,13 @@ export function SidebarProjectTree({
     scheduleOpenStateWrite();
     api.select(targetId);
     api.scrollTo(targetId);
-  }, [activeIssueId, activeWorkspaceId, treeData, height, scheduleOpenStateWrite]);
+  }, [
+    activeIssueId,
+    activeWorkspaceId,
+    treeData,
+    height,
+    scheduleOpenStateWrite,
+  ]);
 
   // Prune persisted entries for projects that no longer exist (deleted /
   // no longer visible). The read-time GC only filters on next load; without
@@ -533,7 +539,12 @@ export function SidebarProjectTree({
         onSelectOrchestratorPrompt?.(data.projectId);
       }
     },
-    [onSelectWorkspace, onSelectIssue, onSelectOrchestratorPrompt, onOpenProjectPage]
+    [
+      onSelectWorkspace,
+      onSelectIssue,
+      onSelectOrchestratorPrompt,
+      onOpenProjectPage,
+    ]
   );
 
   const handleToggle = useCallback(

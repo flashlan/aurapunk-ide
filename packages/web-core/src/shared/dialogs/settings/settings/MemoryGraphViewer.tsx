@@ -204,10 +204,7 @@ function NodeDetails({
         <button
           type="button"
           onClick={onClose}
-          title={t(
-            'settings.addons.viewer.details.close',
-            'Clear selection'
-          )}
+          title={t('settings.addons.viewer.details.close', 'Clear selection')}
           className="rounded-sm p-0.5 text-low hover:text-normal"
         >
           <XIcon className="size-3.5" weight="bold" />
@@ -272,9 +269,9 @@ export function MemoryGraphViewer() {
   const [activeType, setActiveType] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<ViewState>(INITIAL_VIEW);
-  const [offsets, setOffsets] = useState<Record<string, { x: number; y: number }>>(
-    {}
-  );
+  const [offsets, setOffsets] = useState<
+    Record<string, { x: number; y: number }>
+  >({});
 
   const load = useCallback(async (id: string) => {
     setLoading(true);
@@ -300,7 +297,12 @@ export function MemoryGraphViewer() {
 
   const layout = useMemo(() => {
     if (!graph) return new Map();
-    return computeGraphLayout(graph.nodes, graph.edges, WORLD_WIDTH, WORLD_HEIGHT);
+    return computeGraphLayout(
+      graph.nodes,
+      graph.edges,
+      WORLD_WIDTH,
+      WORLD_HEIGHT
+    );
   }, [graph]);
 
   const nodeById = useMemo(() => {
@@ -364,10 +366,8 @@ export function MemoryGraphViewer() {
       const metrics = screenMetrics();
       if (!svg || !metrics) return;
       const rect = svg.getBoundingClientRect();
-      const anchorX =
-        (clientX - rect.left - metrics.offsetX) / metrics.scale;
-      const anchorY =
-        (clientY - rect.top - metrics.offsetY) / metrics.scale;
+      const anchorX = (clientX - rect.left - metrics.offsetX) / metrics.scale;
+      const anchorY = (clientY - rect.top - metrics.offsetY) / metrics.scale;
       setView((prev) => {
         const k = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev.k * factor));
         if (k === prev.k) return prev;
@@ -419,10 +419,7 @@ export function MemoryGraphViewer() {
     if (!drag || !metrics) return;
     const dxPx = e.clientX - drag.startClientX;
     const dyPx = e.clientY - drag.startClientY;
-    if (
-      !drag.moved &&
-      Math.hypot(dxPx, dyPx) < CLICK_DRAG_THRESHOLD_PX
-    ) {
+    if (!drag.moved && Math.hypot(dxPx, dyPx) < CLICK_DRAG_THRESHOLD_PX) {
       return;
     }
     drag.moved = true;
@@ -530,10 +527,7 @@ export function MemoryGraphViewer() {
                   'settings.addons.viewer.search',
                   'Search nodes…'
                 )}
-                aria-label={t(
-                  'settings.addons.viewer.search',
-                  'Search nodes…'
-                )}
+                aria-label={t('settings.addons.viewer.search', 'Search nodes…')}
                 className="w-full rounded-sm border border-border bg-secondary/40 py-1.5 pl-8 pr-2 text-sm text-high placeholder:text-low/60 focus:border-brand focus:outline-none"
               />
             </div>
@@ -643,7 +637,9 @@ export function MemoryGraphViewer() {
                   const point = positionOf(node.id);
                   if (!point) return null;
                   const color =
-                    TYPE_PALETTE[typeColorIndex(node.type, TYPE_PALETTE.length)];
+                    TYPE_PALETTE[
+                      typeColorIndex(node.type, TYPE_PALETTE.length)
+                    ];
                   const radius = nodeRadius(node, point.z);
                   const dimmed = isDimmed(node);
                   const selected = selectedId === node.id;
@@ -659,11 +655,7 @@ export function MemoryGraphViewer() {
                       className="cursor-pointer"
                     >
                       <title>{`${node.id}${node.description ? ` — ${node.description}` : ''}`}</title>
-                      <circle
-                        r={radius + 7}
-                        fill={color}
-                        opacity="0.07"
-                      />
+                      <circle r={radius + 7} fill={color} opacity="0.07" />
                       <circle
                         r={radius}
                         fill={color}
