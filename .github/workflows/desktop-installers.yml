@@ -86,12 +86,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          cargo build --release --bin vibe-kanban-mcp --bin review --bin vibe-tui
+          cargo build --release --bin aurapunk-mcp --bin review --bin aurapunk-tui
           $binDir = Join-Path $env:GITHUB_WORKSPACE 'crates\tauri-app\resources\bin'
           New-Item -ItemType Directory -Force -Path $binDir | Out-Null
-          Copy-Item 'target\release\vibe-kanban-mcp.exe' (Join-Path $binDir 'vibe-kanban-mcp.exe') -Force
+          Copy-Item 'target\release\aurapunk-mcp.exe' (Join-Path $binDir 'aurapunk-mcp.exe') -Force
           Copy-Item 'target\release\review.exe' (Join-Path $binDir 'aurapunk-review.exe') -Force
-          Copy-Item 'target\release\vibe-tui.exe' (Join-Path $binDir 'vibe-tui.exe') -Force
+          Copy-Item 'target\release\aurapunk-tui.exe' (Join-Path $binDir 'aurapunk-tui.exe') -Force
 
       - name: Build NSIS installer
         working-directory: crates/tauri-app
@@ -158,12 +158,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --release --bin vibe-kanban-mcp --bin review --bin vibe-tui
+          cargo build --release --bin aurapunk-mcp --bin review --bin aurapunk-tui
           bin_dir="$GITHUB_WORKSPACE/crates/tauri-app/resources/bin"
           mkdir -p "$bin_dir"
-          cp target/release/vibe-kanban-mcp "$bin_dir/vibe-kanban-mcp"
+          cp target/release/aurapunk-mcp "$bin_dir/aurapunk-mcp"
           cp target/release/review "$bin_dir/aurapunk-review"
-          cp target/release/vibe-tui "$bin_dir/vibe-tui"
+          cp target/release/aurapunk-tui "$bin_dir/aurapunk-tui"
 
       - name: Build Intel app
         working-directory: crates/tauri-app
@@ -244,12 +244,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --release --bin vibe-kanban-mcp --bin review --bin vibe-tui
+          cargo build --release --bin aurapunk-mcp --bin review --bin aurapunk-tui
           bin_dir="$GITHUB_WORKSPACE/crates/tauri-app/resources/bin"
           mkdir -p "$bin_dir"
-          cp target/release/vibe-kanban-mcp "$bin_dir/vibe-kanban-mcp"
+          cp target/release/aurapunk-mcp "$bin_dir/aurapunk-mcp"
           cp target/release/review "$bin_dir/aurapunk-review"
-          cp target/release/vibe-tui "$bin_dir/vibe-tui"
+          cp target/release/aurapunk-tui "$bin_dir/aurapunk-tui"
 
       - name: Build Apple Silicon app
         working-directory: crates/tauri-app
@@ -346,12 +346,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --release --bin vibe-kanban-mcp --bin review --bin vibe-tui
+          cargo build --release --bin aurapunk-mcp --bin review --bin aurapunk-tui
           bin_dir="$GITHUB_WORKSPACE/crates/tauri-app/resources/bin"
           mkdir -p "$bin_dir"
-          cp target/release/vibe-kanban-mcp "$bin_dir/vibe-kanban-mcp"
+          cp target/release/aurapunk-mcp "$bin_dir/aurapunk-mcp"
           cp target/release/review "$bin_dir/aurapunk-review"
-          cp target/release/vibe-tui "$bin_dir/vibe-tui"
+          cp target/release/aurapunk-tui "$bin_dir/aurapunk-tui"
 
       - name: Build Linux installers
         working-directory: crates/tauri-app

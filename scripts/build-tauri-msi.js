@@ -76,7 +76,7 @@ if (!wixArch) {
 }
 
 // Binary path
-const binaryName = 'vibe-kanban-tauri.exe';
+const binaryName = 'aurapunk-tauri.exe';
 const mainBinaryPath = path.join(projectRoot, 'target', target, 'release', binaryName);
 
 if (!fs.existsSync(mainBinaryPath)) {

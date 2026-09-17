@@ -211,8 +211,12 @@ fn main() {
 
         // Environment mutation is process-wide and intentionally happens
         // before the backend is started; this is safe during single-threaded
-        // application initialization.
-        unsafe { std::env::set_var("VIBE_KANBAN_MODE", "cloud") };
+        // application initialization. Both the renamed and legacy variables are
+        // set so any older component still reading the old name agrees.
+        unsafe {
+            std::env::set_var("AURAPUNK_MODE", "cloud");
+            std::env::set_var("VIBE_KANBAN_MODE", "cloud");
+        }
 
         // Hosted memory is fail-closed. The authenticated Cloud handoff
         // supplies a device-scoped gateway URL and token after login; a
@@ -236,7 +240,7 @@ fn main() {
 
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
     let filter_string = format!(
-        "warn,server={level},services={level},db={level},executors={level},deployment={level},local_deployment={level},utils={level},vibe_kanban_tauri={level}",
+        "warn,server={level},services={level},db={level},executors={level},deployment={level},local_deployment={level},utils={level},aurapunk_tauri={level}",
         level = log_level
     );
     let env_filter = EnvFilter::try_new(filter_string).expect("Failed to create tracing filter");
@@ -640,7 +644,7 @@ fn create_window<R: tauri::Runtime, M: tauri::Manager<R>>(
 /// Add app actions to the native menu on every desktop platform.
 ///
 /// macOS already has an application submenu created by Tauri's default menu;
-/// append to that submenu so we do not create a duplicate "Vibe Kanban" menu.
+/// append to that submenu so we do not create a duplicate "Aurapunk IDE" menu.
 /// Windows and Linux do not have that implicit application submenu, so they
 /// receive an explicit one at the beginning of the menu bar.
 fn build_application_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<Menu<R>> {

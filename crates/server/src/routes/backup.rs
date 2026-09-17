@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use utils::{
     assets::{asset_dir, config_path, profiles_path},
-    path::get_vibe_kanban_home_dir,
+    path::get_aurapunk_home_dir,
     response::ApiResponse,
 };
 use zip::ZipWriter;
@@ -142,7 +142,7 @@ async fn export_backup(
         add_tree(&mut zip, "sessions", &asset_dir().join("sessions"));
     }
 
-    let home = get_vibe_kanban_home_dir();
+    let home = get_aurapunk_home_dir();
     if parts.home && zip.add_directory("home", opts).is_ok() {
         add_tree(&mut zip, "home", &home);
     }
@@ -276,7 +276,7 @@ async fn import_backup(
             if rel.is_empty() || rel.ends_with('/') {
                 continue;
             }
-            let path = get_vibe_kanban_home_dir().join(rel);
+            let path = get_aurapunk_home_dir().join(rel);
             if let Err(e) = write(&path, bytes) {
                 write_err = Some(e);
             }

@@ -7,6 +7,7 @@ pub mod assets;
 pub mod browser;
 pub mod command_ext;
 pub mod diff;
+pub mod env_compat;
 pub mod execution_logs;
 pub mod gitea_config;
 pub mod http_headers;

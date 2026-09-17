@@ -63,9 +63,7 @@ fn owner_id() -> Uuid {
 }
 
 fn default_agent_name() -> String {
-    std::env::var("VIBE_KANBAN_AGENT_NAME")
-        .ok()
-        .filter(|name| !name.trim().is_empty())
+    utils::env_compat::renamed("AGENT_NAME")
         .unwrap_or_else(|| format!("agent-{}", &owner_id().to_string()[..8]))
 }
 

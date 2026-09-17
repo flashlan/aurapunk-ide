@@ -1,5 +1,5 @@
 //! TOML-based Telegram orchestration config, shared by the server (for the
-//! status/test endpoints) and the `vibe-telegram-bridge` daemon.
+//! status/test endpoints) and the `aurapunk-telegram-bridge` daemon.
 //!
 //! The file is the source of truth for the local Telegram integration. It lives
 //! at `~/.vibe-kanban/telegram.toml` (mirroring `projects.toml`), and is
@@ -79,27 +79,26 @@ impl TelegramConfig {
     }
 }
 
-/// Resolve the config file path: `$VIBE_KANBAN_TELEGRAM_CONFIG`, otherwise
-/// `~/.vibe-kanban/telegram.toml` (falling back to `<asset_dir>/telegram.toml`
-/// only if the home directory can't be determined).
+/// Resolve the config file path: `$AURAPUNK_TELEGRAM_CONFIG` (legacy:
+/// `$VIBE_KANBAN_TELEGRAM_CONFIG`), otherwise `~/.aurapunk/telegram.toml`
+/// (legacy: `~/.vibe-kanban/telegram.toml`; falling back to
+/// `<asset_dir>/telegram.toml` only if the home directory can't be determined).
 pub fn config_path() -> PathBuf {
-    if let Ok(p) = std::env::var("VIBE_KANBAN_TELEGRAM_CONFIG")
-        && !p.is_empty()
+    if let Some(p) = crate::env_compat::get(&[
+        "AURAPUNK_TELEGRAM_CONFIG",
+        "VIBE_KANBAN_TELEGRAM_CONFIG",
+    ]) && !p.is_empty()
     {
         return PathBuf::from(p);
     }
-    dirs::home_dir()
-        .map(|home| home.join(".vibe-kanban"))
-        .unwrap_or_else(crate::assets::asset_dir)
-        .join("telegram.toml")
+    crate::path::config_home_dir().join("telegram.toml")
 }
 
 /// The directory state files (topic map, heartbeat) live in, alongside the
-/// config: `~/.vibe-kanban` (or `<asset_dir>` as a fallback).
+/// config: `~/.aurapunk` (legacy `~/.vibe-kanban`; or `<asset_dir>` as a
+/// fallback).
 pub fn state_dir() -> PathBuf {
-    dirs::home_dir()
-        .map(|home| home.join(".vibe-kanban"))
-        .unwrap_or_else(crate::assets::asset_dir)
+    crate::path::config_home_dir()
 }
 
 /// Load `telegram.toml`. Returns `None` if the file is absent or unparseable

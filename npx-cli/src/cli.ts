@@ -9,6 +9,7 @@ import {
   CACHE_DIR,
   LOCAL_DEV_MODE,
   LOCAL_DIST_DIR,
+  envCompat,
   getLatestVersion,
 } from "./download";
 import { getTauriPlatform, installAndLaunch } from "./desktop";
@@ -134,7 +135,7 @@ async function extractAndRun(
       fs.unlinkSync(binPath);
     }
   } catch (err: unknown) {
-    if (process.env.VIBE_KANBAN_DEBUG) {
+    if (envCompat('DEBUG', 'VIBE_KANBAN_DEBUG')) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`Warning: Could not delete existing binary: ${msg}`);
     }
@@ -260,7 +261,8 @@ async function runMain(
 
   const launchEnv = {
     ...process.env,
-    ...(cloudMode ? { VIBE_KANBAN_MODE: 'cloud' } : {}),
+    // Set both names so the backend and any older component agree.
+    ...(cloudMode ? { AURAPUNK_MODE: 'cloud', VIBE_KANBAN_MODE: 'cloud' } : {}),
   };
 
   const modeLabel = LOCAL_DEV_MODE ? " (local dev)" : "";
@@ -326,7 +328,7 @@ function runOrExit(task: Promise<void>): void {
   void task.catch((err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("Fatal error:", msg);
-    if (process.env.VIBE_KANBAN_DEBUG && err instanceof Error) {
+    if (envCompat('DEBUG', 'VIBE_KANBAN_DEBUG') && err instanceof Error) {
       console.error(err.stack);
     }
     process.exit(1);
@@ -381,7 +383,7 @@ async function main(): Promise<void> {
 main().catch((err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err);
   console.error("Fatal error:", msg);
-  if (process.env.VIBE_KANBAN_DEBUG && err instanceof Error) {
+  if (envCompat('DEBUG', 'VIBE_KANBAN_DEBUG') && err instanceof Error) {
     console.error(err.stack);
   }
   process.exit(1);

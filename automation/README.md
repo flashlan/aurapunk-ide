@@ -13,9 +13,9 @@ See the design plan: `~/.claude/plans/ethereal-crafting-lemon.md`.
 
 | Component | What it is | Where |
 |---|---|---|
-| **TUI** (`vibe-tui`) | Terminal cockpit: list workspaces/sessions, watch live agent transcripts, and an **approvals inbox** to approve/deny/answer locally. Also the always-available manual override. | `crates/tui` |
-| **Bridge** (`vibe-telegram-bridge`) | Send-only daemon: backend approvals stream → Telegram escalation messages (with a machine-readable footer). Optionally spawns a **per-worktree forum topic** for each Claude Code worktree and routes that worktree's escalations there. Never reads Telegram, never polls the bot token. | `crates/telegram-bridge` |
-| **MCP approval tools** | `respond_to_approval` + `stop_execution` added to `vibe-kanban-mcp` (global mode) so the PM agent can unblock/stop agents. | `crates/mcp` |
+| **TUI** (`aurapunk-tui`) | Terminal cockpit: list workspaces/sessions, watch live agent transcripts, and an **approvals inbox** to approve/deny/answer locally. Also the always-available manual override. | `crates/tui` |
+| **Bridge** (`aurapunk-telegram-bridge`) | Send-only daemon: backend approvals stream → Telegram escalation messages (with a machine-readable footer). Optionally spawns a **per-worktree forum topic** for each Claude Code worktree and routes that worktree's escalations there. Never reads Telegram, never polls the bot token. | `crates/telegram-bridge` |
+| **MCP approval tools** | `respond_to_approval` + `stop_execution` added to `aurapunk-mcp` (global mode) so the PM agent can unblock/stop agents. | `crates/mcp` |
 | **PM agent** | A Claude Code session on the sombrax-telegram channel that reads escalations, decides within guardrails, and acts via the MCP tools. | `automation/pm-agent` |
 
 ### Flow
@@ -24,7 +24,7 @@ See the design plan: `~/.claude/plans/ethereal-crafting-lemon.md`.
 worker agent blocks ──approval──▶ backend /api/approvals/stream/ws
                                           │
                                           ▼
-                              vibe-telegram-bridge (send-only)
+                              aurapunk-telegram-bridge (send-only)
                                           │ escalation + ‹vk …› footer
                                           ▼
                                     Telegram channel
@@ -86,7 +86,7 @@ messaging in Telegram while the PM agent is up.
 
 4. **PM agent** — a long-lived Claude Code session on the sombrax-telegram
    channel, with the vibe-kanban MCP in **global** mode and the PM prompt/policy:
-   - Configure `vibe-kanban-mcp --mode global` as an MCP server, with
+   - Configure `aurapunk-mcp --mode global` as an MCP server, with
      `VIBE_BACKEND_URL=http://127.0.0.1:8910` so it targets the same backend.
    - Launch a Claude Code session on the sombrax-telegram channel for the
      supergroup, appending `pm-agent/SYSTEM_PROMPT.md` and keeping

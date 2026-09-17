@@ -105,11 +105,17 @@ pub fn normalize_macos_private_alias<P: AsRef<Path>>(p: P) -> PathBuf {
     p.to_path_buf()
 }
 
-pub fn get_vibe_kanban_temp_dir() -> std::path::PathBuf {
+/// Legacy Vibe Kanban directory names. Release installs used `.vibe-kanban`
+/// and debug builds `.vibe-kanban-dev`; both are still honored so live data
+/// written before the rename keeps working.
+const LEGACY_HOME_DIR: &str = ".vibe-kanban";
+const LEGACY_HOME_DIR_DEV: &str = ".vibe-kanban-dev";
+
+pub fn get_aurapunk_temp_dir() -> std::path::PathBuf {
     let dir_name = if cfg!(debug_assertions) {
-        "vibe-kanban-dev"
+        "aurapunk-dev"
     } else {
-        "vibe-kanban"
+        "aurapunk"
     };
 
     if cfg!(target_os = "macos") {
@@ -119,48 +125,92 @@ pub fn get_vibe_kanban_temp_dir() -> std::path::PathBuf {
         // Linux: use /var/tmp instead of /tmp to avoid RAM usage
         std::path::PathBuf::from("/var/tmp").join(dir_name)
     } else {
-        // Windows and other platforms: use temp dir with vibe-kanban subdirectory
+        // Windows and other platforms: use temp dir with aurapunk subdirectory
         std::env::temp_dir().join(dir_name)
     }
 }
 
-/// Persistent vibe-kanban home directory: `~/.vibe-kanban` (or `~/.vibe-kanban-dev`
-/// for debug builds, so dev and release worktrees/state never collide). This is
-/// the same `~/.vibe-kanban` convention used for `telegram.toml`/`projects.toml`.
+/// Persistent AuraPunk home directory: `~/.aurapunk` (or `~/.aurapunk-dev` for
+/// debug builds, so dev and release worktrees/state never collide). This is the
+/// same convention used for `telegram.toml`/`projects.toml`.
 ///
-/// Falls back to [`get_vibe_kanban_temp_dir`] when the home directory can't be
-/// determined, preserving the previous temp-dir behaviour in that edge case.
-pub fn get_vibe_kanban_home_dir() -> std::path::PathBuf {
-    let dir_name = if cfg!(debug_assertions) {
-        ".vibe-kanban-dev"
+/// Resolution order:
+/// 1. `$AURAPUNK_HOME_DIR` (legacy: `$VIBE_KANBAN_HOME_DIR`).
+/// 2. `~/.aurapunk` when it already exists, or when no legacy directory exists.
+/// 3. `~/.vibe-kanban` (pre-rename name) when only that directory exists, so
+///    migration never orphans existing data.
+///
+/// Falls back to [`get_aurapunk_temp_dir`] when the home directory can't be
+/// determined.
+pub fn get_aurapunk_home_dir() -> std::path::PathBuf {
+    if let Some(dir) = crate::env_compat::renamed_os("HOME_DIR") {
+        return PathBuf::from(dir);
+    }
+
+    let (dir_name, legacy_name) = if cfg!(debug_assertions) {
+        (".aurapunk-dev", LEGACY_HOME_DIR_DEV)
     } else {
-        ".vibe-kanban"
+        (".aurapunk", LEGACY_HOME_DIR)
     };
 
-    dirs::home_dir()
-        .map(|home| home.join(dir_name))
-        .unwrap_or_else(get_vibe_kanban_temp_dir)
+    let Some(home) = dirs::home_dir() else {
+        return get_aurapunk_temp_dir();
+    };
+
+    let dir = home.join(dir_name);
+    let legacy_dir = home.join(legacy_name);
+    if dir.exists() || !legacy_dir.exists() {
+        dir
+    } else {
+        legacy_dir
+    }
 }
 
 /// Directory holding the user-editable pipeline definition files
-/// (`~/.vibe-kanban/pipelines/*.toml`, or `~/.vibe-kanban-dev/pipelines` in
-/// debug builds). Each `*.toml` file is one selectable card pipeline.
+/// (`~/.aurapunk/pipelines/*.toml`, legacy `~/.vibe-kanban/pipelines`, or the
+/// `-dev` variants in debug builds). Each `*.toml` file is one selectable card
+/// pipeline.
 pub fn pipelines_dir() -> PathBuf {
-    get_vibe_kanban_home_dir().join("pipelines")
+    get_aurapunk_home_dir().join("pipelines")
 }
 
 /// Directory holding the user-editable recurrent routine definition files
-/// (`~/.vibe-kanban/recurrent/*.toml`, or `~/.vibe-kanban-dev/recurrent` in
-/// debug builds). Each `*.toml` file is one scheduled routine; the file stem
-/// is the routine id.
+/// (`~/.aurapunk/recurrent/*.toml`, legacy `~/.vibe-kanban/recurrent`, or the
+/// `-dev` variants in debug builds). Each `*.toml` file is one scheduled
+/// routine; the file stem is the routine id.
 pub fn recurrent_dir() -> PathBuf {
-    get_vibe_kanban_home_dir().join("recurrent")
+    get_aurapunk_home_dir().join("recurrent")
+}
+
+/// Home directory for shared config files (`telegram.toml`, `projects.toml`,
+/// `gitea.toml`, `memory.toml`).
+///
+/// Unlike [`get_aurapunk_home_dir`] this is intentionally NOT debug-suffixed:
+/// these files are shared by dev and release builds. It prefers `~/.aurapunk`
+/// and falls back to the legacy `~/.vibe-kanban` when only that directory
+/// exists, so the rename never orphans existing configuration.
+pub fn config_home_dir() -> PathBuf {
+    if let Some(dir) = crate::env_compat::renamed_os("HOME_DIR") {
+        return PathBuf::from(dir);
+    }
+
+    let Some(home) = dirs::home_dir() else {
+        return crate::assets::asset_dir();
+    };
+
+    let dir = home.join(".aurapunk");
+    let legacy_dir = home.join(LEGACY_HOME_DIR);
+    if dir.exists() || !legacy_dir.exists() {
+        dir
+    } else {
+        legacy_dir
+    }
 }
 
 /// The opencode global config directory, matching opencode-ai's own XDG-style
 /// resolution (`$XDG_CONFIG_HOME`, else `$HOME/.config/opencode`) — NOT the
 /// platform-default config dir — so it lines up with where opencode actually
-/// reads `agents/*.md` and `opencode.json`. Used to seed the bundled vibe-kanban
+/// reads `agents/*.md` and `opencode.json`. Used to seed the bundled aurapunk
 /// subagent definitions.
 pub fn opencode_config_dir() -> PathBuf {
     if let Ok(xdg_config) = std::env::var("XDG_CONFIG_HOME")

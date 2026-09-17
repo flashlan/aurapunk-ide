@@ -954,22 +954,21 @@ impl LocalContainerService {
         format!("{}-{}", short_uuid(workspace_id), task_title_id)
     }
 
-    /// Base `~/.vibe-kanban` dir (home), falling back to the asset dir when
-    /// there is no home directory. Shared by all fixed-dir workspace kinds.
-    fn vibe_kanban_base_dir() -> PathBuf {
-        dirs::home_dir()
-            .map(|home| home.join(".vibe-kanban"))
-            .unwrap_or_else(utils::assets::asset_dir)
+    /// Base AuraPunk home dir (`~/.aurapunk`, legacy `~/.vibe-kanban`),
+    /// falling back to the asset dir when there is no home directory. Shared by
+    /// all fixed-dir workspace kinds.
+    fn aurapunk_base_dir() -> PathBuf {
+        utils::path::get_aurapunk_home_dir()
     }
 
     /// Fixed working directory for a no-worktree workspace kind. Orchestrator is
-    /// the singleton `~/.vibe-kanban/orchestrator`; recurrent gets one dir per
-    /// routine at `~/.vibe-kanban/recurrent/<short_uuid>-<name-slug>` (unique per
+    /// the singleton `~/.aurapunk/orchestrator`; recurrent gets one dir per
+    /// routine at `~/.aurapunk/recurrent/<short_uuid>-<name-slug>` (unique per
     /// workspace via the short_uuid prefix). No git worktree = no git isolation;
     /// the "recurrent tasks must not mutate repos" guardrail is enforced at the
     /// routine/executor level in Card 2, not here.
     fn fixed_dir_for_kind(workspace: &Workspace, kind: WorkspaceKind) -> PathBuf {
-        let base = Self::vibe_kanban_base_dir();
+        let base = Self::aurapunk_base_dir();
         match kind {
             WorkspaceKind::Orchestrator => base.join("orchestrator"),
             WorkspaceKind::Recurrent => {
@@ -1613,7 +1612,7 @@ impl LocalContainerService {
             // would not be re-expanded. The backend port is discovered from the
             // port file the server writes at startup.
             if bridge_enabled {
-                match utils::port_file::read_port_file("vibe-kanban").await {
+                match utils::port_file::read_port_file(utils::port_file::PORT_FILE_APP).await {
                     Ok(port) => {
                         let url = format!(
                             "http://127.0.0.1:{port}/api/headed-approvals/{exec_id}/request"
@@ -2820,6 +2819,7 @@ impl ContainerService for LocalContainerService {
             )
             .await?;
             env.insert("VK_EXECUTION_PROCESS_ID", execution_process.id.to_string());
+            env.insert("AURAPUNK_AGENT_NAME", agent_name.clone());
             env.insert("VIBE_KANBAN_AGENT_NAME", agent_name);
         }
 

@@ -76,7 +76,7 @@ export function TerminalPanel({
           {onNewTuiTab && (
             <button
               type="button"
-              title="Open Cockpit TUI (vibe-tui)"
+              title="Open Cockpit TUI (aurapunk-tui)"
               aria-label="Open Cockpit TUI"
               className="flex items-center gap-1 px-2 py-1 rounded-sm text-xs font-medium text-amber-500 hover:text-amber-400 hover:bg-secondary transition-colors cursor-pointer"
               onClick={onNewTuiTab}

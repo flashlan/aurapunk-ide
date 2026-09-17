@@ -8,10 +8,14 @@ const PORT_ENV: &str = "MCP_PORT";
 
 /// Env fallback for `--headed-local-control`. Truthy values (`1`/`true`/`yes`/
 /// `on`, case-insensitive) enable the capability when the CLI flag is absent.
-const HEADED_LOCAL_CONTROL_ENV: &str = "VIBE_HEADED_LOCAL_CONTROL";
+const HEADED_LOCAL_CONTROL_ENV: &str = "AURAPUNK_HEADED_LOCAL_CONTROL";
+/// Pre-rename name of [`HEADED_LOCAL_CONTROL_ENV`], still honored.
+const HEADED_LOCAL_CONTROL_ENV_LEGACY: &str = "VIBE_HEADED_LOCAL_CONTROL";
 /// Env fallback for `--mode`. Accepts `global` or `orchestrator` when `--mode`
 /// is absent.
-const MODE_ENV: &str = "VIBE_MCP_MODE";
+const MODE_ENV: &str = "AURAPUNK_MCP_MODE";
+/// Pre-rename name of [`MODE_ENV`], still honored.
+const MODE_ENV_LEGACY: &str = "VIBE_MCP_MODE";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum McpLaunchMode {
@@ -38,9 +42,9 @@ fn main() -> anyhow::Result<()> {
         .unwrap()
         .block_on(async move {
             let version = env!("CARGO_PKG_VERSION");
-            init_process_logging("vibe-kanban-mcp", version);
+            init_process_logging("aurapunk-mcp", version);
 
-            let base_url = resolve_base_url("vibe-kanban-mcp").await?;
+            let base_url = resolve_base_url("aurapunk-mcp").await?;
             let LaunchConfig {
                 mode,
                 headed_local_control,
@@ -64,7 +68,13 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn resolve_launch_config() -> anyhow::Result<LaunchConfig> {
-    resolve_launch_config_from_iter(std::env::args().skip(1), |key| std::env::var(key).ok())
+    resolve_launch_config_from_iter(std::env::args().skip(1), |key| match key {
+        MODE_ENV => utils::env_compat::get(&[MODE_ENV, MODE_ENV_LEGACY]),
+        HEADED_LOCAL_CONTROL_ENV => {
+            utils::env_compat::get(&[HEADED_LOCAL_CONTROL_ENV, HEADED_LOCAL_CONTROL_ENV_LEGACY])
+        }
+        other => std::env::var(other).ok(),
+    })
 }
 
 /// Interpret an env value as a boolean toggle. Truthy values are `1`, `true`,
@@ -140,7 +150,7 @@ where
 
 fn usage() -> String {
     format!(
-        "Usage: vibe-kanban-mcp --mode <global|orchestrator> [--headed-local-control]\n\
+        "Usage: aurapunk-mcp --mode <global|orchestrator> [--headed-local-control]\n\
          Env fallbacks (CLI flag/arg takes precedence):\n  \
          {MODE_ENV}=<global|orchestrator>  (fallback for --mode)\n  \
          {HEADED_LOCAL_CONTROL_ENV}=<1|true|yes|on>  (fallback for --headed-local-control; case-insensitive, anything else is off)"
@@ -148,9 +158,9 @@ fn usage() -> String {
 }
 
 async fn resolve_base_url(log_prefix: &str) -> anyhow::Result<String> {
-    if let Ok(url) = std::env::var("VIBE_BACKEND_URL") {
+    if let Some(url) = utils::env_compat::get(&["AURAPUNK_BACKEND_URL", "VIBE_BACKEND_URL"]) {
         tracing::info!(
-            "[{}] Using backend URL from VIBE_BACKEND_URL: {}",
+            "[{}] Using backend URL from AURAPUNK_BACKEND_URL/VIBE_BACKEND_URL: {}",
             log_prefix,
             url
         );
@@ -177,7 +187,7 @@ async fn resolve_base_url(log_prefix: &str) -> anyhow::Result<String> {
                 .map_err(|error| anyhow::anyhow!("Invalid port value '{}': {}", port_str, error))?
         }
         Err(_) => {
-            let port = read_port_file("vibe-kanban").await?;
+            let port = read_port_file(utils::port_file::PORT_FILE_APP).await?;
             tracing::info!("[{}] Using port from port file: {}", log_prefix, port);
             port
         }

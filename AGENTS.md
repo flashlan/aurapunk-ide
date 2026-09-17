@@ -1,4 +1,4 @@
-> **Aurapunk IDE** — the independent, self-hosted fork of vibe-kanban (BloopAI), built for a **single-developer process** (no team, no cloud, no auth). It is based on the **Vibe Kanban Indie** fork (dexloom) and carries forward its solo-dev, self-hosted spirit. The TUI cockpit (`crates/tui`, `vibe-tui`) and Telegram channel orchestration (`crates/telegram-bridge`) are the control surfaces a solo dev uses to drive a crew of agents.
+> **Aurapunk IDE** — the independent, self-hosted fork of vibe-kanban (BloopAI), built for a **single-developer process** (no team, no cloud, no auth). It is based on the **Vibe Kanban Indie** fork (dexloom) and carries forward its solo-dev, self-hosted spirit. The TUI cockpit (`crates/tui`, `aurapunk-tui`) and Telegram channel orchestration (`crates/telegram-bridge`) are the control surfaces a solo dev uses to drive a crew of agents.
 
 ## Board Status (agent-maintained checklist)
 
@@ -66,7 +66,7 @@ Unlike the pipeline pointer above, this one is **unconditional** — general pro
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `crates/`: Rust workspace crates — `server` (API + bins), `db` (SQLx models/migrations), `executors`, `services`, `utils`, `git` (Git operations), `api-types` (shared API types), `review` (PR review tool), `deployment`, `local-deployment`, `tui` (terminal cockpit, `vibe-tui` bin), `telegram-bridge` (send-only escalation daemon, `vibe-telegram-bridge` bin).
+- `crates/`: Rust workspace crates — `server` (API + bins), `db` (SQLx models/migrations), `executors`, `services`, `utils`, `git` (Git operations), `api-types` (shared API types), `review` (PR review tool), `deployment`, `local-deployment`, `tui` (terminal cockpit, `aurapunk-tui` bin), `telegram-bridge` (send-only escalation daemon, `aurapunk-telegram-bridge` bin).
 - `automation/`: Automated-supervision layer (TUI + Telegram bridge + PM agent) — see [`automation/README.md`](automation/README.md). Telegram config lives in `~/.vibe-kanban/telegram.toml` (example: `automation/telegram.toml.example`).
 - `packages/local-web/`: Local React + TypeScript app entrypoint (Vite, Tailwind). Shell source in `packages/local-web/src`.
 - `packages/web-core/`: Shared React + TypeScript frontend library used by local-web (`packages/web-core/src`).

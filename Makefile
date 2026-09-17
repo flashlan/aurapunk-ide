@@ -1,14 +1,14 @@
-# Makefile for vibe-kanban-indie
+# Makefile for aurapunk-ide
 #
 # Builds and installs the MCP server binary so it can be registered with
 # Claude Code as an MCP server.
 #
 # Binary names (see local-build.sh):
-#   vibe-kanban-mcp  -> the MCP server Claude talks to over stdio   (crate: mcp)
-#   vibe-kanban      -> the main backend/web server it connects to  (crate: server)
+#   aurapunk-mcp  -> the MCP server Claude talks to over stdio   (crate: mcp)
+#   aurapunk      -> the main backend/web server it connects to  (crate: server)
 #
-# `vibe-kanban-mcp` is a thin stdio front-end: it needs a running `vibe-kanban`
-# backend, located via VIBE_BACKEND_URL, MCP_HOST/MCP_PORT, or the port file
+# `aurapunk-mcp` is a thin stdio front-end: it needs a running `aurapunk`
+# backend, located via AURAPUNK_BACKEND_URL, MCP_HOST/MCP_PORT, or the port file
 # written by the running server.
 
 CARGO            ?= cargo
@@ -17,12 +17,12 @@ BINDIR           ?= $(PREFIX)/bin
 CARGO_TARGET_DIR ?= target
 RELEASE_DIR      := $(CARGO_TARGET_DIR)/release
 
-MCP_BIN          := vibe-kanban-mcp
-SERVER_BIN       := server            # cargo binary name; installed as `vibe-kanban`
-INSTALLED_SERVER := vibe-kanban
+MCP_BIN          := aurapunk-mcp
+SERVER_BIN       := server            # cargo binary name; installed as `aurapunk`
+INSTALLED_SERVER := aurapunk
 
 # Name to register the MCP server under in Claude.
-MCP_NAME         ?= vibe-kanban
+MCP_NAME         ?= aurapunk
 # MCP launch mode: global | orchestrator
 MCP_MODE         ?= global
 
@@ -37,7 +37,7 @@ MCP_MODE         ?= global
 NEXTEST := $(shell command -v cargo-nextest 2>/dev/null)
 
 help: ## Show this help
-	@echo "vibe-kanban-indie Makefile"
+	@echo "aurapunk-ide Makefile"
 	@echo
 	@echo "Targets:"
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -53,12 +53,12 @@ help: ## Show this help
 build-mcp: ## Build the MCP server binary (release)
 	$(CARGO) build --release --bin $(MCP_BIN)
 
-build-server: ## Build the main vibe-kanban backend (release)
+build-server: ## Build the main aurapunk backend (release)
 	$(CARGO) build --release --bin $(SERVER_BIN)
 
 build: build-mcp build-server ## Build both MCP and backend binaries
 
-install: build-mcp ## Build + install vibe-kanban-mcp into BINDIR
+install: build-mcp ## Build + install aurapunk-mcp into BINDIR
 	@mkdir -p "$(BINDIR)"
 	install -m 0755 "$(RELEASE_DIR)/$(MCP_BIN)" "$(BINDIR)/$(MCP_BIN)"
 	@echo
@@ -69,7 +69,7 @@ install: build-mcp ## Build + install vibe-kanban-mcp into BINDIR
 	@case ":$$PATH:" in *":$(BINDIR):"*) ;; \
 		*) echo; echo "NOTE: $(BINDIR) is not on your PATH." ;; esac
 
-install-server: build-server ## Build + install the backend as 'vibe-kanban'
+install-server: build-server ## Build + install the backend as 'aurapunk'
 	@mkdir -p "$(BINDIR)"
 	install -m 0755 "$(RELEASE_DIR)/$(SERVER_BIN)" "$(BINDIR)/$(INSTALLED_SERVER)"
 	@echo "Installed $(BINDIR)/$(INSTALLED_SERVER)"
@@ -108,7 +108,7 @@ release-check: check-backend check-schema check-test check-frontend $(if $(SKIP_
 
 check-backend: ## fmt + clippy (mirrors the backend-clippy CI job)
 	$(CARGO) fmt --all -- --check
-	$(CARGO) clippy --workspace --all-targets --exclude vibe-kanban-tauri -- -D warnings
+	$(CARGO) clippy --workspace --all-targets --exclude aurapunk-tauri -- -D warnings
 
 check-schema: ## generated types + sqlx offline data (mirrors backend-schema-checks)
 	pnpm run generate-types:check
@@ -116,9 +116,9 @@ check-schema: ## generated types + sqlx offline data (mirrors backend-schema-che
 
 check-test: ## workspace tests (mirrors backend-test)
 ifeq ($(NEXTEST),)
-	$(CARGO) test --workspace --exclude vibe-kanban-tauri
+	$(CARGO) test --workspace --exclude aurapunk-tauri
 else
-	$(CARGO) nextest run --workspace --exclude vibe-kanban-tauri
+	$(CARGO) nextest run --workspace --exclude aurapunk-tauri
 endif
 
 check-frontend: ## lint / format / build / i18n (mirrors frontend-checks)
@@ -132,4 +132,4 @@ check-frontend: ## lint / format / build / i18n (mirrors frontend-checks)
 check-tauri: ## tauri fmt / clippy / check (mirrors tauri-checks)
 	$(CARGO) fmt --all --manifest-path crates/tauri-app/Cargo.toml -- --check
 	$(CARGO) clippy --all-targets --manifest-path crates/tauri-app/Cargo.toml -- -D warnings
-	$(CARGO) check -p vibe-kanban-tauri
+	$(CARGO) check -p aurapunk-tauri

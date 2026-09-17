@@ -246,8 +246,8 @@ jobs:
           call npx.cmd @tauri-apps/cli build --config tauri.build.conf.json --no-bundle
           if errorlevel 1 exit /b 1
           cd ..\..
-          if not exist target\release\vibe-kanban-tauri.exe exit /b 1
-          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows-test-sign.ps1 -Path target\release\vibe-kanban-tauri.exe
+          if not exist target\release\aurapunk-tauri.exe exit /b 1
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\windows-test-sign.ps1 -Path target\release\aurapunk-tauri.exe
           if errorlevel 1 exit /b 1
           cd crates\tauri-app
           call npx.cmd @tauri-apps/cli bundle --config tauri.build.conf.json --bundles nsis

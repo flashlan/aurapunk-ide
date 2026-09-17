@@ -2,7 +2,7 @@
 #
 # Copy to ~/.vibe-kanban/telegram.toml (or set $VIBE_KANBAN_TELEGRAM_CONFIG to a
 # path) and edit. Read by both the server (Settings → Telegram status/test) and
-# the vibe-telegram-bridge daemon. See automation/README.md.
+# the aurapunk-telegram-bridge daemon. See automation/README.md.
 
 # Master on/off. When false, the bridge exits cleanly.
 enabled = true

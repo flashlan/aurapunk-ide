@@ -42,7 +42,7 @@ impl ServerHandler for McpServer {
             // A fixed protocol-facing version made stale cached binaries look
             // current to clients and hid launcher/update problems.
             .with_server_info(Implementation::new(
-                "vibe-kanban-mcp",
+                "aurapunk-mcp",
                 env!("CARGO_PKG_VERSION"),
             ))
             .with_protocol_version(ProtocolVersion::V_2025_03_26)

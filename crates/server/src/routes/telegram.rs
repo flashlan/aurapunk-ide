@@ -1,7 +1,7 @@
 //! Read-only Telegram integration endpoints for the settings UI.
 //!
 //! The integration itself is configured by hand-editing
-//! `~/.vibe-kanban/telegram.toml` and run by the standalone `vibe-telegram-bridge`
+//! `~/.vibe-kanban/telegram.toml` and run by the standalone `aurapunk-telegram-bridge`
 //! daemon. These endpoints only let the frontend *observe* that config and send
 //! a one-off test message — they never write the TOML and never expose the token.
 //!

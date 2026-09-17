@@ -88,17 +88,17 @@ fn env_chat_id() -> Option<String> {
 }
 
 async fn resolve_backend() -> Result<(String, String)> {
-    if let Ok(url) = std::env::var("VIBE_BACKEND_URL") {
+    if let Some(url) = utils::env_compat::get(&["AURAPUNK_BACKEND_URL", "VIBE_BACKEND_URL"]) {
         let url = url.trim_end_matches('/').to_string();
         let ws = http_to_ws(&url);
         return Ok((format!("{url}/api"), format!("{ws}/api")));
     }
     // "localhost", not "127.0.0.1" — see the matching comment in
-    // crates/mcp/src/bin/vibe_kanban_mcp.rs's resolve_base_url.
+    // crates/mcp/src/bin/aurapunk_mcp.rs's resolve_base_url.
     let host = std::env::var("HOST").unwrap_or_else(|_| "localhost".to_string());
     let port = match std::env::var("BACKEND_PORT").or_else(|_| std::env::var("PORT")) {
         Ok(p) => p.parse::<u16>().context("invalid port")?,
-        Err(_) => utils::port_file::read_port_file("vibe-kanban")
+        Err(_) => utils::port_file::read_port_file(utils::port_file::PORT_FILE_APP)
             .await
             .context("no port file — is the backend running?")?,
     };

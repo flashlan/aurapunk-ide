@@ -42,7 +42,7 @@ struct DayAccum {
 }
 
 /// In-memory day-bucketed ledger of `memory_search` relevance, reported by
-/// the `vibe_kanban_mcp` process (a separate process from this one — see
+/// the `aurapunk_mcp` process (a separate process from this one — see
 /// `POST /api/usage/mem0-relevance`) after each call. Deliberately
 /// in-memory only, like [`super::queued_message::QueuedMessageService`]: an
 /// observability aid, not data anyone needs to survive a server restart.
