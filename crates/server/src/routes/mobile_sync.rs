@@ -1509,14 +1509,21 @@ async fn import_cloud_context(
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|error| ApiError::BadRequest(error.to_string()))?
                     .join("\n");
+                // `execution_process_logs` lost its PRIMARY KEY on
+                // execution_id (migration 20251101090000); only a non-unique
+                // index remains, so `ON CONFLICT(execution_id)` is invalid
+                // (SQLITE_ERROR "ON CONFLICT clause does not match any
+                // PRIMARY KEY or UNIQUE constraint"). Replace this
+                // execution's row instead, keeping the one-row-per-execution
+                // invariant.
+                sqlx::query("DELETE FROM execution_process_logs WHERE execution_id = ?")
+                    .bind(execution.id)
+                    .execute(&mut *transaction)
+                    .await?;
                 sqlx::query(
                     r#"INSERT INTO execution_process_logs (
                             execution_id, logs, byte_size, inserted_at
-                        ) VALUES (?, ?, ?, ?)
-                        ON CONFLICT(execution_id) DO UPDATE SET
-                            logs = excluded.logs,
-                            byte_size = excluded.byte_size,
-                            inserted_at = excluded.inserted_at"#,
+                        ) VALUES (?, ?, ?, ?)"#,
                 )
                 .bind(execution.id)
                 .bind(&log_json)
