@@ -24,6 +24,7 @@ Rules:
 - [x] **Done** — Workspace color setting (sidebar tree tint) (`vk/3585-altra-cor-do-wor`)
 - [x] **Done** — Novo tema com paleta de referência (`vk/58a0-tema-horr-vel`)
 - [x] **Done** — Pausar rolagem automática do chat ao usar a roda do mouse (`vk/d924-melhor-rolagem-n`)
+- [ ] **In Review** — Graphify add-on + aba Add-ons em Settings com render do grafo mem0 (`vk/d683-adicioanr-https`)
 - [ ] **In Review** — Livro Vibe Kanban na Amazon — checklist + manuscrito completo (15 caps + apêndice + Agradecimentos, ~1.830 linhas, 12 âncoras) (`vk/1f98-livre-vibo-kanba`)
 - [x] **Done** — Banner de estrela no GitHub na barra superior (`vk/6d8a-implementar-bann`)
 - [x] **Done** — Imagem Docker Hub all-in-one do mem0 (`vk/dockerhub-mem0-all-in-one`)
