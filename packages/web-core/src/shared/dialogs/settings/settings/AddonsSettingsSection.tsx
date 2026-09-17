@@ -42,8 +42,9 @@ function readEnabledMap(): Record<string, boolean> {
     if (!raw) return initial;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     for (const addon of ADDONS) {
-      if (typeof parsed[addon.id] === 'boolean') {
-        initial[addon.id] = parsed[addon.id];
+      const value = parsed[addon.id];
+      if (typeof value === 'boolean') {
+        initial[addon.id] = value;
       }
     }
   } catch {
