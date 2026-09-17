@@ -663,17 +663,6 @@ export function KanbanContainer() {
     return ids;
   }, [statuses]);
 
-  // The unmerged completion path returns the card to the active work column.
-  // Resolve it by semantic name so column reordering cannot change behavior.
-  const inProgressStatusId = useMemo(
-    () =>
-      statuses.find((status) => {
-        const name = status.name.trim().toLowerCase().replace(/[-_]/g, ' ');
-        return name === 'in progress' || name === 'doing';
-      })?.id,
-    [statuses]
-  );
-
   // Sub-issue board (parentIssueId set): every candidate already has a
   // `parent_issue_id`. The `showSubIssues` filter DROPS exactly those, so if
   // the user has it off (the default) the board would be empty. Force it on
@@ -1274,7 +1263,10 @@ export function KanbanContainer() {
       // sync re-derives order from the active sort. Drop the index so
       // `computeKanbanMove` appends, and ask `buildKanbanMoveUpdates`
       // for a status-only update (no sort_order rewrite).
-      const commitMove = (moveToCommit: KanbanMove = move) => {
+      const commitMove = (
+        moveToCommit: KanbanMove = move,
+        allowUnmergedDone = false
+      ) => {
         const resolvedMove =
           isManualSort || moveToCommit === move
             ? moveToCommit
@@ -1286,7 +1278,14 @@ export function KanbanContainer() {
           isManualSort,
           calculateSortOrder,
           statusColumnIndexMap,
-        });
+        }).map((update) =>
+          update.id === moveToCommit.issueId && allowUnmergedDone
+            ? {
+                ...update,
+                changes: { ...update.changes, allow_unmerged_done: true },
+              }
+            : update
+        );
 
         setItems(newItems);
         applyKanbanMove(updates, projectId);
@@ -1362,22 +1361,9 @@ export function KanbanContainer() {
           }
 
           if (decision === 'alternative') {
-            if (!inProgressStatusId) {
-              await ConfirmDialog.show({
-                title: 'Cannot move card',
-                message:
-                  'No In Progress status is configured for this project.',
-                confirmText: 'OK',
-                showCancelButton: false,
-              });
-              return;
-            }
-            // Never persist the requested terminal status for this path.
-            commitMove({
-              ...move,
-              toStatusId: inProgressStatusId,
-              index: undefined,
-            });
+            // This is an explicit operator choice. Preserve the requested
+            // Done destination and mark it for the backend.
+            commitMove(move, true);
           }
         })();
         return;
@@ -1395,7 +1381,6 @@ export function KanbanContainer() {
       doneStatusIds,
       getWorkspacesForIssue,
       activeWorkspaces,
-      inProgressStatusId,
     ]
   );
 

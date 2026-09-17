@@ -949,11 +949,11 @@ pub(crate) async fn merge_and_update_issue(
     let status_id = req.status_id.unwrap_or(existing.status_id);
 
     // A terminal transition is a completion claim. It requires an integrated
-    // workspace; neither agents nor the UI may bypass that guard. The
-    // `allow_unmerged_done` field is retained in the wire type only for
-    // backwards-compatible request parsing and is deliberately ignored.
+    // workspace unless the operator explicitly chose “Move without merging”.
+    // Automated/agent updates never set this escape hatch.
     if status_id != existing.status_id
         && is_terminal_status(pool, existing.project_id, status_id).await?
+        && !req.allow_unmerged_done.unwrap_or(false)
         && !issue_has_integrated_workspace(pool, id).await?
     {
         return Err(ApiError::Conflict(
@@ -1991,10 +1991,11 @@ mod tests {
             parent_issue_sort_order: None,
             extension_metadata: None,
         };
-        let error = super::merge_and_update_issue(&pool, issue.id, override_request)
+        let updated = super::merge_and_update_issue(&pool, issue.id, override_request)
             .await
-            .expect_err("legacy allow_unmerged_done must not bypass integration");
-        assert!(error.to_string().contains("integrated"));
+            .unwrap()
+            .expect("issue exists");
+        assert_eq!(updated.status_id, done.id);
     }
 
     // -----------------------------------------------------------------
