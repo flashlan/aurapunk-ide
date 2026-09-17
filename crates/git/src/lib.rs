@@ -20,8 +20,7 @@ pub use validation::is_valid_branch_prefix;
 
 /// Filesystem cleanliness report for an Integration Guard validation gate.
 #[derive(Clone, Debug, Default)]
-pub struct WorktreeCleanliness {
-    /// Where the branch is checked out, if anywhere.
+pub struct WorktreeCleanliness {    /// Where the branch is checked out, if anywhere.
     pub checkout_path: Option<std::path::PathBuf>,
     /// Tracked files with staged or unstaged modifications (block merges).
     pub modified: Vec<String>,
@@ -646,6 +645,43 @@ impl GitService {
         Ok(None)
     }
 
+    /// True when CLI merge output shows textual conflicts (as opposed to a
+    /// dirty tree, missing identity, or other failures).
+    fn cli_output_reports_conflicts(text: &str) -> bool {
+        text.lines().any(|line| {
+            let line = line.trim_start();
+            line.starts_with("CONFLICT ") || line.contains("Automatic merge failed")
+        })
+    }
+
+    /// File paths from `CONFLICT ...: ... in <path>` stderr lines.
+    /// Best-effort: unparseable lines are skipped, never fail the merge.
+    fn parse_conflict_files(text: &str) -> Vec<String> {
+        let mut files = Vec::new();
+        for line in text.lines() {
+            let line = line.trim_start();
+            let Some(rest) = line.strip_prefix("CONFLICT ") else {
+                continue;
+            };
+            let path = rest
+                .split(" Merge conflict in ")
+                .nth(1)
+                .or_else(|| rest.rsplit(" in ").next())
+                .unwrap_or("")
+                .trim()
+                .trim_matches(['"', '\'']);
+            if path.is_empty() || path.contains(' ') && !path.contains('/') && !path.contains('.') {
+                continue;
+            }
+            let path = path.to_string();
+            if !files.contains(&path) {
+                files.push(path);
+            }
+        }
+        files.sort();
+        files
+    }
+
     /// Filesystem cleanliness of the checkout holding `branch_name`.
     ///
     /// Integration Guard validation gate: distinguishes tracked modifications
@@ -725,6 +761,15 @@ impl GitService {
                         commit_message,
                     )
                     .map_err(|e| {
+                        let text = e.to_string();
+                        if Self::cli_output_reports_conflicts(&text) {
+                            return GitServiceError::MergeConflicts {
+                                message: format!(
+                                    "Merge of '{task_branch_name}' into '{base_branch_name}' hit textual conflicts. Resolve them or delegate the resolution before retrying."
+                                ),
+                                conflicted_files: Self::parse_conflict_files(&text),
+                            };
+                        }
                         GitServiceError::InvalidRepository(format!("CLI merge failed: {e}"))
                     })?;
 

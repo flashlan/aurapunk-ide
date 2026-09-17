@@ -423,13 +423,36 @@ pub async fn merge_workspace(
     let merge_commit_id = if task_head == target_head {
         target_head.clone()
     } else {
-        deployment.git().merge_changes(
+        match deployment.git().merge_changes(
             &repo.path,
             &worktree_path,
             &workspace.branch,
             &workspace_repo.target_branch,
             &commit_message,
-        )?
+        ) {
+            Ok(sha) => sha,
+            // Textual conflicts surface as structured data (file list) so
+            // the UI and agents can act on them instead of showing raw git
+            // stderr. Every other failure keeps the generic error path.
+            Err(git::GitServiceError::MergeConflicts {
+                message,
+                conflicted_files,
+            }) => {
+                let message = format!(
+                    "{message} Resolve the files below (or delegate the resolution) before retrying."
+                );
+                return Ok(ResponseJson(
+                    ApiResponse::error_with_data(GitOperationError::MergeConflicts {
+                        message: message.clone(),
+                        op: ConflictOp::Merge,
+                        conflicted_files,
+                        target_branch: workspace_repo.target_branch.clone(),
+                    })
+                    .with_message(message),
+                ));
+            }
+            Err(other) => return Err(other.into()),
+        }
     };
 
     Merge::create_direct(
@@ -515,6 +538,10 @@ pub async fn stash_workspace_changes(
 #[derive(Debug, Deserialize, Serialize, TS)]
 pub struct DelegateMergeBlockRequest {
     pub repo_id: Uuid,
+    /// Optional caller context (e.g. "merge-conflict") prepended to the
+    /// agent instruction so resolution advice matches the block kind.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -610,19 +637,32 @@ pub async fn delegate_merge_block(
         }
         format!("{}, +{} more", files[..max].join(", "), files.len() - max)
     }
-    let message = format!(
-        "Integration Guard delegated cleanup: merging into '{}' is blocked by {} uncommitted tracked file(s): {}. Untracked (informational, do not commit junk): {}. \
+    let message = if request.note.as_deref() == Some("merge-conflict") {
+        format!(
+            "Integration Guard delegated conflict resolution: merging into '{}' hit textual conflicts in: {}. \
+Plan: 1) open each file and resolve the conflict markers, keeping the intended behavior of both sides; \
+2) `git add` the resolved files and COMMIT the result on '{}' with a clear message (this completes the integration; the user retries afterwards for the idempotent success path); \
+3) never commit generated junk (db.v2.sqlite, installer-output/, *.log) — gitignore when missing; \
+4) report exactly what was resolved. Do NOT push. Ask the user before anything destructive or ambiguous.",
+            workspace_repo.target_branch,
+            summarize(&cleanliness.modified, 20),
+            workspace_repo.target_branch,
+        )
+    } else {
+        format!(
+            "Integration Guard delegated cleanup: merging into '{}' is blocked by {} uncommitted tracked file(s): {}. Untracked (informational, do not commit junk): {}. \
 Plan: 1) inspect `git status`; 2) keep generated junk (db.v2.sqlite, installer-output/, *.log) OUT of commits — add to .gitignore when missing; \
 3) stash (`git stash push -u`) or commit the real changes; 4) report exactly what was done. Do NOT push. Ask the user before anything destructive or ambiguous (commit messages, discarding changes). The user will retry the merge afterwards.",
-        workspace_repo.target_branch,
-        cleanliness.modified.len(),
-        summarize(&cleanliness.modified, 20),
-        if cleanliness.untracked.is_empty() {
-            "none".to_string()
-        } else {
-            summarize(&cleanliness.untracked, 20)
-        },
-    );
+            workspace_repo.target_branch,
+            cleanliness.modified.len(),
+            summarize(&cleanliness.modified, 20),
+            if cleanliness.untracked.is_empty() {
+                "none".to_string()
+            } else {
+                summarize(&cleanliness.untracked, 20)
+            },
+        )
+    };
     let follow_up = DraftFollowUpData {
         message,
         executor_config: executor_config.clone(),

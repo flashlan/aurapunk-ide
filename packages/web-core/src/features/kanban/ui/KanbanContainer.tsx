@@ -64,6 +64,7 @@ import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 import {
   MergeBlockedDialog,
   getDirtyWorktreeBlock,
+  getMergeConflictsBlock,
 } from './MergeBlockedDialog';
 import { useQueryClient } from '@tanstack/react-query';
 import { workspacesApi } from '@/shared/lib/api';
@@ -1452,6 +1453,63 @@ export function KanbanContainer() {
                         delegateError instanceof Error
                           ? delegateError.message
                           : 'Could not delegate the cleanup. The card was left in progress.',
+                      confirmText: 'OK',
+                      showCancelButton: false,
+                    });
+                  }
+                  return;
+                }
+                return;
+              }
+              const conflict = getMergeConflictsBlock(error);
+              if (conflict && repoIdForMergeRetry) {
+                const action = await MergeBlockedDialog.show({
+                  branch: conflict.targetBranch,
+                  modified: conflict.conflictedFiles,
+                  untracked: [],
+                  message: conflict.message,
+                  mode: 'conflicts',
+                });
+                if (action === 'move-without-merge') {
+                  commitMove(move, true);
+                  return;
+                }
+                if (action === 'delegate') {
+                  try {
+                    const delegation =
+                      await workspacesApi.delegateMergeBlock(workspaceId, {
+                        repo_id: repoIdForMergeRetry,
+                        note: 'merge-conflict',
+                      });
+                    if (delegation.delegated) {
+                      await ConfirmDialog.show({
+                        title: 'Resolution delegated to agent',
+                        message:
+                          'The agent will resolve the conflicts and commit the result on its next run. Retry the merge after it reports back.',
+                        confirmText: 'OK',
+                        showCancelButton: false,
+                      });
+                    } else if (delegation.reason === 'already_clean') {
+                      await workspacesApi.merge(workspaceId, {
+                        repo_id: repoIdForMergeRetry,
+                      });
+                      commitMove(move, true);
+                    } else {
+                      await ConfirmDialog.show({
+                        title: 'No agent to delegate to',
+                        message:
+                          'This workspace has no configured agent executor. Start an agent run first, then delegate the resolution.',
+                        confirmText: 'OK',
+                        showCancelButton: false,
+                      });
+                    }
+                  } catch (delegateError) {
+                    await ConfirmDialog.show({
+                      title: 'Delegation failed',
+                      message:
+                        delegateError instanceof Error
+                          ? delegateError.message
+                          : 'Could not delegate the resolution. The card was left in progress.',
                       confirmText: 'OK',
                       showCancelButton: false,
                     });

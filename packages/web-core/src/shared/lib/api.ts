@@ -773,7 +773,7 @@ export const workspacesApi = {
 
   delegateMergeBlock: async (
     workspaceId: string,
-    data: { repo_id: string }
+    data: { repo_id: string; note?: string }
   ): Promise<{
     delegated: boolean;
     reason: string;
