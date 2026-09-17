@@ -105,10 +105,9 @@ struct ProjectConfig {
 /// (legacy: `~/.vibe-kanban/projects.toml`; falling back to
 /// `<asset_dir>/projects.toml` only if the home directory can't be determined).
 pub fn config_path() -> PathBuf {
-    if let Some(p) = utils::env_compat::get(&[
-        "AURAPUNK_PROJECTS_CONFIG",
-        "VIBE_KANBAN_PROJECTS_CONFIG",
-    ]) && !p.is_empty()
+    if let Some(p) =
+        utils::env_compat::get(&["AURAPUNK_PROJECTS_CONFIG", "VIBE_KANBAN_PROJECTS_CONFIG"])
+        && !p.is_empty()
     {
         return PathBuf::from(p);
     }

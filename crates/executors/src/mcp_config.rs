@@ -518,13 +518,7 @@ mod tests {
         assert!(migrate_legacy_codex_vibe_kanban_mcp(&mut config));
         assert_eq!(
             config["mcp_servers"]["vibe_kanban"]["args"],
-            serde_json::json!([
-                "-y",
-                "aurapunk-ide@latest",
-                "--mcp",
-                "--mode",
-                "global"
-            ])
+            serde_json::json!(["-y", "aurapunk-ide@latest", "--mcp", "--mode", "global"])
         );
         assert_eq!(
             config["mcp_servers"]["vibe_kanban"]["env"],

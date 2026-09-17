@@ -84,10 +84,9 @@ impl TelegramConfig {
 /// (legacy: `~/.vibe-kanban/telegram.toml`; falling back to
 /// `<asset_dir>/telegram.toml` only if the home directory can't be determined).
 pub fn config_path() -> PathBuf {
-    if let Some(p) = crate::env_compat::get(&[
-        "AURAPUNK_TELEGRAM_CONFIG",
-        "VIBE_KANBAN_TELEGRAM_CONFIG",
-    ]) && !p.is_empty()
+    if let Some(p) =
+        crate::env_compat::get(&["AURAPUNK_TELEGRAM_CONFIG", "VIBE_KANBAN_TELEGRAM_CONFIG"])
+        && !p.is_empty()
     {
         return PathBuf::from(p);
     }
