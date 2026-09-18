@@ -1,4 +1,4 @@
-import type { Message, ToolResult, ToolUse } from '../types.js';
+import type { Message } from '../types.js';
 import { estimateTokens } from '../compactor/fitter.js';
 
 export interface ContextIsolationOptions {

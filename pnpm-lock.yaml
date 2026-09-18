@@ -38,6 +38,8 @@ importers:
         specifier: ^7.3.1
         version: 7.3.1(@types/node@20.19.37)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.8.0)
 
+  packages/jev-plugin: {}
+
   packages/local-web:
     dependencies:
       '@codemirror/lang-json':
@@ -507,6 +509,9 @@ importers:
 
   packages/web-core:
     dependencies:
+      '@aurapunk/jev-plugin':
+        specifier: workspace:*
+        version: link:../jev-plugin
       '@codemirror/lang-json':
         specifier: ^6.0.2
         version: 6.0.2
