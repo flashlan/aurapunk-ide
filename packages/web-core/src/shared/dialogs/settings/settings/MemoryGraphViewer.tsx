@@ -10,6 +10,8 @@ import {
   XIcon,
 } from '@phosphor-icons/react';
 import { cn } from '@/shared/lib/utils';
+import { makeRequest } from '@/shared/lib/remoteApi';
+import { handleApiResponse } from '@/shared/lib/api';
 import {
   fetchMemoryGraph,
   type MemoryGraphEdge,
@@ -56,6 +58,21 @@ interface ViewState {
 }
 
 const INITIAL_VIEW: ViewState = { x: 0, y: 0, k: 1 };
+
+interface RepoSlugEntry {
+  name: string;
+}
+
+async function fetchRepoSlugs(): Promise<string[]> {
+  const response = await makeRequest('/api/repos', {
+    method: 'GET',
+    cache: 'no-store',
+  });
+  const repos = await handleApiResponse<RepoSlugEntry[]>(response);
+  return repos
+    .map((repo) => repo.name)
+    .filter((name) => name.trim().length > 0);
+}
 
 interface DragState {
   mode: 'pan' | 'node';
@@ -265,6 +282,7 @@ export function MemoryGraphViewer() {
   const dragRef = useRef<DragState | null>(null);
 
   const [userId, setUserId] = useState('default');
+  const [repoSlugs, setRepoSlugs] = useState<string[]>([]);
   const [graph, setGraph] = useState<MemoryGraphOverview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -294,8 +312,24 @@ export function MemoryGraphViewer() {
     }
   }, []);
 
+  // Memory (local and cloud) is scoped per repository, so 'default' rarely
+  // has a graph. Default to the first known repo slug, falling back to
+  // 'default' when the repo list is unavailable.
   useEffect(() => {
-    void load('default');
+    let cancelled = false;
+    void fetchRepoSlugs()
+      .then((slugs) => (cancelled ? [] : slugs))
+      .catch((): string[] => [])
+      .then((slugs) => {
+        if (cancelled) return;
+        setRepoSlugs(slugs);
+        const initial = slugs[0] ?? 'default';
+        setUserId(initial);
+        void load(initial);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [load]);
 
   const layout = useMemo(() => {
@@ -477,18 +511,24 @@ export function MemoryGraphViewer() {
           </label>
           <input
             id="graphify-user-id"
+            list="graphify-repo-slugs"
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void load(userId);
             }}
-            placeholder="default"
+            placeholder="repo-slug (e.g. vibe-kanban-alternative)"
             className="w-full rounded-sm border border-border bg-secondary/40 px-2 py-1.5 text-sm text-high placeholder:text-low/60 focus:border-brand focus:outline-none"
           />
+          <datalist id="graphify-repo-slugs">
+            {repoSlugs.map((slug) => (
+              <option key={slug} value={slug} />
+            ))}
+          </datalist>
           <p className="text-2xs text-low">
             {t(
               'settings.addons.viewer.userIdHint',
-              'mem0 user_id whose graph is rendered (one per repository).'
+              'Bare repository slug — cloud accounts are scoped automatically, so never paste the full accountId:slug form.'
             )}
           </p>
         </div>
