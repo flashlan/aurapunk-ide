@@ -252,6 +252,7 @@ fn generate_types_content() -> String {
         executors::executors::droid::Droid::decl(),
         executors::executors::droid::Autonomy::decl(),
         executors::executors::droid::ReasoningEffortLevel::decl(),
+        executors::executors::commandcode::CommandCode::decl(),
         executors::executors::AppendPrompt::decl(),
         executors::interactive::TerminalKind::decl(),
         executors::interactive::InteractiveTmuxConfig::decl(),
@@ -384,6 +385,10 @@ fn generate_schemas() -> Result<HashMap<&'static str, String>, serde_json::Error
         (
             "droid",
             generate_json_schema::<executors::executors::droid::Droid>()?,
+        ),
+        (
+            "command_code",
+            generate_json_schema::<executors::executors::commandcode::CommandCode>()?,
         ),
     ]);
     println!(

@@ -640,6 +640,7 @@ fn agent_install_script(agent: &BaseCodingAgent) -> Option<String> {
         BaseCodingAgent::Amp => ("@sourcegraph/amp", "amp"),
         BaseCodingAgent::Copilot => ("@github/copilot", "copilot"),
         BaseCodingAgent::QwenCode => ("@qwen-code/qwen-code", "qwen"),
+        BaseCodingAgent::CommandCode => ("command-code", "command-code"),
         BaseCodingAgent::CursorAgent => {
             return Some(
                 r#"set -eu
@@ -1038,6 +1039,7 @@ async fn get_agent_models(
                 "opencode" => BaseCodingAgent::Opencode,
                 "qwen" | "qwencode" => BaseCodingAgent::QwenCode,
                 "droid" => BaseCodingAgent::Droid,
+                "commandcode" | "cmd" => BaseCodingAgent::CommandCode,
                 "cursor" | "cursoragent" => BaseCodingAgent::CursorAgent,
                 "copilot" => BaseCodingAgent::Copilot,
                 "amp" => BaseCodingAgent::Amp,

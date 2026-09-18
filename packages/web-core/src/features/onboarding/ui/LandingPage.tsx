@@ -110,6 +110,7 @@ const AGENT_DOWNLOAD_LINKS: Partial<Record<BaseCodingAgent, string>> = {
   [BaseCodingAgent.QWEN_CODE]: 'https://github.com/QwenLM/Qwen3-Coder',
   [BaseCodingAgent.COPILOT]: 'https://github.com/features/copilot',
   [BaseCodingAgent.DROID]: 'https://www.factory.ai/',
+  [BaseCodingAgent.COMMAND_CODE]: 'https://commandcode.ai/',
 };
 
 const EDITOR_DOWNLOAD_LINKS: Partial<Record<EditorType, string>> = {

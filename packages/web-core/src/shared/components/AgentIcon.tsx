@@ -37,6 +37,8 @@ export function getAgentName(
       return 'Copilot';
     case BaseCodingAgent.DROID:
       return 'Droid';
+    case BaseCodingAgent.COMMAND_CODE:
+      return 'Command Code';
   }
 }
 
@@ -86,6 +88,9 @@ export function AgentIcon({ agent, className = 'h-4 w-4' }: AgentIconProps) {
       break;
     case BaseCodingAgent.DROID:
       iconPath = `/agents/droid${suffix}.svg`;
+      break;
+    case BaseCodingAgent.COMMAND_CODE:
+      iconPath = `/agents/commandcode${suffix}.svg`;
       break;
     default:
       return null;

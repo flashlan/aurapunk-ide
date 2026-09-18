@@ -66,6 +66,7 @@ const KNOWN_EXECUTORS = [
   { value: 'opencode', label: '🤖 OpenCode' },
   { value: 'qwen_code', label: '🤖 Qwen Code' },
   { value: 'droid', label: '🤖 Droid' },
+  { value: 'command_code', label: '🤖 Command Code' },
   { value: 'gemini', label: '🤖 Gemini' },
   { value: 'cursor', label: '🤖 Cursor Agent' },
   { value: 'copilot', label: '🤖 GitHub Copilot' },
@@ -165,6 +166,8 @@ function parseBaseCodingAgent(executor?: string): BaseCodingAgent | null {
   if (clean === 'qwencode' || clean === 'qwen')
     return BaseCodingAgent.QWEN_CODE;
   if (clean === 'droid') return BaseCodingAgent.DROID;
+  if (clean === 'commandcode' || clean === 'cmd')
+    return BaseCodingAgent.COMMAND_CODE;
   if (clean === 'gemini') return BaseCodingAgent.GEMINI;
   if (clean === 'cursor' || clean === 'cursoragent')
     return BaseCodingAgent.CURSOR_AGENT;

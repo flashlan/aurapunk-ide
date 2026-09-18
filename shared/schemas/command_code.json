@@ -1,0 +1,71 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "properties": {
+    "append_prompt": {
+      "title": "Append Prompt",
+      "description": "Extra text appended to the prompt",
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "textarea",
+      "default": null
+    },
+    "model": {
+      "title": "Model",
+      "description": "Model id to run on, e.g. deepseek/deepseek-v4-flash (see `command-code --list-models`)",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "reasoning_effort": {
+      "title": "Reasoning Effort",
+      "description": "Reasoning effort level for the session (e.g. low, medium, high) — depends on the model",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "yolo": {
+      "title": "Yolo",
+      "description": "Bypass all permission prompts (--yolo). Required for file writes and shell commands in headless mode.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "base_command_override": {
+      "title": "Base Command Override",
+      "description": "Override the base command with a custom command",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "additional_params": {
+      "title": "Additional Parameters",
+      "description": "Additional parameters to append to the base command",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "env": {
+      "title": "Environment Variables",
+      "description": "Environment variables to set when running the executor",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "description": "Command Code CLI executor configuration",
+  "type": "object"
+}

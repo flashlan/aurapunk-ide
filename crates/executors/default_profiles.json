@@ -87,6 +87,13 @@
           "autonomy": "skip-permissions-unsafe"
         }
       }
+    },
+    "COMMAND_CODE": {
+      "DEFAULT": {
+        "COMMAND_CODE": {
+          "yolo": true
+        }
+      }
     }
   }
 }

@@ -220,6 +220,22 @@ Click the **Default** badge next to a configuration to make it the default for t
 
   [View full documentation →](https://docs.factory.ai/factory-cli/getting-started/overview)
 </Tab>
+
+<Tab title="COMMAND_CODE">
+  <ParamField path="model" type="string">
+  Model id to run on (for example `deepseek/deepseek-v4-flash`). Run `command-code --list-models` to see the available ids.
+  </ParamField>
+
+  <ParamField path="reasoning_effort" type="string">
+  Reasoning effort level for the session (for example `low`, `medium`, or `high`) — depends on the model
+  </ParamField>
+
+  <ParamField path="yolo" type="boolean">
+  Bypass all permission prompts (`--yolo`). Required for file writes and shell commands in headless mode.
+  </ParamField>
+
+  [View full documentation →](https://commandcode.ai/docs)
+</Tab>
 </Tabs>
 
 ### Universal Options

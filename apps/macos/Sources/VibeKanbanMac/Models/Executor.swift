@@ -12,6 +12,7 @@ enum BaseCodingAgent: String, Codable, CaseIterable, Hashable {
     case qwenCode = "QWEN_CODE"
     case copilot = "COPILOT"
     case droid = "DROID"
+    case commandCode = "COMMAND_CODE"
 
     var label: String {
         switch self {
@@ -25,6 +26,7 @@ enum BaseCodingAgent: String, Codable, CaseIterable, Hashable {
         case .qwenCode: return "Qwen Code"
         case .copilot: return "Copilot"
         case .droid: return "Droid"
+        case .commandCode: return "Command Code"
         }
     }
 }
