@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import type { ChoiceQuestion, DecisionAnswer, NoulQuestion, ScoreQuestion, TypedQuestion } from '../types.js';
 import type { DecisionClassifier } from './interface.js';
 
@@ -83,33 +82,41 @@ export class LayaClassifier implements DecisionClassifier {
     };
   }
 
-  private invokePythonBridge(
+  private async invokePythonBridge(
     state: string,
     questions: Record<string, TypedQuestion>
   ): Promise<Record<string, DecisionAnswer> | null> {
-    return new Promise((resolve) => {
-      const child = spawn('python3', [this.pythonBridgePath!], {
-        stdio: ['pipe', 'pipe', 'ignore'],
-      });
-      let output = '';
-      child.stdout.on('data', (d) => {
-        output += d.toString();
-      });
-      child.on('close', (code) => {
-        if (code === 0 && output.trim()) {
-          try {
-            const parsed = JSON.parse(output);
-            return resolve(parsed.answers || null);
-          } catch {
-            return resolve(null);
+    if (typeof window !== 'undefined') {
+      return null;
+    }
+    try {
+      const { spawn } = await import('node:child_process');
+      return await new Promise((resolve) => {
+        const child = spawn('python3', [this.pythonBridgePath!], {
+          stdio: ['pipe', 'pipe', 'ignore'],
+        });
+        let output = '';
+        child.stdout.on('data', (d) => {
+          output += d.toString();
+        });
+        child.on('close', (code) => {
+          if (code === 0 && output.trim()) {
+            try {
+              const parsed = JSON.parse(output);
+              return resolve(parsed.answers || null);
+            } catch {
+              return resolve(null);
+            }
           }
-        }
-        resolve(null);
+          resolve(null);
+        });
+        child.on('error', () => resolve(null));
+        child.stdin.write(JSON.stringify({ state, questions }));
+        child.stdin.end();
       });
-      child.on('error', () => resolve(null));
-      child.stdin.write(JSON.stringify({ state, questions }));
-      child.stdin.end();
-    });
+    } catch {
+      return null;
+    }
   }
 
   // -------------------------------------------------------------------------
