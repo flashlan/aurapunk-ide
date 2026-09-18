@@ -60,6 +60,16 @@ interface MemoryMigrationResult {
 const PROVIDER_ORDER = ['groq', 'openrouter', 'llama', 'openai'] as const;
 const CLOUD_ACCOUNT_STORAGE_KEY = 'aurapunk-cloud-account';
 
+/**
+ * The hosted AuraPunk Cloud gateway is always the `/api/memory/v1` suffix on
+ * the configured URL. Detecting it from the URL (the actual persisted config)
+ * keeps Settings ↔ config in sync instead of guessing from the browser's
+ * account snapshot.
+ */
+function isAuraPunkCloudUrl(url: string): boolean {
+  return url.replace(/\/+$/, '').endsWith('/api/memory/v1');
+}
+
 function readCloudAccount(): CloudAccountSnapshot | null {
   try {
     const raw = window.localStorage.getItem(CLOUD_ACCOUNT_STORAGE_KEY);
@@ -158,6 +168,7 @@ export function MemorySettingsSection() {
   const [mem0ApiKey, setMem0ApiKey] = useState('');
   const [qdrantUrl, setQdrantUrl] = useState('');
   const [qdrantApiKey, setQdrantApiKey] = useState('');
+  const [selfManagedUrl, setSelfManagedUrl] = useState('');
   const [embeddingDimensions, setEmbeddingDimensions] = useState(384);
   const [provider, setProvider] = useState('groq');
   const [graphEnabled, setGraphEnabled] = useState(true);
@@ -212,11 +223,15 @@ export function MemorySettingsSection() {
         setConnection(next);
         setEnabled(next.enabled);
         setAdapter(next.adapter);
-        const account = readCloudAccount();
-        setHostingMode(
-          next.source === 'cloud' && account?.memory?.gatewayUrl === next.url
-            ? 'cloud'
-            : 'self-hosted'
+        // The config itself decides which hosting mode is active: a URL on the
+        // AuraPunk Cloud gateway is Cloud, anything else is self-hosted. The
+        // account snapshot only decorates the Cloud card with the signed-in
+        // email/plan — it must not flip the selected mode.
+        setHostingMode(isAuraPunkCloudUrl(next.url) ? 'cloud' : 'self-hosted');
+        setSelfManagedUrl(
+          next.source === 'cloud' && !isAuraPunkCloudUrl(next.url)
+            ? next.url
+            : next.cloud_url
         );
         setQdrantUrl(next.qdrant_url);
         setEmbeddingDimensions(next.embedding_dimensions);
@@ -379,6 +394,51 @@ export function MemorySettingsSection() {
                 : {}),
             }
           : {}),
+      });
+      setConnection(next);
+      setEnabled(next.enabled);
+      setAdapter(next.adapter);
+      window.dispatchEvent(new Event('mem0-connection-changed'));
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : 'Failed to switch memory source'
+      );
+    } finally {
+      setConnectionBusy(false);
+    }
+  };
+
+  /**
+   * Self-hosted sub-source switch (Local Docker vs a Mem0 server you run).
+   * Deliberately does NOT touch the AuraPunk Cloud account: "cloud" here is a
+   * self-managed endpoint, not the hosted gateway. Bug before this: selecting
+   * it demanded a signed-in AuraPunk account and silently rewrote the URL to
+   * the Cloud gateway, so a self-managed server could never be selected.
+   */
+  const handleSelfManagedSourceChange = async (
+    source: Mem0Connection['source']
+  ) => {
+    if (!connection || connectionBusy) return;
+    const selfManagedUrlValue =
+      source === 'cloud'
+        ? (selfManagedUrl.trim() || connection.cloud_url).trim()
+        : null;
+    if (
+      selfManagedUrlValue &&
+      !selfManagedUrlValue.startsWith('http://') &&
+      !selfManagedUrlValue.startsWith('https://')
+    ) {
+      setError('Self-managed Mem0 URL must start with http:// or https://');
+      return;
+    }
+    setConnectionBusy(true);
+    setError(null);
+    try {
+      const next = await updateMem0Connection({
+        source,
+        adapter: 'mem0_vk',
+        enabled: true,
+        ...(selfManagedUrlValue ? { url: selfManagedUrlValue } : {}),
       });
       setConnection(next);
       setEnabled(next.enabled);
@@ -649,11 +709,11 @@ export function MemorySettingsSection() {
                 <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {(
                     [
-                      ['local', 'Local Mem0', connection.local_url],
+                      ['local', 'Local Mem0 (Docker)', connection.local_url],
                       [
                         'cloud',
                         'Self-managed Mem0 server',
-                        connection.cloud_url,
+                        selfManagedUrl || connection.cloud_url,
                       ],
                     ] as const
                   ).map(([source, label, url]) => (
@@ -662,7 +722,7 @@ export function MemorySettingsSection() {
                       type="button"
                       aria-pressed={connection.source === source}
                       disabled={connectionBusy}
-                      onClick={() => void handleConnectionChange(source)}
+                      onClick={() => void handleSelfManagedSourceChange(source)}
                       className={`rounded-sm border px-3 py-2 text-left transition-colors ${
                         connection.source === source
                           ? 'border-brand bg-brand/10 text-brand'
@@ -676,12 +736,34 @@ export function MemorySettingsSection() {
                     </button>
                   ))}
                 </div>
+                <label className="mt-3 block text-xs text-low">
+                  Self-managed Mem0 server URL
+                  <input
+                    type="url"
+                    value={selfManagedUrl}
+                    onChange={(event) => setSelfManagedUrl(event.target.value)}
+                    placeholder={connection.cloud_url}
+                    className="mt-1 w-full rounded-sm border border-border bg-secondary px-2 py-1.5 text-xs text-high placeholder:text-low focus:outline-none focus:ring-1 focus:ring-brand"
+                  />
+                </label>
                 <div className="mt-2 text-xs text-low">
                   Current: <span className="text-normal">{connection.url}</span>
-                  . The change applies to newly started agent runs.
+                  . Selecting a source switches new agent runs; AuraPunk Cloud
+                  uses your signed-in account instead.
                 </div>
               </div>
             )}
+
+          {hostingMode === 'cloud' && !cloudAccount && connection && (
+            <div
+              role="status"
+              className="rounded-sm border border-brand/30 bg-brand/10 px-3 py-2 text-xs text-brand"
+            >
+              This Desktop is configured for AuraPunk Cloud memory, but no
+              account is connected. Sign in and select AuraPunk Cloud again —
+              hosted memory requires account authorization.
+            </div>
+          )}
 
           {hostingMode === 'cloud' && cloudAccount && connection && (
             <div className="rounded-sm border border-brand/30 bg-brand/5 p-3">

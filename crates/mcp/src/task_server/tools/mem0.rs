@@ -32,34 +32,18 @@ fn using_cloud_vector_only() -> bool {
         && config.cloud_vector_only
 }
 
-/// Apply the universal Mem0 service-to-service contract. Local/Docker and
-/// hosted Mem0 use the same bearer token variable; hosted deployments also
-/// receive the signed-in AuraPunk account identity for license validation and
-/// per-account memory scoping.
-fn authorize_mem0(request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-    let config = memory_config::load();
-    let request = match config
-        .mem0_api_key
-        .as_deref()
-        .map(str::trim)
-        .filter(|key| !key.is_empty())
-    {
-        Some(key) if config.adapter == MemoryAdapter::Mem0Platform => request
-            .header("Authorization", format!("Token {key}"))
-            .header("Accept", "application/json"),
-        Some(key) => request.bearer_auth(key),
-        None => request,
-    };
-    if config.adapter == MemoryAdapter::Mem0Platform {
-        request
-    } else {
-        match std::env::var("MEM0_ACCOUNT_ID").or_else(|_| std::env::var("AURAPUNK_ACCOUNT_ID")) {
-            Ok(account_id) if !account_id.trim().is_empty() => {
-                request.header("X-AuraPunk-Account-Id", account_id)
-            }
-            _ => request,
-        }
-    }
+/// The signed-in account id, if the spawning process inherited it. The server
+/// sets `MEM0_ACCOUNT_ID` in its own env once the operator logs in, and every
+/// executor it spawns afterwards inherits it — but a session started *before*
+/// login never sees it, which makes hosted Mem0 reject writes with
+/// "Memory login is required". [`McpServer::mem0_account_id`] falls back to
+/// asking the backend, so those sessions still work.
+fn env_mem0_account_id() -> Option<String> {
+    std::env::var("MEM0_ACCOUNT_ID")
+        .or_else(|_| std::env::var("AURAPUNK_ACCOUNT_ID"))
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 /// Default cap on returned hits when the caller doesn't specify `limit`.
@@ -438,6 +422,55 @@ struct Mem0SaveResponse {
 }
 
 impl McpServer {
+    /// Resolve the signed-in AuraPunk account id for hosted Mem0.
+    ///
+    /// Prefers the inherited env var (cheap, always correct when the session
+    /// started after login); otherwise asks this instance's own backend, which
+    /// knows the account even when this MCP process was spawned earlier.
+    /// Best-effort: `None` on any failure — the caller just omits the header.
+    async fn mem0_account_id(&self) -> Option<String> {
+        if let Some(account_id) = env_mem0_account_id() {
+            return Some(account_id);
+        }
+
+        let url = self.url("/api/usage/mem0-account");
+        self.send_json::<Option<String>>(self.client.get(&url))
+            .await
+            .ok()
+            .flatten()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    }
+
+    /// Apply the universal Mem0 service-to-service contract. Local/Docker and
+    /// hosted Mem0 use the same bearer token variable; hosted deployments also
+    /// receive the signed-in AuraPunk account identity for license validation
+    /// and per-account memory scoping. The account id is resolved lazily (env,
+    /// then backend) so a session spawned before login still works.
+    async fn authorize_mem0(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        let config = memory_config::load();
+        let request = match config
+            .mem0_api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+        {
+            Some(key) if config.adapter == MemoryAdapter::Mem0Platform => request
+                .header("Authorization", format!("Token {key}"))
+                .header("Accept", "application/json"),
+            Some(key) => request.bearer_auth(key),
+            None => request,
+        };
+        if config.adapter == MemoryAdapter::Mem0Platform {
+            return request;
+        }
+
+        match self.mem0_account_id().await {
+            Some(account_id) => request.header("X-AuraPunk-Account-Id", account_id),
+            None => request,
+        }
+    }
+
     /// Enqueue a memory write and return whether Mem0 acknowledged it. Normal
     /// `memory_save` remains best-effort, while card completion uses this
     /// helper as a hard gate before it marks the card Done.
@@ -487,7 +520,13 @@ impl McpServer {
             )
         };
 
-        let resp = match authorize_mem0(client.post(&url)).json(&body).send().await {
+        let resp = match self
+            .authorize_mem0(client.post(&url))
+            .await
+            .json(&body)
+            .send()
+            .await
+        {
             Ok(response) if response.status().is_success() => response,
             Ok(response) => {
                 tracing::warn!(
@@ -681,7 +720,13 @@ impl McpServer {
             )
         };
 
-        let resp = match authorize_mem0(client.post(&url)).json(&body).send().await {
+        let resp = match self
+            .authorize_mem0(client.post(&url))
+            .await
+            .json(&body)
+            .send()
+            .await
+        {
             Ok(r) if r.status().is_success() => r,
             Ok(r) => {
                 tracing::warn!(
@@ -867,7 +912,13 @@ impl McpServer {
             "direction": direction,
         });
 
-        let resp = match authorize_mem0(client.post(&url)).json(&body).send().await {
+        let resp = match self
+            .authorize_mem0(client.post(&url))
+            .await
+            .json(&body)
+            .send()
+            .await
+        {
             Ok(r) if r.status().is_success() => r,
             Ok(r) => {
                 tracing::warn!(
@@ -990,7 +1041,9 @@ impl McpServer {
             "hops": 1,
             "direction": "out",
         });
-        let traverse_resp = match authorize_mem0(client.post(&traverse_url))
+        let traverse_resp = match self
+            .authorize_mem0(client.post(&traverse_url))
+            .await
             .json(&traverse_body)
             .send()
             .await

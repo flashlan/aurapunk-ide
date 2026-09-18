@@ -31,7 +31,7 @@ Rules:
 - [x] **Done** — Protected terminal completion with Integration Guard and Mem0 (`main`)
 - [x] **Done** — Settings: Appearance & Typography, custom theme editor, backgrounds, gradients, fonts, and theme export/import (`vk/8381-settings-fonts-s`)
 - [~] **In Progress** — Gate hosted Mem0 behind Cloud login and plan quotas (`vk/cloud-mem0-login-gate`)
-- [~] **In Progress** — aurapunk get_pipeline/get_rules MCP tools red: shared port-file misroutes MCP to the wrong backend; fix committed, needs rebuild + session restart to activate (`vk/be93-toosl-aurapunk-g`)
+- [~] **In Progress** — aurapunk get_pipeline/get_rules MCP tools red: shared port-file misroutes MCP to the wrong backend; source fix + mem0 account-id fallback committed, needs packaged-app rebuild + session restart to activate (`vk/be93-toosl-aurapunk-g`)
 
 ## Card Pipeline Protocol (MCP)
 
@@ -209,3 +209,27 @@ fixed them. Newest last.
   target their own backend regardless of which server wrote the file last.
 - **Note:** existing sessions must be restarted to pick up the new env var;
   the global port file is otherwise unchanged (still the fallback).
+- **Follow-up (Mem0 gate):** card completion then failed with
+  `Integration succeeded, but Mem0 did not acknowledge` — hosted Mem0
+  returned HTTP 401 `{"error":"Memory login is required"}` because the MCP
+  only sends `X-AuraPunk-Account-Id` when it inherited `MEM0_ACCOUNT_ID`,
+  which a session spawned *before* login never has. Fixed in
+  `crates/mcp/src/task_server/tools/mem0.rs`: `authorize_mem0` is now async
+  and falls back to `GET /api/usage/mem0-account` on its own backend, so
+  pre-login sessions authenticate too. `memory_save` confirmed working
+  (`stored: true`) afterwards.
+- **Activation caveat:** the source fixes only take effect once the *running*
+  binary contains them. The packaged `Aurapunk IDE.app` was still the older
+  build (`af4d0b84`) and kept its sessions misrouted, while a rebuilt dev
+  server (`53427091`) injected the env var correctly. Rebuild/restart the
+  packaged app before re-running `complete_workspace_card`.
+- **Memory settings ↔ config correspondence:** the self-hosted "Memory source"
+  selector's `cloud` option was overloaded with the hosted AuraPunk Cloud:
+  clicking "Self-managed Mem0 server" required a signed-in account and
+  silently rewrote the URL to the Cloud gateway, so a self-managed endpoint
+  could never be selected. `MemorySettingsSection.tsx` now derives the hosting
+  mode from the persisted URL itself (`/api/memory/v1` ⇒ AuraPunk Cloud),
+  switches self-hosted local/remote sources through a dedicated handler that
+  never touches the account, and exposes an editable self-managed URL. The
+  AuraPunk Cloud button keeps using the signed-in account (access token as the
+  mem0 bearer + account id header).
