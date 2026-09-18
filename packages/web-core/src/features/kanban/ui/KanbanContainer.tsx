@@ -101,6 +101,7 @@ import { useIssueMultiSelect } from '@/shared/hooks/useIssueMultiSelect';
 import { useIssueSelectionStore } from '@/shared/stores/useIssueSelectionStore';
 import { BulkActionBarContainer } from './BulkActionBarContainer';
 import { AgentActivityIndicator } from './AgentActivityIndicator';
+import { NewReleaseBadge } from './NewReleaseBadge';
 import { computeKanbanMove } from '../model/computeKanbanMove';
 import { buildKanbanMoveUpdates } from '../model/buildKanbanMoveUpdates';
 import { createSyncGuard } from '../model/syncGuard';
@@ -1929,7 +1930,8 @@ export function KanbanContainer() {
             isMobile={isMobile}
           />
           {!isMobile && (
-            <div className="ml-auto min-w-0 max-w-full">
+            <div className="ml-auto flex min-w-0 max-w-full items-center gap-half">
+              <NewReleaseBadge />
               <AgentActivityIndicator projectId={projectId} />
             </div>
           )}
