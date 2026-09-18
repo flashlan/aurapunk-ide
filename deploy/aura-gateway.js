@@ -72,6 +72,7 @@ function isCloudApiRequest(pathname) {
     '/api/desktop-auth',
     '/api/devices',
     '/api/instances',
+    '/api/memory',
     '/api/sync',
     '/api/teams',
   ].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));

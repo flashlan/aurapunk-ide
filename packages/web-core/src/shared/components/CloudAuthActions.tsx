@@ -642,24 +642,26 @@ export function CloudAuthActions() {
         if (!saved) return;
         const parsed = JSON.parse(saved) as CloudAccount;
         if (!cancelled && parsed.accessToken) {
-          // Tokens issued before hosted memory was added can still represent a
-          // valid Cloud account, but they cannot authenticate the memory
-          // gateway. Do not keep presenting that account as fully connected;
-          // force a clean authorization so the next token includes `memory`.
-          if (!parsed.memory?.enabled || !parsed.scopes.includes('memory')) {
-            await clearPersistedAccount();
-            window.localStorage.removeItem(CLOUD_ACCOUNT_STORAGE_KEY);
-            window.localStorage.removeItem(
-              `${CLOUD_MEMORY_PREFERENCE_PREFIX}:${parsed.userId}`
-            );
-            setAccount(null);
-            window.dispatchEvent(new Event('aurapunk-cloud-account-changed'));
-            return;
-          }
+          // A Cloud account remains valid for Desktop -> Mobile board sync even
+          // when its token predates hosted memory or the plan does not include
+          // it. Memory is an optional capability: discarding the whole account
+          // over a missing `memory` scope also killed board/command sync and
+          // left hosted Mem0 looking offline. Keep the account; only skip the
+          // memory handoff when the gateway is unavailable.
+          const hasHostedMemory =
+            Boolean(parsed.memory?.enabled) &&
+            (parsed.scopes ?? []).includes('memory');
           setAccount(parsed);
           window.dispatchEvent(new Event('aurapunk-cloud-account-changed'));
           void persistAccount(parsed);
-          void offerCloudMemory(parsed);
+          if (hasHostedMemory) {
+            void offerCloudMemory(parsed);
+          } else {
+            // Drop a stale hosted binding so the status reflects the missing
+            // scope. A self-hosted/local memory config (source !== "cloud") is
+            // left untouched by the backend.
+            void syncMem0Account(null);
+          }
           if (isCloudMode) {
             const snapshot = await syncCloudSnapshot(parsed);
             if (snapshot?.imported) {
