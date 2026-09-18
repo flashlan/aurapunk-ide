@@ -32,43 +32,56 @@ const LEGACY_VIBE_KANBAN_ALTERNATIVE_MCP_PACKAGE: &str = "vibe-kanban-alternativ
 const AURAPUNK_MCP_PACKAGE: &str = "aurapunk-ide@latest";
 
 /// Upgrade a former Vibe Kanban MCP preset in a Codex config to the AuraPunk
-/// package.
+/// package and server name.
 ///
 /// Only the exact, previously generated command is migrated. User-managed
 /// servers with another package or invocation are intentionally left alone.
+/// When an `aurapunk` server already exists, the legacy duplicate is dropped
+/// instead of renamed so there is exactly one AuraPunk entry.
 pub fn migrate_legacy_codex_vibe_kanban_mcp(config: &mut Value) -> bool {
-    let Some(server) = config
-        .get_mut("mcp_servers")
-        .and_then(Value::as_object_mut)
-        .and_then(|servers| servers.get_mut("vibe_kanban"))
-        .and_then(Value::as_object_mut)
-    else {
+    let Some(servers) = config.get_mut("mcp_servers").and_then(Value::as_object_mut) else {
         return false;
     };
 
-    let is_legacy = server.get("command").and_then(Value::as_str) == Some("npx")
-        && server
-            .get("args")
-            .and_then(Value::as_array)
-            .is_some_and(|args| {
-                let mut parts = args.iter().map(Value::as_str);
-                parts.next() == Some(Some("-y"))
-                    && matches!(
-                        parts.next(),
-                        Some(Some(LEGACY_VIBE_KANBAN_MCP_PACKAGE))
-                            | Some(Some(LEGACY_VIBE_KANBAN_ALTERNATIVE_MCP_PACKAGE))
-                    )
-                    && parts.next() == Some(Some("--mcp"))
-            });
+    let is_legacy = servers
+        .get("vibe_kanban")
+        .and_then(Value::as_object)
+        .is_some_and(|server| {
+            server.get("command").and_then(Value::as_str) == Some("npx")
+                && server
+                    .get("args")
+                    .and_then(Value::as_array)
+                    .is_some_and(|args| {
+                        let mut parts = args.iter().map(Value::as_str);
+                        parts.next() == Some(Some("-y"))
+                            && matches!(
+                                parts.next(),
+                                Some(Some(LEGACY_VIBE_KANBAN_MCP_PACKAGE))
+                                    | Some(Some(LEGACY_VIBE_KANBAN_ALTERNATIVE_MCP_PACKAGE))
+                            )
+                            && parts.next() == Some(Some("--mcp"))
+                    })
+        });
 
     if !is_legacy {
         return false;
     }
 
-    server.insert(
-        "args".to_string(),
-        serde_json::json!(["-y", AURAPUNK_MCP_PACKAGE, "--mcp", "--mode", "global"]),
-    );
+    if let Some(server) = servers
+        .get_mut("vibe_kanban")
+        .and_then(Value::as_object_mut)
+    {
+        server.insert(
+            "args".to_string(),
+            serde_json::json!(["-y", AURAPUNK_MCP_PACKAGE, "--mcp", "--mode", "global"]),
+        );
+    }
+
+    if servers.contains_key("aurapunk") {
+        servers.remove("vibe_kanban");
+    } else if let Some(legacy) = servers.remove("vibe_kanban") {
+        servers.insert("aurapunk".to_string(), legacy);
+    }
     true
 }
 
@@ -472,19 +485,16 @@ mod tests {
     };
 
     #[test]
-    fn codex_vibe_kanban_preset_runs_this_forks_global_mcp_server() {
+    fn codex_aurapunk_preset_runs_this_forks_global_mcp_server() {
         let preset = apply_adapter(Adapter::Codex, PRECONFIGURED_MCP_SERVERS.clone());
-        let vibe_kanban = preset
-            .get("vibe_kanban")
+        let aurapunk = preset
+            .get("aurapunk")
             .and_then(Value::as_object)
-            .expect("Codex must expose the Vibe Kanban MCP preset");
+            .expect("Codex must expose the AuraPunk MCP preset");
 
+        assert_eq!(aurapunk.get("command").and_then(Value::as_str), Some("npx"));
         assert_eq!(
-            vibe_kanban.get("command").and_then(Value::as_str),
-            Some("npx")
-        );
-        assert_eq!(
-            vibe_kanban.get("args").and_then(Value::as_array),
+            aurapunk.get("args").and_then(Value::as_array),
             Some(&vec![
                 Value::String("-y".to_string()),
                 Value::String("aurapunk-ide@latest".to_string()),
@@ -500,7 +510,7 @@ mod tests {
         let preset = apply_adapter(Adapter::Codex, PRECONFIGURED_MCP_SERVERS.clone());
 
         assert!(preset.get("context7").is_none());
-        assert!(preset.get("vibe_kanban").is_some());
+        assert!(preset.get("aurapunk").is_some());
     }
 
     #[test]
@@ -516,13 +526,35 @@ mod tests {
         });
 
         assert!(migrate_legacy_codex_vibe_kanban_mcp(&mut config));
+        assert!(config["mcp_servers"].get("vibe_kanban").is_none());
         assert_eq!(
-            config["mcp_servers"]["vibe_kanban"]["args"],
+            config["mcp_servers"]["aurapunk"]["args"],
             serde_json::json!(["-y", "aurapunk-ide@latest", "--mcp", "--mode", "global"])
         );
         assert_eq!(
-            config["mcp_servers"]["vibe_kanban"]["env"],
+            config["mcp_servers"]["aurapunk"]["env"],
             serde_json::json!({ "VIBE_BACKEND_URL": "http://localhost:3002" })
+        );
+
+        // A pre-existing `aurapunk` entry wins; the legacy duplicate is dropped.
+        let mut dupe = serde_json::json!({
+            "mcp_servers": {
+                "aurapunk": {
+                    "command": "aurapunk-mcp",
+                    "args": ["--mode", "global"]
+                },
+                "vibe_kanban": {
+                    "command": "npx",
+                    "args": ["-y", "vibe-kanban@latest", "--mcp"],
+                    "env": { "VIBE_BACKEND_URL": "http://localhost:3002" }
+                }
+            }
+        });
+        assert!(migrate_legacy_codex_vibe_kanban_mcp(&mut dupe));
+        assert!(dupe["mcp_servers"].get("vibe_kanban").is_none());
+        assert_eq!(
+            dupe["mcp_servers"]["aurapunk"]["command"],
+            serde_json::json!("aurapunk-mcp")
         );
 
         let mut custom_config = serde_json::json!({

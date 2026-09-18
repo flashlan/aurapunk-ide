@@ -77,7 +77,7 @@ Qualquer cliente de IA pode se conectar ao servidor MCP para orquestrar o quadro
 ```json
 {
   "mcpServers": {
-    "vibe-kanban": {
+    "aurapunk": {
       "command": "aurapunk-mcp",
       "args": ["--mode", "global"],
       "env": {
