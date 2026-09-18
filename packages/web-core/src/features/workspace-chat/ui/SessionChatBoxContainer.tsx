@@ -56,6 +56,8 @@ import {
   useCompactorEngine,
   useLayaDockerUrl,
   useJevApiKey,
+  useJevVercelUrl,
+  useJevVercelKey,
 } from '@/shared/stores/useUiPreferencesStore';
 import { useAutoCompaction } from '../model/hooks/useAutoCompaction';
 import {
@@ -562,6 +564,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   const compactorEngine = useCompactorEngine();
   const layaDockerUrl = useLayaDockerUrl();
   const jevApiKey = useJevApiKey();
+  const jevVercelUrl = useJevVercelUrl();
+  const jevVercelKey = useJevVercelKey();
 
   // Auto-compaction when context usage crosses the user threshold
   useAutoCompaction({
@@ -590,7 +594,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
 
     // Direct /compress, /autocompress, /compact, /autocompact command:
     if (
-      /^\/(?:compress|autocompress|compact|autocompact)(?:\s.*)?$/i.test(trimmed)
+      /^\/(?:compress|autocompress|compact|autocompact)(?:\s.*)?$/i.test(
+        trimmed
+      )
     ) {
       cancelDebouncedSave();
       setLocalMessage('');
@@ -604,6 +610,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           engine: compactorEngine,
           layaDockerUrl,
           jevApiKey,
+          jevVercelAiUrl: jevVercelUrl,
+          jevVercelAiKey: jevVercelKey,
         });
         setEntries([...entries, markerPatch]);
       } catch (err) {
@@ -612,9 +620,10 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       return;
     }
 
-    const { prompt: rawPrompt, isSlashCommand } = buildAgentPrompt(localMessage, [
-      reviewMarkdown,
-    ]);
+    const { prompt: rawPrompt, isSlashCommand } = buildAgentPrompt(
+      localMessage,
+      [reviewMarkdown]
+    );
 
     // Isolate context: everything above the latest compaction marker is dropped!
     const prompt = isSlashCommand

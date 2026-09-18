@@ -6,6 +6,8 @@ import {
   useCompactionThreshold,
   useLayaDockerUrl,
   useJevApiKey,
+  useJevVercelUrl,
+  useJevVercelKey,
 } from '@/shared/stores/useUiPreferencesStore';
 import { executeSessionCompaction } from '../sessionCompactor';
 
@@ -45,6 +47,8 @@ export function useAutoCompaction({
   const engine = useCompactorEngine();
   const layaDockerUrl = useLayaDockerUrl();
   const jevApiKey = useJevApiKey();
+  const jevVercelUrl = useJevVercelUrl();
+  const jevVercelKey = useJevVercelKey();
 
   const lastCompactAtRef = useRef<Map<string, number>>(new Map());
   const armedRef = useRef<Map<string, boolean>>(new Map());
@@ -104,6 +108,8 @@ export function useAutoCompaction({
           engine,
           layaDockerUrl,
           jevApiKey,
+          jevVercelAiUrl: jevVercelUrl,
+          jevVercelAiKey: jevVercelKey,
         });
 
         // Inject marker into chat

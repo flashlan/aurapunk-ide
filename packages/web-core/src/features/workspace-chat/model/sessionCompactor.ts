@@ -13,7 +13,9 @@ import type { CompactorEngineType } from '@/shared/stores/useUiPreferencesStore'
 /**
  * Normalizes UI conversation entries into universal Message[] for compaction.
  */
-export function convertEntriesToMessages(entries: PatchTypeWithKey[]): Message[] {
+export function convertEntriesToMessages(
+  entries: PatchTypeWithKey[]
+): Message[] {
   const messages: Message[] = [];
 
   for (const entry of entries) {
@@ -125,6 +127,8 @@ export interface ExecuteCompactionOptions {
   engine: CompactorEngineType;
   layaDockerUrl?: string;
   jevApiKey?: string;
+  jevVercelAiUrl?: string;
+  jevVercelAiKey?: string;
   layaMode?: 'embedded' | 'docker';
 }
 
@@ -146,6 +150,8 @@ export async function executeSessionCompaction({
   engine,
   layaDockerUrl,
   jevApiKey,
+  jevVercelAiUrl,
+  jevVercelAiKey,
 }: ExecuteCompactionOptions): Promise<CompactionExecutionResult> {
   const universalMessages = convertEntriesToMessages(entries);
 
@@ -158,11 +164,15 @@ export async function executeSessionCompaction({
   } else if (engine === 'jev') {
     classifier = new JevClassifier({
       apiKey: jevApiKey,
+      vercelAiUrl: jevVercelAiUrl,
+      vercelAiKey: jevVercelAiKey,
     });
   } else {
     // 'auto' or default fallback
     classifier = new AdaptiveClassifier({
       apiKey: jevApiKey,
+      vercelAiUrl: jevVercelAiUrl,
+      vercelAiKey: jevVercelAiKey,
       layaEndpoint: layaDockerUrl,
     });
   }
@@ -269,7 +279,9 @@ export function prepareCloudPromptWithIsolation(
     `[Contexto Consolidado da Sessão Anterior (Marco de Compactação)]`,
     marker.content,
     ``,
-    activeTurnsText ? `[Turnos Recentes da Janela Ativa]:\n${activeTurnsText}\n` : '',
+    activeTurnsText
+      ? `[Turnos Recentes da Janela Ativa]:\n${activeTurnsText}\n`
+      : '',
     `---`,
     `Instrução do Usuário:`,
     prompt,

@@ -230,6 +230,7 @@ export function MemorySettingsSection() {
   const [migrationBusy, setMigrationBusy] = useState(false);
   const [migrationResult, setMigrationResult] =
     useState<MemoryMigrationResult | null>(null);
+  const [jevMode, setJevMode] = useState<'embedded' | 'vercel-ai'>('embedded');
 
   const load = useCallback(async () => {
     try {
@@ -242,6 +243,13 @@ export function MemorySettingsSection() {
       for (const p of PROVIDER_ORDER) {
         const pc = cfg.providers[p] ?? { url: '', model: '', has_key: false };
         draftsInit[p] = { url: pc.url, model: pc.model, key: '' };
+      }
+      if (
+        cfg.providers['jev']?.url?.includes('vercel') ||
+        (cfg.providers['jev']?.url?.startsWith('http') &&
+          cfg.providers['jev']?.has_key)
+      ) {
+        setJevMode('vercel-ai');
       }
       setDrafts(draftsInit);
     } catch (e) {
@@ -961,9 +969,133 @@ export function MemorySettingsSection() {
                   {PROVIDER_ORDER.map((p) => {
                     const d = drafts[p] ?? { url: '', model: '', key: '' };
                     const hasKey = config.providers[p]?.has_key ?? false;
-                    const isLocal = p === 'jev' || p === 'laya';
 
-                    if (isLocal) {
+                    if (p === 'jev') {
+                      const isVercelMode = jevMode === 'vercel-ai';
+                      return (
+                        <div
+                          key={p}
+                          className="rounded-sm border border-brand/30 bg-secondary/60 p-3 space-y-2.5"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-xs font-medium text-normal">
+                              {providerLabel(p)}
+                            </div>
+                            <div className="flex items-center rounded-sm bg-panel p-0.5 text-2xs border border-border">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setJevMode('embedded');
+                                  setDraft(p, 'url', 'embedded://jev');
+                                }}
+                                className={`rounded-xs px-2 py-0.5 font-medium transition-colors ${
+                                  !isVercelMode
+                                    ? 'bg-secondary text-high shadow-xs'
+                                    : 'text-low hover:text-normal'
+                                }`}
+                              >
+                                ⚡ Local CPU (0 Tokens)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setJevMode('vercel-ai');
+                                  if (!d.url || d.url === 'embedded://jev') {
+                                    setDraft(
+                                      p,
+                                      'url',
+                                      'https://api.vercel.ai/v1/fast-jev'
+                                    );
+                                  }
+                                }}
+                                className={`rounded-xs px-2 py-0.5 font-medium transition-colors ${
+                                  isVercelMode
+                                    ? 'bg-secondary text-high shadow-xs'
+                                    : 'text-low hover:text-normal'
+                                }`}
+                              >
+                                ▲ Vercel AI (Beta API)
+                              </button>
+                            </div>
+                          </div>
+
+                          {!isVercelMode ? (
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-2xs text-low pt-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-high">
+                                  Model: {d.model || 'fast-jev-v1'}
+                                </span>
+                                <span>•</span>
+                                <span>Cost: 0 tokens / $0.00</span>
+                                <span>•</span>
+                                <span>Speed: &lt;1ms</span>
+                              </div>
+                              <span className="inline-flex items-center gap-1 text-success">
+                                <span className="size-1.5 rounded-full bg-success" />
+                                Local CPU Engine Ready (No key required)
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="space-y-2 pt-1">
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                <input
+                                  type="text"
+                                  value={d.url}
+                                  onChange={(e) =>
+                                    setDraft(p, 'url', e.target.value)
+                                  }
+                                  placeholder="https://api.vercel.ai/v1/fast-jev"
+                                  className="min-w-0 rounded-sm border border-border bg-panel px-2 py-1.5 text-xs text-high placeholder:text-low focus:outline-none focus:ring-1 focus:ring-brand"
+                                />
+                                <input
+                                  type="text"
+                                  value={d.model}
+                                  onChange={(e) =>
+                                    setDraft(p, 'model', e.target.value)
+                                  }
+                                  placeholder="fast-jev-v1"
+                                  className="min-w-0 rounded-sm border border-border bg-panel px-2 py-1.5 text-xs text-high placeholder:text-low focus:outline-none focus:ring-1 focus:ring-brand"
+                                />
+                                <div className="relative">
+                                  <input
+                                    type="password"
+                                    value={d.key}
+                                    onChange={(e) =>
+                                      setDraft(p, 'key', e.target.value)
+                                    }
+                                    placeholder={
+                                      hasKey
+                                        ? '•••••••••• (saved)'
+                                        : 'Vercel AI API key'
+                                    }
+                                    autoComplete="off"
+                                    className="min-w-0 w-full rounded-sm border border-border bg-panel px-2 py-1.5 pr-9 text-xs text-high placeholder:text-low focus:outline-none focus:ring-1 focus:ring-brand"
+                                  />
+                                  {hasKey && (
+                                    <span
+                                      title={t(
+                                        'settings.memory.keySaved',
+                                        'Key saved'
+                                      )}
+                                      className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-success"
+                                    >
+                                      ●
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <p className="text-2xs text-low">
+                                Routes Jev extraction through Vercel AI Gateway
+                                (Cloud Beta), bypassing the TypeSafe AI waitlist
+                                queue.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    if (p === 'laya') {
                       return (
                         <div
                           key={p}
@@ -981,7 +1113,7 @@ export function MemorySettingsSection() {
                           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-2xs text-low">
                             <div className="flex items-center gap-2">
                               <span className="font-mono text-high">
-                                Model: {d.model || (p === 'jev' ? 'fast-jev-v1' : 'laya-system1-v1')}
+                                Model: {d.model || 'laya-system1-v1'}
                               </span>
                               <span>•</span>
                               <span>Cost: 0 tokens / $0.00</span>

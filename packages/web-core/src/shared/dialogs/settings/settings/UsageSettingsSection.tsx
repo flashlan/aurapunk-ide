@@ -13,6 +13,12 @@ import {
   useSetLayaDockerUrl,
   useJevApiKey,
   useSetJevApiKey,
+  useJevProviderMode,
+  useSetJevProviderMode,
+  useJevVercelUrl,
+  useSetJevVercelUrl,
+  useJevVercelKey,
+  useSetJevVercelKey,
   useLayaGuardrailsEnabled,
   useSetLayaGuardrailsEnabled,
   type CompactionThreshold,
@@ -643,6 +649,12 @@ export function UsageSettingsSection() {
   const setLayaDockerUrl = useSetLayaDockerUrl();
   const jevApiKey = useJevApiKey();
   const setJevApiKey = useSetJevApiKey();
+  const jevProviderMode = useJevProviderMode();
+  const setJevProviderMode = useSetJevProviderMode();
+  const jevVercelUrl = useJevVercelUrl();
+  const setJevVercelUrl = useSetJevVercelUrl();
+  const jevVercelKey = useJevVercelKey();
+  const setJevVercelKey = useSetJevVercelKey();
   const layaGuardrailsEnabled = useLayaGuardrailsEnabled();
   const setLayaGuardrailsEnabled = useSetLayaGuardrailsEnabled();
 
@@ -1532,10 +1544,13 @@ export function UsageSettingsSection() {
                 </span>
               </span>
               <span className="text-[11px] text-low">
-                {compactorEngine === 'auto' && '⚡ Cloud Jev + Local Laya fallback'}
-                {compactorEngine === 'laya' && '🔒 100% Local ModernBERT (No API key)'}
+                {compactorEngine === 'auto' &&
+                  '⚡ Cloud Jev + Local Laya fallback'}
+                {compactorEngine === 'laya' &&
+                  '🔒 100% Local ModernBERT (No API key)'}
                 {compactorEngine === 'jev' && '🌐 TypeSafe Jev Cloud API'}
-                {compactorEngine === 'disabled' && '⏳ Traditional LLM summary fallback'}
+                {compactorEngine === 'disabled' &&
+                  '⏳ Traditional LLM summary fallback'}
               </span>
             </div>
 
@@ -1586,7 +1601,10 @@ export function UsageSettingsSection() {
                         onChange={() => setLayaMode('embedded')}
                         className="accent-brand"
                       />
-                      <span>Embedded (<span className="text-accent">&lt;1ms CPU</span>)</span>
+                      <span>
+                        Embedded (
+                        <span className="text-accent">&lt;1ms CPU</span>)
+                      </span>
                     </label>
                     <label className="flex items-center gap-1 cursor-pointer">
                       <input
@@ -1604,7 +1622,9 @@ export function UsageSettingsSection() {
                 {layaMode === 'docker' && (
                   <div className="space-y-1.5 pt-1 border-t border-border/40">
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-low shrink-0">Endpoint URL:</span>
+                      <span className="text-[11px] text-low shrink-0">
+                        Endpoint URL:
+                      </span>
                       <input
                         type="text"
                         value={layaDockerUrl}
@@ -1616,36 +1636,107 @@ export function UsageSettingsSection() {
                     <p className="text-[10px] text-low">
                       Build &amp; Run Docker:{' '}
                       <code className="text-normal bg-secondary px-1 py-0.5 rounded font-mono">
-                        docker build -t laya-local packages/jev-plugin/docker &amp;&amp; docker run -d -p 8080:8080 laya-local
+                        docker build -t laya-local packages/jev-plugin/docker
+                        &amp;&amp; docker run -d -p 8080:8080 laya-local
                       </code>
                     </p>
                     <p className="text-[10px] text-accent">
-                      💡 Tip: Select &quot;Embedded&quot; above to run locally in-process without Docker!
+                      💡 Tip: Select &quot;Embedded&quot; above to run locally
+                      in-process without Docker!
                     </p>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Sub-configuration for Jev API Key */}
+            {/* Sub-configuration for Jev API / Vercel AI */}
             {(compactorEngine === 'auto' || compactorEngine === 'jev') && (
-              <div className="rounded-sm border border-border/50 bg-panel/60 p-2.5 space-y-1.5 text-xs">
-                <div className="flex items-center justify-between">
+              <div className="rounded-sm border border-border/50 bg-panel/60 p-2.5 space-y-2 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="flex items-center gap-1.5 font-medium text-normal">
                     <KeyIcon className="size-3 text-warning" />
-                    <span>TypeSafe Jev API Key:</span>
+                    <span>Fast Jev API Connection:</span>
                   </span>
-                  <span className="text-[10px] text-low">
-                    {compactorEngine === 'auto' ? 'Optional (Falls back to Laya if absent)' : 'Required'}
-                  </span>
+                  <div className="flex items-center rounded-sm bg-secondary p-0.5 text-2xs border border-border/50">
+                    <button
+                      type="button"
+                      onClick={() => setJevProviderMode('vercel-ai')}
+                      className={`rounded-xs px-2 py-0.5 font-medium transition-colors ${
+                        jevProviderMode === 'vercel-ai'
+                          ? 'bg-panel text-high shadow-xs'
+                          : 'text-low hover:text-normal'
+                      }`}
+                    >
+                      ▲ Vercel AI (Beta API Alternative)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setJevProviderMode('typesafe')}
+                      className={`rounded-xs px-2 py-0.5 font-medium transition-colors ${
+                        jevProviderMode === 'typesafe'
+                          ? 'bg-panel text-high shadow-xs'
+                          : 'text-low hover:text-normal'
+                      }`}
+                    >
+                      TypeSafe Direct (Native Queue)
+                    </button>
+                  </div>
                 </div>
-                <input
-                  type="password"
-                  value={jevApiKey}
-                  onChange={(e) => setJevApiKey(e.target.value)}
-                  placeholder="ts_live_..."
-                  className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
-                />
+
+                {jevProviderMode === 'vercel-ai' ? (
+                  <div className="space-y-1.5 pt-1 border-t border-border/40">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <span className="text-[11px] text-low block mb-0.5">
+                          Vercel AI Gateway URL:
+                        </span>
+                        <input
+                          type="text"
+                          value={jevVercelUrl}
+                          onChange={(e) => setJevVercelUrl(e.target.value)}
+                          placeholder="https://api.vercel.ai/v1/fast-jev"
+                          className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[11px] text-low block mb-0.5">
+                          Vercel AI API Key:
+                        </span>
+                        <input
+                          type="password"
+                          value={jevVercelKey}
+                          onChange={(e) => setJevVercelKey(e.target.value)}
+                          placeholder="••••••••••"
+                          className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-low">
+                      Routes Fast Jev through Vercel AI Gateway, bypassing the
+                      TypeSafe private beta waitlist queue.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 pt-1 border-t border-border/40">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] text-low">
+                        TypeSafe Jev API Key:
+                      </span>
+                      <span className="text-[10px] text-low">
+                        {compactorEngine === 'auto'
+                          ? 'Optional (Falls back to Laya if absent)'
+                          : 'Required'}
+                      </span>
+                    </div>
+                    <input
+                      type="password"
+                      value={jevApiKey}
+                      onChange={(e) => setJevApiKey(e.target.value)}
+                      placeholder="ts_live_..."
+                      className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -1658,13 +1749,22 @@ export function UsageSettingsSection() {
                 onChange={(e) => setLayaGuardrailsEnabled(e.target.checked)}
                 className="mt-0.5 accent-brand"
               />
-              <label htmlFor="laya-guardrails-checkbox" className="text-xs text-normal cursor-pointer select-none">
+              <label
+                htmlFor="laya-guardrails-checkbox"
+                className="text-xs text-normal cursor-pointer select-none"
+              >
                 <span className="font-semibold text-high flex items-center gap-1">
-                  <ShieldCheckIcon className="size-3.5 text-emerald-400" weight="bold" />
+                  <ShieldCheckIcon
+                    className="size-3.5 text-emerald-400"
+                    weight="bold"
+                  />
                   Enable Laya System-1 Autonomous Guardrails (9 Decisions)
                 </span>
                 <span className="block text-[11px] text-low mt-0.5">
-                  Evaluates instructions in &lt;1ms to intercept destructive commands (<code className="font-mono">rm -rf</code>, <code className="font-mono">git reset --hard</code>) requiring confirmation, detect ambiguous requests, and route tasks.
+                  Evaluates instructions in &lt;1ms to intercept destructive
+                  commands (<code className="font-mono">rm -rf</code>,{' '}
+                  <code className="font-mono">git reset --hard</code>) requiring
+                  confirmation, detect ambiguous requests, and route tasks.
                 </span>
               </label>
             </div>

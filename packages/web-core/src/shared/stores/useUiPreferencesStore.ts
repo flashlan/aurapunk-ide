@@ -271,6 +271,42 @@ const loadJevApiKey = (): string => {
   return '';
 };
 
+// Persisted Jev Vercel AI Gateway settings
+export type JevProviderMode = 'embedded' | 'vercel-ai' | 'typesafe';
+const JEV_PROVIDER_MODE_KEY = 'vk-jev-provider-mode';
+const JEV_VERCEL_URL_KEY = 'vk-jev-vercel-url';
+const JEV_VERCEL_KEY_KEY = 'vk-jev-vercel-key';
+
+const loadJevProviderMode = (): JevProviderMode => {
+  try {
+    const stored = localStorage.getItem(JEV_PROVIDER_MODE_KEY);
+    if (
+      stored === 'embedded' ||
+      stored === 'vercel-ai' ||
+      stored === 'typesafe'
+    ) {
+      return stored;
+    }
+  } catch {}
+  return 'embedded';
+};
+
+const loadJevVercelUrl = (): string => {
+  try {
+    const stored = localStorage.getItem(JEV_VERCEL_URL_KEY);
+    if (stored) return stored;
+  } catch {}
+  return 'https://api.vercel.ai/v1/fast-jev';
+};
+
+const loadJevVercelKey = (): string => {
+  try {
+    const stored = localStorage.getItem(JEV_VERCEL_KEY_KEY);
+    if (stored) return stored;
+  } catch {}
+  return '';
+};
+
 // Persisted Laya Guardrails Enabled
 const LAYA_GUARDRAILS_ENABLED_KEY = 'vk-laya-guardrails-enabled';
 
@@ -281,7 +317,6 @@ const loadLayaGuardrailsEnabled = (): boolean => {
   } catch {}
   return true;
 };
-
 
 // Combined pipeline selection (pipeline id + ticked stage ids), so a card
 // created with "Quick + memory on" re-opens the same way next time. Stored as
@@ -767,6 +802,14 @@ type State = {
   jevApiKey: string;
   setJevApiKey: (key: string) => void;
 
+  // Jev Vercel AI Gateway settings
+  jevProviderMode: JevProviderMode;
+  setJevProviderMode: (mode: JevProviderMode) => void;
+  jevVercelUrl: string;
+  setJevVercelUrl: (url: string) => void;
+  jevVercelKey: string;
+  setJevVercelKey: (key: string) => void;
+
   // Laya System-1 Guardrails
   layaGuardrailsEnabled: boolean;
   setLayaGuardrailsEnabled: (enabled: boolean) => void;
@@ -1008,6 +1051,29 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
       localStorage.setItem(JEV_API_KEY_STORAGE_KEY, key);
     } catch {}
     set({ jevApiKey: key });
+  },
+
+  // Jev Vercel AI Gateway
+  jevProviderMode: loadJevProviderMode(),
+  setJevProviderMode: (mode) => {
+    try {
+      localStorage.setItem(JEV_PROVIDER_MODE_KEY, mode);
+    } catch {}
+    set({ jevProviderMode: mode });
+  },
+  jevVercelUrl: loadJevVercelUrl(),
+  setJevVercelUrl: (url) => {
+    try {
+      localStorage.setItem(JEV_VERCEL_URL_KEY, url);
+    } catch {}
+    set({ jevVercelUrl: url });
+  },
+  jevVercelKey: loadJevVercelKey(),
+  setJevVercelKey: (key) => {
+    try {
+      localStorage.setItem(JEV_VERCEL_KEY_KEY, key);
+    } catch {}
+    set({ jevVercelKey: key });
   },
 
   // Laya Guardrails
@@ -1763,20 +1829,32 @@ export const useCompactorEngine = () =>
 export const useSetCompactorEngine = () =>
   useUiPreferencesStore((s) => s.setCompactorEngine);
 
-export const useLayaMode = () =>
-  useUiPreferencesStore((s) => s.layaMode);
-export const useSetLayaMode = () =>
-  useUiPreferencesStore((s) => s.setLayaMode);
+export const useLayaMode = () => useUiPreferencesStore((s) => s.layaMode);
+export const useSetLayaMode = () => useUiPreferencesStore((s) => s.setLayaMode);
 
 export const useLayaDockerUrl = () =>
   useUiPreferencesStore((s) => s.layaDockerUrl);
 export const useSetLayaDockerUrl = () =>
   useUiPreferencesStore((s) => s.setLayaDockerUrl);
 
-export const useJevApiKey = () =>
-  useUiPreferencesStore((s) => s.jevApiKey);
+export const useJevApiKey = () => useUiPreferencesStore((s) => s.jevApiKey);
 export const useSetJevApiKey = () =>
   useUiPreferencesStore((s) => s.setJevApiKey);
+
+export const useJevProviderMode = () =>
+  useUiPreferencesStore((s) => s.jevProviderMode);
+export const useSetJevProviderMode = () =>
+  useUiPreferencesStore((s) => s.setJevProviderMode);
+
+export const useJevVercelUrl = () =>
+  useUiPreferencesStore((s) => s.jevVercelUrl);
+export const useSetJevVercelUrl = () =>
+  useUiPreferencesStore((s) => s.setJevVercelUrl);
+
+export const useJevVercelKey = () =>
+  useUiPreferencesStore((s) => s.jevVercelKey);
+export const useSetJevVercelKey = () =>
+  useUiPreferencesStore((s) => s.setJevVercelKey);
 
 export const useLayaGuardrailsEnabled = () =>
   useUiPreferencesStore((s) => s.layaGuardrailsEnabled);
