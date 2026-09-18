@@ -23,4 +23,10 @@ export {
   type UniversalCompactionOutput,
   type SupportedFormat,
 } from './autocompact/universal_compactor.js';
+export {
+  isolateAndCompactContext,
+  type ContextIsolationOptions,
+  type IsolatedContextResult,
+} from './autocompact/context_isolator.js';
 export { handleSessionCompact } from '../hooks/fast-jev.js';
+

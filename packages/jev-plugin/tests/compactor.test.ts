@@ -3,6 +3,7 @@ import {
   AgentDecisionEngine,
   compactMessages,
   universalAutoCompact,
+  isolateAndCompactContext,
   calculateReductionRatio,
   LayaClassifier,
   type Message,
@@ -124,5 +125,46 @@ describe('Universal Autocompactor for any model', () => {
     expect(output.compacted).toBe(true);
     expect(output.tokensAfter).toBeLessThan(output.tokensBefore);
     expect(Array.isArray(output.transcript)).toBe(true);
+  });
+});
+
+describe('Context Isolation & Prompt Cache Protection', () => {
+  it('isolates noisy historical tool outputs while preserving cache anchor and active window verbatim', () => {
+    const chatHistory: Message[] = [
+      { role: 'system', text: 'Você é um assistente de desenvolvimento sênior do Aurapunk IDE.' },
+      { role: 'user', text: 'Liste os arquivos e rode o build.' },
+      {
+        role: 'assistant',
+        text: 'Vou listar os arquivos.',
+        toolUses: [{ tool_use_id: 'call_1', tool: 'list_dir', input: { path: '.' } }],
+        toolResults: [{ tool_use_id: 'call_1', text: 'file1.txt\nfile2.txt\n'.repeat(100) }],
+      },
+      {
+        role: 'assistant',
+        text: 'Agora vou rodar o build.',
+        toolUses: [{ tool_use_id: 'call_2', tool: 'run_command', input: { cmd: 'cargo check' } }],
+        toolResults: [{ tool_use_id: 'call_2', text: 'Compiling crate v0.1...\n'.repeat(200) }],
+      },
+      { role: 'user', text: 'Agora crie a função de soma.' },
+      { role: 'assistant', text: 'Criando a função soma agora.' },
+    ];
+
+    const result = isolateAndCompactContext(chatHistory, {
+      activeWindowSize: 2,
+      preserveCacheAnchor: true,
+      maxHistoricalResultChars: 80,
+    });
+
+    // 1. Initial Cache Anchor is 100% identical (guarantees Prompt Caching hit)
+    expect(result.payloadForModel[0].text).toBe('Você é um assistente de desenvolvimento sênior do Aurapunk IDE.');
+
+    // 2. Active Window (last 2 messages) is 100% untouched
+    expect(result.payloadForModel[result.payloadForModel.length - 2].text).toBe('Agora crie a função de soma.');
+    expect(result.payloadForModel[result.payloadForModel.length - 1].text).toBe('Criando a função soma agora.');
+
+    // 3. Historical tool outputs are pruned and summarized, cutting volatile tokens
+    expect(result.metrics.prunedToolResultsCount).toBe(2);
+    expect(result.metrics.savedVolatileTokens).toBeGreaterThan(0);
+    expect(result.payloadForModel[2].toolResults?.[0].text).toContain('[fast-jev context-isolation');
   });
 });
