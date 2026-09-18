@@ -314,6 +314,16 @@ Frontend runs on `:3001`, backend on `:3002`. Local build helpers live in `~/Des
 ~/Desktop/Kiky/scripts/restart.sh [--window|--cloud]   # restart local cockpit
 ```
 
+Both macOS helpers delegate to the repo-versioned
+`scripts/build-desktop-macos.sh`, which builds the frontend, then compiles
+and stages **every** bundled CLI tool (`aurapunk-mcp`, `aurapunk-review`,
+`aurapunk-tui`) into `crates/tauri-app/resources/bin` before packaging the
+app. Run it directly if you want the app (or DMG) built without the wrapper:
+
+```bash
+bash scripts/build-desktop-macos.sh app   # or: dmg | all
+```
+
 The Android/llama control menu also exposes these actions and includes a
 separate `Install APK on emulator` command that reuses the existing APK
 without rebuilding it.
