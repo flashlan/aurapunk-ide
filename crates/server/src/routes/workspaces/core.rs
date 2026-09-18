@@ -12,10 +12,11 @@ use db::models::{
     execution_process::{ExecutionProcess, ExecutionProcessStatus},
     issue::Issue,
     issue_workspace::IssueWorkspace,
+    session::Session,
     workspace::{Workspace, WorkspaceError},
 };
 use deployment::Deployment;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use services::services::{
     container::ContainerService,
     pipelines::{self as pl, Pipeline},
@@ -170,6 +171,37 @@ pub async fn mark_seen(
     let pool = &deployment.db().pool;
     CodingAgentTurn::mark_seen_by_workspace_id(pool, workspace.id).await?;
     Ok(ResponseJson(ApiResponse::success(())))
+}
+
+/// How many follow-up messages the user queued while the workspace's current
+/// execution was still running. A queued message is user-requested work that
+/// has not executed yet, so the card must not be promoted to its terminal
+/// (Done) status while one is pending — otherwise the queued turn runs
+/// "inside" a finished column. Consumed by the `complete_workspace_card` MCP
+/// tool as a pre-merge guard.
+#[derive(Debug, Serialize)]
+pub struct WorkspaceQueueStatus {
+    pub has_queued_messages: bool,
+    pub session_ids: Vec<uuid::Uuid>,
+}
+
+#[axum::debug_handler]
+pub async fn get_queue_status(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+) -> Result<ResponseJson<ApiResponse<WorkspaceQueueStatus>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let sessions = Session::find_by_workspace_id(pool, workspace.id).await?;
+    let service = deployment.queued_message_service();
+    let session_ids: Vec<uuid::Uuid> = sessions
+        .into_iter()
+        .filter(|session| service.has_queued(session.id))
+        .map(|session| session.id)
+        .collect();
+    Ok(ResponseJson(ApiResponse::success(WorkspaceQueueStatus {
+        has_queued_messages: !session_ids.is_empty(),
+        session_ids,
+    })))
 }
 
 #[derive(Debug, Deserialize)]

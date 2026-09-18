@@ -31,6 +31,7 @@ pub fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
                 .delete(core::delete_workspace),
         )
         .route("/chat-config", get(core::get_chat_config))
+        .route("/queue-status", get(core::get_queue_status))
         .route("/messages/first", get(core::get_first_user_message))
         .route("/seen", axum::routing::put(core::mark_seen))
         .route("/pipeline-stage", post(core::report_pipeline_stage))

@@ -40,6 +40,15 @@ struct McpMergeWorkspaceRequest {
     repo_id: Option<Uuid>,
 }
 
+/// Mirror of the backend `WorkspaceQueueStatus` returned by
+/// `GET /api/workspaces/{id}/queue-status`.
+#[derive(Debug, Deserialize)]
+struct WorkspaceQueueStatus {
+    has_queued_messages: bool,
+    #[serde(default)]
+    session_ids: Vec<Uuid>,
+}
+
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 struct McpCompleteWorkspaceCardResponse {
     success: bool,
@@ -176,6 +185,29 @@ impl McpServer {
                 "user_id is required so the completion summary can be scoped to a repository",
             )));
         };
+
+        // A queued follow-up is user-requested work that has not run yet. Moving
+        // the card to Done (or merging, which archives the workspace) now would
+        // strand that work in a finished column, so refuse before touching the
+        // merge and leave the card in its open (In Progress) state.
+        let queue_url = self.url(&format!("/api/workspaces/{workspace_id}/queue-status"));
+        let queue: WorkspaceQueueStatus = match self.send_json(self.client.get(&queue_url)).await {
+            Ok(status) => status,
+            Err(error) => return Ok(Self::tool_error(error)),
+        };
+        if queue.has_queued_messages {
+            let sessions = queue
+                .session_ids
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Ok(Self::tool_error(super::ToolError::message(format!(
+                "The workspace still has {} queued follow-up message(s) (session(s): {}). The card was left open — it was NOT merged and NOT moved to Done. Wait for the queued work to finish, then call complete_workspace_card again.",
+                queue.session_ids.len(),
+                sessions,
+            ))));
+        }
 
         // Defer the merge route's normal auto-move. The card must not reach
         // Done until the required Mem0 write has been acknowledged below.
