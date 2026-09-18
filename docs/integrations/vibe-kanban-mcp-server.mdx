@@ -72,6 +72,20 @@ Many tools accept an optional `project_id` parameter. When running inside a work
 |------|---------|-------------------|-------------------|---------|
 | `list_projects` | List projects | None | None | List of projects with IDs and names |
 
+### Project Statuses
+
+Card statuses are the board columns of a project. Cards reference them by ID, so
+create or adjust a project's statuses before setting a card's status. The SDLC
+preset gives a project a ready-made workflow board.
+
+| Tool | Purpose | Required Parameters | Optional Parameters | Returns |
+|------|---------|-------------------|-------------------|---------|
+| `list_project_statuses` | List a project's card statuses (board columns) | None | `project_id` | Statuses with IDs, names, colours, order, hidden and terminal flags |
+| `create_project_status` | Create a card status in a project | `name`<br/>`color` | `project_id`<br/>`sort_order`<br/>`hidden`<br/>`is_terminal` | Created status |
+| `update_project_status` | Update a card status (rename, recolor, reorder, hide, or change its terminal flag) | `status_id` | `name`<br/>`color`<br/>`sort_order`<br/>`hidden`<br/>`is_terminal` | Updated status |
+| `delete_project_status` | Delete a card status | `status_id` | None | Deletion confirmation |
+| `inject_sdlc_statuses` | Inject the SDLC preset (planning, development, testing, review, iteration, deployment) into a project | None | `project_id` | Number of columns added plus the project's full column set |
+
 ### Issue Management
 
 | Tool | Purpose | Required Parameters | Optional Parameters | Returns |

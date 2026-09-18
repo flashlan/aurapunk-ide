@@ -19,7 +19,7 @@ pub struct ProjectStatus {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct CreateProjectStatusRequest {
     /// Optional client-generated ID. If not provided, server generates one.
     /// Using client-generated IDs enables stable optimistic updates.
@@ -34,7 +34,7 @@ pub struct CreateProjectStatusRequest {
     pub is_terminal: bool,
 }
 
-#[derive(Debug, Clone, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct UpdateProjectStatusRequest {
     #[serde(default, deserialize_with = "some_if_present")]
     pub name: Option<String>,
@@ -55,5 +55,15 @@ pub struct ListProjectStatusesQuery {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ListProjectStatusesResponse {
+    pub project_statuses: Vec<ProjectStatus>,
+}
+
+/// Result of injecting the SDLC status preset into a project. `added` counts
+/// the preset columns that were created (case-insensitive name matches are
+/// skipped), and `project_statuses` is the project's full column set after
+/// injection.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct InjectSdlcStatusesResponse {
+    pub added: i32,
     pub project_statuses: Vec<ProjectStatus>,
 }

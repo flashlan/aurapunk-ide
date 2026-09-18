@@ -16,22 +16,23 @@ use std::{
 };
 
 use api_types::{
-    CreateIssueRelationshipRequest, CreateIssueRequest, CreateIssueTagRequest, Issue as ApiIssue,
-    IssuePriority, IssueRelationship as ApiIssueRelationship, IssueRelationshipType,
-    IssueSortField, IssueTag as ApiIssueTag, ListIssueRelationshipsQuery,
-    ListIssueRelationshipsResponse, ListIssueTagsResponse, ListIssuesResponse,
-    ListProjectStatusesResponse, ListProjectsResponse, ListPullRequestsResponse, ListTagsResponse,
-    MutationResponse, OrchestratorPromptResponse, OrchestratorPromptSource, Project as ApiProject,
-    ProjectStatus as ApiProjectStatus, PullRequest as ApiPullRequest, PullRequestStatus,
-    ResolvedOrchestratorPromptResponse, SearchIssuesRequest, SortDirection, Tag as ApiTag,
-    UpdateIssueRequest, UpdateOrchestratorPromptRequest,
+    CreateIssueRelationshipRequest, CreateIssueRequest, CreateIssueTagRequest,
+    CreateProjectStatusRequest, InjectSdlcStatusesResponse, Issue as ApiIssue, IssuePriority,
+    IssueRelationship as ApiIssueRelationship, IssueRelationshipType, IssueSortField,
+    IssueTag as ApiIssueTag, ListIssueRelationshipsQuery, ListIssueRelationshipsResponse,
+    ListIssueTagsResponse, ListIssuesResponse, ListProjectStatusesResponse, ListProjectsResponse,
+    ListPullRequestsResponse, ListTagsResponse, MutationResponse, OrchestratorPromptResponse,
+    OrchestratorPromptSource, Project as ApiProject, ProjectStatus as ApiProjectStatus,
+    PullRequest as ApiPullRequest, PullRequestStatus, ResolvedOrchestratorPromptResponse,
+    SearchIssuesRequest, SortDirection, Tag as ApiTag, UpdateIssueRequest,
+    UpdateOrchestratorPromptRequest, UpdateProjectStatusRequest,
 };
 use axum::{
     Router,
     extract::{Json, Path, Query, State},
     http::HeaderMap,
     response::Json as ResponseJson,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
 };
 use db::models::{
     agent_work::{AgentActivity, AgentWorkDeclaration},
@@ -55,6 +56,8 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use utils::response::ApiResponse;
 use uuid::Uuid;
+
+use services::services::project_config;
 
 use super::local_kanban::{create_issue_record, merge_and_update_issue};
 use crate::{
@@ -293,6 +296,72 @@ async fn list_project_statuses(
         .map(to_api_status)
         .collect();
     Ok(ok(ListProjectStatusesResponse { project_statuses }))
+}
+
+async fn create_project_status(
+    State(deployment): State<DeploymentImpl>,
+    Json(req): Json<CreateProjectStatusRequest>,
+) -> Result<ResponseJson<ApiResponse<MutationResponse<ApiProjectStatus>>>, ApiError> {
+    let id = req.id.unwrap_or_else(Uuid::new_v4);
+    let row = DbProjectStatus::create(
+        &deployment.db().pool,
+        id,
+        req.project_id,
+        &req.name,
+        &req.color,
+        req.sort_order as i64,
+        req.hidden,
+        req.is_terminal,
+    )
+    .await?;
+    Ok(mutated(to_api_status(row)))
+}
+
+async fn update_project_status(
+    State(deployment): State<DeploymentImpl>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<UpdateProjectStatusRequest>,
+) -> Result<ResponseJson<ApiResponse<MutationResponse<ApiProjectStatus>>>, ApiError> {
+    let row = DbProjectStatus::update(
+        &deployment.db().pool,
+        id,
+        req.name.as_deref(),
+        req.color.as_deref(),
+        req.sort_order.map(|v| v as i64),
+        req.hidden,
+        req.is_terminal,
+    )
+    .await?
+    .ok_or_else(|| ApiError::BadRequest("status not found".into()))?;
+    Ok(mutated(to_api_status(row)))
+}
+
+async fn delete_project_status(
+    State(deployment): State<DeploymentImpl>,
+    Path(id): Path<Uuid>,
+) -> Result<ResponseJson<ApiResponse<()>>, ApiError> {
+    DbProjectStatus::delete(&deployment.db().pool, id).await?;
+    Ok(ok(()))
+}
+
+/// Inject the SDLC status preset into a project (idempotent). Returns how many
+/// columns were created plus the project's full column set afterwards.
+async fn inject_sdlc_statuses(
+    State(deployment): State<DeploymentImpl>,
+    Json(scope): Json<ProjectScope>,
+) -> Result<ResponseJson<ApiResponse<InjectSdlcStatusesResponse>>, ApiError> {
+    let added =
+        project_config::inject_sdlc_statuses(&deployment.db().pool, scope.project_id).await?;
+    let project_statuses =
+        DbProjectStatus::list_by_project(&deployment.db().pool, scope.project_id)
+            .await?
+            .into_iter()
+            .map(to_api_status)
+            .collect();
+    Ok(ok(InjectSdlcStatusesResponse {
+        added: added as i32,
+        project_statuses,
+    }))
 }
 
 async fn list_project_tags(
@@ -1034,7 +1103,18 @@ fn resolve_source_kind(path_id: Uuid, source_project_id: Option<Uuid>) -> Orches
 pub fn router(_deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
     Router::new()
         .route("/projects", get(list_projects))
-        .route("/project-statuses", get(list_project_statuses))
+        .route(
+            "/project-statuses",
+            get(list_project_statuses).post(create_project_status),
+        )
+        // Static segment must be registered alongside the dynamic `{id}` route;
+        // matchit resolves the literal first, so `/inject-sdlc` never binds to
+        // the status-id route.
+        .route("/project-statuses/inject-sdlc", post(inject_sdlc_statuses))
+        .route(
+            "/project-statuses/{id}",
+            patch(update_project_status).delete(delete_project_status),
+        )
         .route("/project-tags", get(list_project_tags))
         .route("/projects/{id}/agent-work", get(list_project_agent_work))
         // ADR-016: orchestrator prompt endpoints. Envelope-wrapped because

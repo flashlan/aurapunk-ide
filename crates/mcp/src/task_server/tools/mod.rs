@@ -46,6 +46,7 @@ mod issues;
 mod mem0;
 mod orchestrator_prompt;
 mod pipeline;
+mod project_statuses;
 mod projects;
 mod repos;
 mod rules;
@@ -65,6 +66,10 @@ impl McpServer {
             // local-REST-backed, only their module names said "remote".
             // `global_mode_exposes_the_full_card_surface` pins the set.
             + Self::projects_tools_router()
+            // Board-column (status) management: list/create/update/delete plus
+            // the SDLC preset injection. Lets an agent shape a project's board
+            // the same way the Settings → Card Statuses UI does.
+            + Self::project_statuses_tools_router()
             + Self::issues_tools_router()
             + Self::issue_tags_tools_router()
             + Self::issue_relationships_tools_router()
@@ -528,14 +533,17 @@ mod tests {
             "complete_workspace_card".to_string(),
             "create_issue".to_string(),
             "create_issue_relationship".to_string(),
+            "create_project_status".to_string(),
             "create_session".to_string(),
             "declare_agent_work".to_string(),
             "delete_issue".to_string(),
             "delete_issue_relationship".to_string(),
+            "delete_project_status".to_string(),
             "delete_workspace".to_string(),
             "get_context".to_string(),
             "get_execution".to_string(),
             "heartbeat_agent_work".to_string(),
+            "inject_sdlc_statuses".to_string(),
             // ADR-016 reachability amendment: the per-tick prompt read is in
             // the global router (the mode the orchestrator connects with), so
             // one session can both read board prompts and sweep.
@@ -550,6 +558,7 @@ mod tests {
             "list_agent_work".to_string(),
             "list_pending_approvals".to_string(),
             "list_projects".to_string(),
+            "list_project_statuses".to_string(),
             "list_repos".to_string(),
             "list_sessions".to_string(),
             "list_tags".to_string(),
@@ -572,6 +581,7 @@ mod tests {
             "update_cleanup_script".to_string(),
             "update_dev_server_script".to_string(),
             "update_issue".to_string(),
+            "update_project_status".to_string(),
             "update_session".to_string(),
             "update_setup_script".to_string(),
             "update_workspace".to_string(),

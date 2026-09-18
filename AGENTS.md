@@ -270,3 +270,29 @@ fixed them. Newest last.
   `AURAPUNK_BACKEND_URL` / `VIBE_BACKEND_URL` into the execution env. After
   installing the new app the MCP resolved the correct workspace context and
   the card was completed.
+
+### 2026-09-18 — MCP control of card statuses + SDLC preset
+- **Added `/api` envelope CRUD for project statuses** in
+  `crates/server/src/routes/kanban.rs`: `POST /api/project-statuses`,
+  `PATCH|DELETE /api/project-statuses/{id}`, plus
+  `POST /api/project-statuses/inject-sdlc`. The `/api` router is the only
+  one the MCP `send_json` can parse (it expects the `ApiResponse<MutationResponse<T>>`
+  envelope); the `/v1/*` status routes return bare `MutationResponse`.
+- **Single source for the SDLC preset:** `SDLC_STATUS_PRESET` +
+  idempotent `inject_sdlc_statuses(pool, project_id)` now live in
+  `crates/services/src/services/project_config/mod.rs` (case-insensitive name
+  dedupe, append after max `sort_order`, `deployment` terminal only when the
+  project has no terminal column yet). Settings → Card Statuses now calls the
+  backend endpoint instead of duplicating the preset and injection loop in TS.
+- **New MCP module** `crates/mcp/src/task_server/tools/project_statuses.rs`:
+  `list_project_statuses`, `create_project_status` (sort_order defaults to
+  append), `update_project_status`, `delete_project_status`,
+  `inject_sdlc_statuses`. Registered in `global_mode_router` and pinned in the
+  exact-set test `global_mode_exposes_the_full_card_surface`; NOT added to the
+  orchestrator router (execution/board agents manage columns).
+- **api-types:** `CreateProjectStatusRequest` / `UpdateProjectStatusRequest`
+  gained `Serialize` (the MCP client serializes them into request bodies) and
+  `InjectSdlcStatusesResponse { added, project_statuses }` was added.
+- **Verified:** `cargo check --workspace` clean; `cargo test -p mcp` green
+  (46 lib + 12 bin, incl. the router exact-set gate); web-core `tsc --noEmit`
+  clean; Prettier clean.

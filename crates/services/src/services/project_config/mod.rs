@@ -34,6 +34,19 @@ const DEFAULT_PROJECT_COLOR: &str = "#6366f1";
 const DEFAULT_STATUSES: &[&str] = &["Todo", "In Progress", "In Review", "Done"];
 const STATUS_PALETTE: &[&str] = &["#94a3b8", "#3b82f6", "#a855f7", "#22c55e", "#f59e0b"];
 
+/// Pre-fabricated SDLC workflow columns: `(name, color, is_terminal)`.
+/// Injected on demand into a project's status set (Settings → Card Statuses,
+/// MCP `inject_sdlc_statuses`) so a project can adopt an SDLC-shaped board
+/// without hand-creating each column.
+pub const SDLC_STATUS_PRESET: &[(&str, &str, bool)] = &[
+    ("planning", "#64748b", false),
+    ("development", "#3b82f6", false),
+    ("testing", "#f59e0b", false),
+    ("review", "#a855f7", false),
+    ("iteration", "#06b6d4", false),
+    ("deployment", "#22c55e", true),
+];
+
 /// Top-level shape of an exported/imported config document.
 #[derive(Debug, Default, Deserialize)]
 struct ProjectsConfig {
@@ -328,6 +341,52 @@ async fn import_project(pool: &SqlitePool, cfg: &ProjectConfig) -> anyhow::Resul
     }
 
     Ok(links)
+}
+
+/// Append any missing [`SDLC_STATUS_PRESET`] columns to a project.
+///
+/// Idempotent: an existing column whose name matches a preset (case-insensitive)
+/// is skipped. New columns are ordered after the current max `sort_order`.
+/// At most one terminal status is kept — `deployment` only becomes terminal
+/// when the project has no terminal column yet. Returns the number of columns
+/// created.
+pub async fn inject_sdlc_statuses(
+    pool: &SqlitePool,
+    project_id: Uuid,
+) -> Result<usize, sqlx::Error> {
+    let existing = ProjectStatus::list_by_project(pool, project_id).await?;
+    let existing_names: std::collections::HashSet<String> = existing
+        .iter()
+        .map(|s| s.name.trim().to_ascii_lowercase())
+        .collect();
+    let has_terminal = existing.iter().any(|s| s.is_terminal);
+    let mut next_order = existing
+        .iter()
+        .map(|s| s.sort_order)
+        .max()
+        .map(|max| max + 1)
+        .unwrap_or(0);
+
+    let mut added = 0usize;
+    for (name, color, is_terminal) in SDLC_STATUS_PRESET {
+        if existing_names.contains(&name.to_ascii_lowercase()) {
+            continue;
+        }
+        ProjectStatus::create(
+            pool,
+            Uuid::new_v4(),
+            project_id,
+            name,
+            color,
+            next_order,
+            false,
+            *is_terminal && !has_terminal,
+        )
+        .await?;
+        next_order += 1;
+        added += 1;
+    }
+    Ok(added)
 }
 
 /// Seed default kanban columns for a freshly created project (used by the API

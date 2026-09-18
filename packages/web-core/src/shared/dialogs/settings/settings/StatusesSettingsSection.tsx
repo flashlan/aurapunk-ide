@@ -5,21 +5,20 @@ import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
 import { SettingsCard, SettingsSelect } from './SettingsComponents';
 import { useProjects } from '@/shared/hooks/useProjects';
 import { makeRequest } from '@/shared/lib/remoteApi';
-import type { ProjectStatus } from 'shared/remote-types';
 
-interface SdlcStatusPreset {
+interface SdlcStatusPreview {
   name: string;
   color: string;
   isTerminal: boolean;
 }
 
 /**
- * Pre-fabricated SDLC workflow columns. Injected on demand into a project's
- * status set so they appear in every card status picker and can be assigned
- * to cards, giving a project an SDLC-flavoured board without hand-creating
- * each column.
+ * Display-only mirror of the backend SDLC preset
+ * (`services::project_config::SDLC_STATUS_PRESET`) so the Settings section can
+ * preview the columns before injecting them. The actual injection is performed
+ * by the backend endpoint — this list is never used to create statuses.
  */
-const SDLC_STATUS_PRESET: SdlcStatusPreset[] = [
+const SDLC_STATUS_PREVIEW: SdlcStatusPreview[] = [
   { name: 'planning', color: '#64748b', isTerminal: false },
   { name: 'development', color: '#3b82f6', isTerminal: false },
   { name: 'testing', color: '#f59e0b', isTerminal: false },
@@ -28,41 +27,24 @@ const SDLC_STATUS_PRESET: SdlcStatusPreset[] = [
   { name: 'deployment', color: '#22c55e', isTerminal: true },
 ];
 
-async function listProjectStatuses(
-  projectId: string
-): Promise<ProjectStatus[]> {
-  const response = await makeRequest(
-    `/v1/fallback/project_statuses?project_id=${encodeURIComponent(projectId)}`,
-    { method: 'GET' }
-  );
-  if (!response.ok) {
-    throw new Error('Failed to load project statuses');
-  }
-  const body = (await response.json()) as {
-    project_statuses?: ProjectStatus[];
-  };
-  return body.project_statuses ?? [];
+interface InjectSdlcStatusesResponse {
+  added: number;
 }
 
-async function createProjectStatus(
-  projectId: string,
-  preset: SdlcStatusPreset,
-  sortOrder: number
-): Promise<void> {
-  const response = await makeRequest('/v1/project_statuses', {
+async function injectSdlcStatuses(projectId: string): Promise<number> {
+  const response = await makeRequest('/api/project-statuses/inject-sdlc', {
     method: 'POST',
-    body: JSON.stringify({
-      project_id: projectId,
-      name: preset.name,
-      color: preset.color,
-      sort_order: sortOrder,
-      hidden: false,
-      is_terminal: preset.isTerminal,
-    }),
+    body: JSON.stringify({ project_id: projectId }),
   });
-  if (!response.ok) {
-    throw new Error('Failed to create project status');
+  const body = (await response.json().catch(() => null)) as {
+    success?: boolean;
+    message?: string;
+    data?: InjectSdlcStatusesResponse;
+  } | null;
+  if (!response.ok || !body?.success) {
+    throw new Error(body?.message ?? 'Failed to inject statuses');
   }
+  return body.data?.added ?? 0;
 }
 
 export function StatusesSettingsSection() {
@@ -87,20 +69,7 @@ export function StatusesSettingsSection() {
     setResult(null);
     setError(null);
     try {
-      const existing = await listProjectStatuses(projectId);
-      const existingNames = new Set(
-        existing.map((status) => status.name.trim().toLowerCase())
-      );
-      let sortOrder =
-        existing.reduce((max, status) => Math.max(max, status.sort_order), -1) +
-        1;
-      let added = 0;
-      for (const preset of SDLC_STATUS_PRESET) {
-        if (existingNames.has(preset.name.toLowerCase())) continue;
-        await createProjectStatus(projectId, preset, sortOrder);
-        sortOrder += 1;
-        added += 1;
-      }
+      const added = await injectSdlcStatuses(projectId);
       setResult(
         added === 0
           ? t(
@@ -159,7 +128,7 @@ export function StatusesSettingsSection() {
         />
 
         <ul className="flex flex-wrap gap-x-4 gap-y-2">
-          {SDLC_STATUS_PRESET.map((preset) => (
+          {SDLC_STATUS_PREVIEW.map((preset) => (
             <li
               key={preset.name}
               className="flex items-center gap-2 text-sm text-normal"
