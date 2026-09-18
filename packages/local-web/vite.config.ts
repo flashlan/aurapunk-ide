@@ -4,7 +4,10 @@ import react from '@vitejs/plugin-react';
 import { tanstackRouter } from '@tanstack/router-plugin/vite';
 import path from 'path';
 import fs from 'fs';
+import { createRequire } from 'module';
 import pkg from './package.json';
+
+const require = createRequire(import.meta.url);
 
 function createFilteredLogger() {
   const logger = createLogger();
@@ -95,7 +98,7 @@ export default defineConfig({
       babel: {
         plugins: [
           [
-            'babel-plugin-react-compiler',
+            require.resolve('babel-plugin-react-compiler'),
             {
               target: '18',
               sources: [
