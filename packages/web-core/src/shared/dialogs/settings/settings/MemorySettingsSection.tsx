@@ -57,7 +57,14 @@ interface MemoryMigrationResult {
   warnings: string[];
 }
 
-const PROVIDER_ORDER = ['groq', 'openrouter', 'llama', 'openai'] as const;
+const PROVIDER_ORDER = [
+  'jev',
+  'laya',
+  'groq',
+  'openrouter',
+  'llama',
+  'openai',
+] as const;
 const CLOUD_ACCOUNT_STORAGE_KEY = 'aurapunk-cloud-account';
 
 /**
@@ -505,10 +512,14 @@ export function MemorySettingsSection() {
 
   const providerLabel = (p: string): string => {
     switch (p) {
+      case 'jev':
+        return '⚡ Fast Jev (Local CPU • Zero Tokens • <1ms)';
+      case 'laya':
+        return '🧠 Laya Classifier (System-1 Agentic • Zero Tokens)';
       case 'groq':
-        return 'Groq';
+        return 'Groq (Cloud LLM)';
       case 'openrouter':
-        return 'OpenRouter';
+        return 'OpenRouter (Cloud LLM)';
       case 'llama':
         return 'Local llama (OpenAI /v1)';
       case 'openai':
@@ -919,7 +930,22 @@ export function MemorySettingsSection() {
                     </option>
                   ))}
                 </select>
-                <div className="mt-1 text-xs text-low">
+                {(provider === 'jev' || provider === 'laya') && (
+                  <div className="mt-2.5 rounded-sm border border-brand/30 bg-brand/5 p-2.5 text-xs text-normal">
+                    <div className="flex items-center gap-1.5 font-medium text-high">
+                      <span className="inline-block size-2 rounded-full bg-success" />
+                      {provider === 'jev'
+                        ? 'Fast Jev Compactor & Deterministic Extractor Active'
+                        : 'Laya System-1 Agentic Classifier Active'}
+                    </div>
+                    <div className="mt-1 text-2xs text-low leading-relaxed">
+                      {provider === 'jev'
+                        ? 'Runs sub-millisecond local token classification and AST parsing. Extracts durable facts, modules, files, and relations with zero token consumption and zero latency.'
+                        : 'Autonomous System-1 classification with 9 agent decisions. Classifies fact durability, filters out volatile compiler errors/logs, and builds clean semantic graph relations.'}
+                    </div>
+                  </div>
+                )}
+                <div className="mt-2 text-xs text-low">
                   {t(
                     'settings.memory.providerHint',
                     'Configured providers are tried in order when the primary is rate-limited or fails.'
@@ -935,6 +961,41 @@ export function MemorySettingsSection() {
                   {PROVIDER_ORDER.map((p) => {
                     const d = drafts[p] ?? { url: '', model: '', key: '' };
                     const hasKey = config.providers[p]?.has_key ?? false;
+                    const isLocal = p === 'jev' || p === 'laya';
+
+                    if (isLocal) {
+                      return (
+                        <div
+                          key={p}
+                          className="rounded-sm border border-brand/20 bg-secondary/60 p-2.5"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="text-xs font-medium text-normal">
+                              {providerLabel(p)}
+                            </div>
+                            <span className="inline-flex items-center gap-1 rounded-xs bg-success/15 px-1.5 py-0.5 text-2xs font-medium text-success">
+                              <span className="size-1.5 rounded-full bg-success" />
+                              Local CPU Ready
+                            </span>
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-2xs text-low">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-high">
+                                Model: {d.model || (p === 'jev' ? 'fast-jev-v1' : 'laya-system1-v1')}
+                              </span>
+                              <span>•</span>
+                              <span>Cost: 0 tokens / $0.00</span>
+                              <span>•</span>
+                              <span>Speed: &lt;1ms</span>
+                            </div>
+                            <span className="italic text-brand">
+                              No API key required
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={p} className="rounded-sm bg-secondary/40 p-2">
                         <div className="mb-1 text-xs font-medium text-normal">

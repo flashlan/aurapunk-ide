@@ -28,5 +28,17 @@ export {
   type ContextIsolationOptions,
   type IsolatedContextResult,
 } from './autocompact/context_isolator.js';
+export {
+  extractMem0Structure,
+  classifyFactDurability,
+  extractEntitiesDeterministic,
+  extractRelationsDeterministic,
+  pruneStaleGraphNodes,
+  type ExtractedEntity,
+  type ExtractedRelation,
+  type Mem0ExtractionResult,
+  type Mem0ExtractorOptions,
+} from './mem0/mem0_extractor.js';
 export { handleSessionCompact } from '../hooks/fast-jev.js';
+
 
