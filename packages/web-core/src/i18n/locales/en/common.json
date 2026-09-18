@@ -77,6 +77,12 @@
   },
   "personal": "Personal",
   "signOut": "Sign out",
+  "cloudAuth": {
+    "title": "Log in or create an account",
+    "description": "Create an account or log in to use memory for free, or to sync between apps — including Android. Your account is free.",
+    "logIn": "Log in",
+    "createAccount": "Create account"
+  },
   "oauth": {},
   "toolbar": {
     "sortBy": "Sort by",
@@ -543,7 +549,8 @@
     "createProject": "Create project",
     "settings": "Settings",
     "logIn": "Log in",
-    "signUp": "Sign up",
+    "account": "Account",
+    "accountDashboard": "Open dashboard",
     "cloudAuthTitle": "Open AuraPunk Cloud to continue",
     "bottomBarLabel": "Sidebar actions",
     "orchestratorPrompt": "Orchestrator prompt",
