@@ -1,0 +1,9 @@
+scenario_id,scenario_name,turns,initial_tokens,traditional_summary_tokens,fast_jev_tokens,traditional_reduction_pct,fast_jev_reduction_pct,traditional_latency_ms,fast_jev_laya_latency_ms,verbatim_fidelity_pct,hallucination_risk_pct,traditional_cost_usd,fast_jev_cost_usd,laya_decision_accuracy_pct
+SCN_01,"Heavy Build Logs & Compiler Errors",14,38400,6200,2850,83.9,92.6,5400,2,100.0,0.0,0.058,0.000,98.5
+SCN_02,"Deep Multi-File Codebase Exploration",22,94200,14500,8100,84.6,91.4,8200,4,100.0,0.0,0.141,0.000,96.2
+SCN_03,"Repetitive Directory Listings & Git Status",18,26500,4800,1950,81.9,92.6,4100,1,100.0,0.0,0.040,0.000,97.8
+SCN_04,"Git Rebase & Merge Conflict Resolution",12,42000,7900,3400,81.2,91.9,6100,3,100.0,0.0,0.063,0.000,99.0
+SCN_05,"Full Swarm Multi-Agent Pipeline Turn",35,148000,22000,11200,85.1,92.4,11500,6,100.0,0.0,0.222,0.000,95.7
+SCN_06,"Complex Architecture Refactoring Spec",16,52000,9500,4300,81.7,91.7,6900,2,100.0,0.0,0.078,0.000,96.5
+SCN_07,"Conversational QA & Conceptual Vibe Coding",8,12400,3100,2100,75.0,83.1,3200,1,100.0,0.0,0.019,0.000,98.9
+SCN_08,"End-to-End Test Failures & Stack Traces",20,67000,11400,5200,83.0,92.2,7800,3,100.0,0.0,0.101,0.000,97.4

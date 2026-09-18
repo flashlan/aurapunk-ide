@@ -5,9 +5,26 @@ import { handleApiResponse } from '@/shared/lib/api';
 import {
   useCompactionThreshold,
   useSetCompactionThreshold,
+  useCompactorEngine,
+  useSetCompactorEngine,
+  useLayaMode,
+  useSetLayaMode,
+  useLayaDockerUrl,
+  useSetLayaDockerUrl,
+  useJevApiKey,
+  useSetJevApiKey,
+  useLayaGuardrailsEnabled,
+  useSetLayaGuardrailsEnabled,
   type CompactionThreshold,
+  type CompactorEngineType,
 } from '@/shared/stores/useUiPreferencesStore';
-import { ScissorsIcon, SparkleIcon } from '@phosphor-icons/react';
+import {
+  ScissorsIcon,
+  SparkleIcon,
+  CpuIcon,
+  ShieldCheckIcon,
+  KeyIcon,
+} from '@phosphor-icons/react';
 
 export interface DailyAgentActivity {
   day: string;
@@ -617,6 +634,46 @@ export function UsageSettingsSection() {
 
   const compactionThreshold = useCompactionThreshold();
   const setCompactionThreshold = useSetCompactionThreshold();
+
+  const compactorEngine = useCompactorEngine();
+  const setCompactorEngine = useSetCompactorEngine();
+  const layaMode = useLayaMode();
+  const setLayaMode = useSetLayaMode();
+  const layaDockerUrl = useLayaDockerUrl();
+  const setLayaDockerUrl = useSetLayaDockerUrl();
+  const jevApiKey = useJevApiKey();
+  const setJevApiKey = useSetJevApiKey();
+  const layaGuardrailsEnabled = useLayaGuardrailsEnabled();
+  const setLayaGuardrailsEnabled = useSetLayaGuardrailsEnabled();
+
+  const ENGINE_OPTIONS: Array<{
+    id: CompactorEngineType;
+    label: string;
+    sublabel: string;
+    badge?: string;
+  }> = [
+    {
+      id: 'auto',
+      label: 'Auto (Jev + Laya)',
+      sublabel: 'Cloud Jev with local Laya fallback',
+      badge: 'Recommended',
+    },
+    {
+      id: 'laya',
+      label: 'Laya System-1',
+      sublabel: 'Local / Docker ModernBERT (Free & Private)',
+    },
+    {
+      id: 'jev',
+      label: 'TypeSafe Jev',
+      sublabel: 'Cloud API (Requires API Key)',
+    },
+    {
+      id: 'disabled',
+      label: 'Traditional (Off)',
+      sublabel: 'Standard LLM text summarization fallback',
+    },
+  ];
 
   const THRESHOLD_OPTIONS: Array<{
     id: CompactionThreshold;
@@ -1462,6 +1519,154 @@ export function UsageSettingsSection() {
           )}
         </h3>
         <div className="rounded-sm border border-border bg-panel p-3.5 space-y-3">
+          {/* Compactor Engine & Classifier Selector */}
+          <div className="rounded-sm border border-border/70 bg-secondary/30 p-3 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-high flex items-center gap-1.5">
+                <CpuIcon className="size-3.5 text-brand" weight="bold" />
+                <span>
+                  {t(
+                    'settings.usage.compactorEngineTitle',
+                    'Compactor Engine & Decision Classifier'
+                  )}
+                </span>
+              </span>
+              <span className="text-[11px] text-low">
+                {compactorEngine === 'auto' && '⚡ Cloud Jev + Local Laya fallback'}
+                {compactorEngine === 'laya' && '🔒 100% Local ModernBERT (No API key)'}
+                {compactorEngine === 'jev' && '🌐 TypeSafe Jev Cloud API'}
+                {compactorEngine === 'disabled' && '⏳ Traditional LLM summary fallback'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              {ENGINE_OPTIONS.map((opt) => {
+                const isSelected = compactorEngine === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setCompactorEngine(opt.id)}
+                    className={`relative flex flex-col items-start justify-center rounded-sm p-2.5 text-left transition-all border cursor-pointer ${
+                      isSelected
+                        ? opt.id === 'auto'
+                          ? 'border-brand bg-brand/15 text-brand ring-1 ring-brand/50 shadow-xs'
+                          : 'border-emerald-500 bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/50 shadow-xs'
+                        : 'border-border bg-panel hover:bg-secondary text-normal'
+                    }`}
+                  >
+                    {opt.badge && (
+                      <span className="absolute -top-2 right-2 rounded-full bg-brand px-1.5 py-0.2 text-[9px] font-bold text-white uppercase tracking-wider shadow-xs">
+                        {opt.badge}
+                      </span>
+                    )}
+                    <span className="text-xs font-bold">{opt.label}</span>
+                    <span className="text-[10px] text-low mt-0.5">
+                      {opt.sublabel}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Sub-configuration for Laya / Docker */}
+            {(compactorEngine === 'auto' || compactorEngine === 'laya') && (
+              <div className="rounded-sm border border-border/50 bg-panel/60 p-2.5 space-y-2 text-xs">
+                <div className="flex items-center justify-between font-medium text-normal">
+                  <span className="flex items-center gap-1.5">
+                    <CpuIcon className="size-3 text-accent" />
+                    <span>Laya Execution Mode:</span>
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="layaMode"
+                        checked={layaMode === 'embedded'}
+                        onChange={() => setLayaMode('embedded')}
+                        className="accent-brand"
+                      />
+                      <span>Embedded (<span className="text-accent">&lt;1ms CPU</span>)</span>
+                    </label>
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="layaMode"
+                        checked={layaMode === 'docker'}
+                        onChange={() => setLayaMode('docker')}
+                        className="accent-brand"
+                      />
+                      <span>Docker Container</span>
+                    </label>
+                  </div>
+                </div>
+
+                {layaMode === 'docker' && (
+                  <div className="space-y-1.5 pt-1 border-t border-border/40">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-low shrink-0">Endpoint URL:</span>
+                      <input
+                        type="text"
+                        value={layaDockerUrl}
+                        onChange={(e) => setLayaDockerUrl(e.target.value)}
+                        placeholder="http://localhost:8080"
+                        className="flex-1 rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
+                      />
+                    </div>
+                    <p className="text-[10px] text-low">
+                      Docker run command:{' '}
+                      <code className="text-normal bg-secondary px-1 py-0.5 rounded font-mono">
+                        docker run -d -p 8080:8080 convaiinnovations/laya
+                      </code>
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Sub-configuration for Jev API Key */}
+            {(compactorEngine === 'auto' || compactorEngine === 'jev') && (
+              <div className="rounded-sm border border-border/50 bg-panel/60 p-2.5 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 font-medium text-normal">
+                    <KeyIcon className="size-3 text-warning" />
+                    <span>TypeSafe Jev API Key:</span>
+                  </span>
+                  <span className="text-[10px] text-low">
+                    {compactorEngine === 'auto' ? 'Optional (Falls back to Laya if absent)' : 'Required'}
+                  </span>
+                </div>
+                <input
+                  type="password"
+                  value={jevApiKey}
+                  onChange={(e) => setJevApiKey(e.target.value)}
+                  placeholder="ts_live_..."
+                  className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
+                />
+              </div>
+            )}
+
+            {/* Guardrails Toggle */}
+            <div className="flex items-start gap-2 pt-1">
+              <input
+                type="checkbox"
+                id="laya-guardrails-checkbox"
+                checked={layaGuardrailsEnabled}
+                onChange={(e) => setLayaGuardrailsEnabled(e.target.checked)}
+                className="mt-0.5 accent-brand"
+              />
+              <label htmlFor="laya-guardrails-checkbox" className="text-xs text-normal cursor-pointer select-none">
+                <span className="font-semibold text-high flex items-center gap-1">
+                  <ShieldCheckIcon className="size-3.5 text-emerald-400" weight="bold" />
+                  Enable Laya System-1 Autonomous Guardrails (9 Decisions)
+                </span>
+                <span className="block text-[11px] text-low mt-0.5">
+                  Evaluates instructions in &lt;1ms to intercept destructive commands (<code className="font-mono">rm -rf</code>, <code className="font-mono">git reset --hard</code>) requiring confirmation, detect ambiguous requests, and route tasks.
+                </span>
+              </label>
+            </div>
+          </div>
+
           {/* Threshold Selector with Green Highlight on 85% */}
           <div className="rounded-sm border border-border/70 bg-secondary/30 p-3 space-y-2">
             <div className="flex items-center justify-between">

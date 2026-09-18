@@ -213,6 +213,76 @@ const loadCompactionThreshold = (): CompactionThreshold => {
   return DEFAULT_COMPACTION_THRESHOLD;
 };
 
+// Persisted compactor engine ('auto' | 'laya' | 'jev' | 'disabled')
+export type CompactorEngineType = 'auto' | 'laya' | 'jev' | 'disabled';
+export const DEFAULT_COMPACTOR_ENGINE: CompactorEngineType = 'auto';
+const COMPACTOR_ENGINE_KEY = 'vk-compactor-engine';
+
+const loadCompactorEngine = (): CompactorEngineType => {
+  try {
+    const stored = localStorage.getItem(COMPACTOR_ENGINE_KEY);
+    if (
+      stored === 'auto' ||
+      stored === 'laya' ||
+      stored === 'jev' ||
+      stored === 'disabled'
+    ) {
+      return stored;
+    }
+  } catch {}
+  return DEFAULT_COMPACTOR_ENGINE;
+};
+
+// Persisted Laya execution mode ('embedded' | 'docker')
+export type LayaExecutionMode = 'embedded' | 'docker';
+export const DEFAULT_LAYA_MODE: LayaExecutionMode = 'embedded';
+const LAYA_MODE_KEY = 'vk-laya-mode';
+
+const loadLayaMode = (): LayaExecutionMode => {
+  try {
+    const stored = localStorage.getItem(LAYA_MODE_KEY);
+    if (stored === 'embedded' || stored === 'docker') {
+      return stored;
+    }
+  } catch {}
+  return DEFAULT_LAYA_MODE;
+};
+
+// Persisted Laya Docker URL
+export const DEFAULT_LAYA_DOCKER_URL = 'http://localhost:8080';
+const LAYA_DOCKER_URL_KEY = 'vk-laya-docker-url';
+
+const loadLayaDockerUrl = (): string => {
+  try {
+    const stored = localStorage.getItem(LAYA_DOCKER_URL_KEY);
+    if (stored) return stored;
+  } catch {}
+  return DEFAULT_LAYA_DOCKER_URL;
+};
+
+// Persisted Jev API Key
+const JEV_API_KEY_STORAGE_KEY = 'vk-jev-api-key';
+
+const loadJevApiKey = (): string => {
+  try {
+    const stored = localStorage.getItem(JEV_API_KEY_STORAGE_KEY);
+    if (stored) return stored;
+  } catch {}
+  return '';
+};
+
+// Persisted Laya Guardrails Enabled
+const LAYA_GUARDRAILS_ENABLED_KEY = 'vk-laya-guardrails-enabled';
+
+const loadLayaGuardrailsEnabled = (): boolean => {
+  try {
+    const stored = localStorage.getItem(LAYA_GUARDRAILS_ENABLED_KEY);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return true;
+};
+
+
 // Combined pipeline selection (pipeline id + ticked stage ids), so a card
 // created with "Quick + memory on" re-opens the same way next time. Stored as
 // JSON `{ "id": "quick", "enabledIds": ["memory", "implement", ...] }`.
@@ -679,9 +749,27 @@ type State = {
   // Global thinking visibility (header button expands/collapses all blocks)
   thinkingExpanded: boolean;
 
-  // Auto-compaction threshold ('75' | '85' | '95' | 'full')
+  // Auto-compaction threshold ('50' | '65' | '75' | '85' | '95' | 'full')
   compactionThreshold: CompactionThreshold;
   setCompactionThreshold: (threshold: CompactionThreshold) => void;
+
+  // Compactor Engine & Classifier selection ('auto' | 'laya' | 'jev' | 'disabled')
+  compactorEngine: CompactorEngineType;
+  setCompactorEngine: (engine: CompactorEngineType) => void;
+
+  // Laya Mode ('embedded' | 'docker') & URL
+  layaMode: LayaExecutionMode;
+  setLayaMode: (mode: LayaExecutionMode) => void;
+  layaDockerUrl: string;
+  setLayaDockerUrl: (url: string) => void;
+
+  // TypeSafe Jev API Key
+  jevApiKey: string;
+  setJevApiKey: (key: string) => void;
+
+  // Laya System-1 Guardrails
+  layaGuardrailsEnabled: boolean;
+  setLayaGuardrailsEnabled: (enabled: boolean) => void;
 
   // Last selected project (persisted via scratch store).
   // ADR-018 — `selectedOrgId` removed.
@@ -886,6 +974,49 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
       // localStorage unavailable
     }
     set({ compactionThreshold: threshold });
+  },
+
+  // Compactor Engine & Classifier
+  compactorEngine: loadCompactorEngine(),
+  setCompactorEngine: (engine) => {
+    try {
+      localStorage.setItem(COMPACTOR_ENGINE_KEY, engine);
+    } catch {}
+    set({ compactorEngine: engine });
+  },
+
+  // Laya Mode & URL
+  layaMode: loadLayaMode(),
+  setLayaMode: (mode) => {
+    try {
+      localStorage.setItem(LAYA_MODE_KEY, mode);
+    } catch {}
+    set({ layaMode: mode });
+  },
+  layaDockerUrl: loadLayaDockerUrl(),
+  setLayaDockerUrl: (url) => {
+    try {
+      localStorage.setItem(LAYA_DOCKER_URL_KEY, url);
+    } catch {}
+    set({ layaDockerUrl: url });
+  },
+
+  // TypeSafe Jev API Key
+  jevApiKey: loadJevApiKey(),
+  setJevApiKey: (key) => {
+    try {
+      localStorage.setItem(JEV_API_KEY_STORAGE_KEY, key);
+    } catch {}
+    set({ jevApiKey: key });
+  },
+
+  // Laya Guardrails
+  layaGuardrailsEnabled: loadLayaGuardrailsEnabled(),
+  setLayaGuardrailsEnabled: (enabled) => {
+    try {
+      localStorage.setItem(LAYA_GUARDRAILS_ENABLED_KEY, String(enabled));
+    } catch {}
+    set({ layaGuardrailsEnabled: enabled });
   },
 
   // Typography & Custom Theme actions
@@ -1626,6 +1757,31 @@ export const useCompactionThreshold = () =>
   useUiPreferencesStore((s) => s.compactionThreshold);
 export const useSetCompactionThreshold = () =>
   useUiPreferencesStore((s) => s.setCompactionThreshold);
+
+export const useCompactorEngine = () =>
+  useUiPreferencesStore((s) => s.compactorEngine);
+export const useSetCompactorEngine = () =>
+  useUiPreferencesStore((s) => s.setCompactorEngine);
+
+export const useLayaMode = () =>
+  useUiPreferencesStore((s) => s.layaMode);
+export const useSetLayaMode = () =>
+  useUiPreferencesStore((s) => s.setLayaMode);
+
+export const useLayaDockerUrl = () =>
+  useUiPreferencesStore((s) => s.layaDockerUrl);
+export const useSetLayaDockerUrl = () =>
+  useUiPreferencesStore((s) => s.setLayaDockerUrl);
+
+export const useJevApiKey = () =>
+  useUiPreferencesStore((s) => s.jevApiKey);
+export const useSetJevApiKey = () =>
+  useUiPreferencesStore((s) => s.setJevApiKey);
+
+export const useLayaGuardrailsEnabled = () =>
+  useUiPreferencesStore((s) => s.layaGuardrailsEnabled);
+export const useSetLayaGuardrailsEnabled = () =>
+  useUiPreferencesStore((s) => s.setLayaGuardrailsEnabled);
 
 // Hooks for typography & custom theme
 export function useUiFontFamily() {
