@@ -2,6 +2,11 @@ import { useEffect } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { LinkNode } from '@lexical/link';
 
+interface ReadOnlyLinkPluginProps {
+  /** Called when a relative/file link is clicked. If not provided, relative links are non-clickable. */
+  onRelativeLinkClick?: (href: string) => void;
+}
+
 /**
  * Sanitize href to block dangerous protocols.
  * Returns undefined if the href is blocked.
@@ -9,117 +14,107 @@ import { LinkNode } from '@lexical/link';
 function sanitizeHref(href?: string): string | undefined {
   if (typeof href !== 'string') return undefined;
   const trimmed = href.trim();
+  if (!trimmed) return undefined;
   // Block dangerous protocols
-  if (/^(javascript|vbscript|data):/i.test(trimmed)) return undefined;
-  // Allow anchors and common relative forms (but they'll be disabled)
-  if (
-    trimmed.startsWith('#') ||
-    trimmed.startsWith('./') ||
-    trimmed.startsWith('../') ||
-    trimmed.startsWith('/')
-  )
-    return trimmed;
-  // Allow only https
-  if (/^https:\/\//i.test(trimmed)) return trimmed;
-  // Block everything else by default
-  return undefined;
+  if (/^(javascript|vbscript|data|blob):/i.test(trimmed)) return undefined;
+  // Allow safe explicit protocols (http, https, mailto)
+  if (/^(https?|mailto):/i.test(trimmed)) return trimmed;
+  // Block other protocol-prefixed URLs
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return undefined;
+  // Allow relative paths, anchors, and bare filenames (e.g. SPEC.md, ./docs/file.md)
+  return trimmed;
 }
 
 /**
- * Check if href is an external HTTPS link.
+ * Check if href should be opened externally (HTTP/HTTPS/mailto).
  */
 function isExternalHref(href?: string): boolean {
   if (!href) return false;
-  return /^https:\/\//i.test(href);
+  return /^(https?:\/\/|mailto:)/i.test(href);
 }
 
 /**
- * Plugin that handles link sanitization and security attributes in read-only mode.
- * - Blocks dangerous protocols (javascript:, vbscript:, data:)
- * - External HTTPS links: clickable with target="_blank" and rel="noopener noreferrer"
- * - Internal/relative links: rendered but not clickable
+ * Plugin that handles link sanitization and click behaviour in read-only mode.
+ *
+ * Root cause: Lexical sets contenteditable="false" on the editor root, which
+ * causes browsers to suppress native <a> navigation. Every link type therefore
+ * needs an explicit onclick that calls window.open() or a custom handler.
+ *
+ * - Dangerous protocols (javascript:, vbscript:, data:, blob:): href removed, non-clickable.
+ * - External HTTP/HTTPS links: open via window.open() in a new tab.
+ * - Relative / file links: call onRelativeLinkClick if provided; otherwise non-clickable.
  */
-export function ReadOnlyLinkPlugin() {
+export function ReadOnlyLinkPlugin({
+  onRelativeLinkClick,
+}: ReadOnlyLinkPluginProps = {}) {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
-    // Register a mutation listener to modify link DOM elements
+    const processLink = (link: HTMLAnchorElement) => {
+      const href = link.getAttribute('href');
+      const safeHref = sanitizeHref(href ?? undefined);
+
+      if (!safeHref) {
+        link.removeAttribute('href');
+        link.style.cursor = 'not-allowed';
+        link.style.pointerEvents = 'none';
+        return;
+      }
+
+      if (isExternalHref(safeHref)) {
+        link.setAttribute('target', '_blank');
+        link.setAttribute('rel', 'noopener noreferrer');
+        // contenteditable="false" blocks native <a> navigation, so we must
+        // call window.open() explicitly instead of relying on the browser default.
+        link.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          window.open(safeHref, '_blank', 'noopener,noreferrer');
+        };
+      } else if (onRelativeLinkClick) {
+        // Relative/file link with a handler — make it clickable
+        link.removeAttribute('href');
+        link.style.cursor = 'pointer';
+        link.style.removeProperty('pointer-events');
+        link.setAttribute('role', 'link');
+        link.title = href ?? safeHref;
+        link.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onRelativeLinkClick(safeHref);
+        };
+      } else {
+        // Relative link without a handler — disable
+        link.removeAttribute('href');
+        link.style.cursor = 'not-allowed';
+        link.style.pointerEvents = 'none';
+        link.setAttribute('role', 'link');
+        link.setAttribute('aria-disabled', 'true');
+        link.title = href ?? '';
+      }
+    };
+
     const unregister = editor.registerMutationListener(
       LinkNode,
       (mutations) => {
         for (const [nodeKey, mutation] of mutations) {
           if (mutation === 'destroyed') continue;
-
           const dom = editor.getElementByKey(nodeKey);
           if (!dom || !(dom instanceof HTMLAnchorElement)) continue;
-
-          const href = dom.getAttribute('href');
-          const safeHref = sanitizeHref(href ?? undefined);
-
-          if (!safeHref) {
-            // Dangerous protocol - remove href entirely
-            dom.removeAttribute('href');
-            dom.style.cursor = 'not-allowed';
-            dom.style.pointerEvents = 'none';
-            continue;
-          }
-
-          const isExternal = isExternalHref(safeHref);
-
-          if (isExternal) {
-            // External HTTPS link - add security attributes
-            dom.setAttribute('target', '_blank');
-            dom.setAttribute('rel', 'noopener noreferrer');
-            dom.onclick = (e) => e.stopPropagation();
-          } else {
-            // Internal/relative link - disable clicking
-            dom.removeAttribute('href');
-            dom.style.cursor = 'not-allowed';
-            dom.style.pointerEvents = 'none';
-            dom.setAttribute('role', 'link');
-            dom.setAttribute('aria-disabled', 'true');
-            dom.title = href ?? '';
-          }
+          processLink(dom);
         }
       }
     );
 
-    // Also handle existing links on mount by triggering a read
+    // Apply to links already in the DOM on mount
     editor.getEditorState().read(() => {
       const root = editor.getRootElement();
       if (!root) return;
-
-      const links = root.querySelectorAll('a');
-      links.forEach((link) => {
-        const href = link.getAttribute('href');
-        const safeHref = sanitizeHref(href ?? undefined);
-
-        if (!safeHref) {
-          link.removeAttribute('href');
-          link.style.cursor = 'not-allowed';
-          link.style.pointerEvents = 'none';
-          return;
-        }
-
-        const isExternal = isExternalHref(safeHref);
-
-        if (isExternal) {
-          link.setAttribute('target', '_blank');
-          link.setAttribute('rel', 'noopener noreferrer');
-          link.onclick = (e) => e.stopPropagation();
-        } else {
-          link.removeAttribute('href');
-          link.style.cursor = 'not-allowed';
-          link.style.pointerEvents = 'none';
-          link.setAttribute('role', 'link');
-          link.setAttribute('aria-disabled', 'true');
-          link.title = href ?? '';
-        }
-      });
+      root.querySelectorAll('a').forEach((link) => processLink(link));
     });
 
     return unregister;
-  }, [editor]);
+  }, [editor, onRelativeLinkClick]);
 
   return null;
 }

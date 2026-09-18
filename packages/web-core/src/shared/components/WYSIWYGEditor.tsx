@@ -49,6 +49,7 @@ import { KeyboardCommandsPlugin } from '@vibe/ui/components/KeyboardCommandsPlug
 import { ImageKeyboardPlugin } from '@vibe/ui/components/ImageKeyboardPlugin';
 import { ComponentInfoKeyboardPlugin } from '@vibe/ui/components/ComponentInfoKeyboardPlugin';
 import { ReadOnlyLinkPlugin } from '@vibe/ui/components/ReadOnlyLinkPlugin';
+import { inIframe, openFileInVSCode } from '@/integrations/vscode/bridge';
 import { ClickableCodePlugin } from '@vibe/ui/components/ClickableCodePlugin';
 import { ToolbarPlugin } from '@vibe/ui/components/ToolbarPlugin';
 import { StaticToolbarPlugin } from '@vibe/ui/components/StaticToolbarPlugin';
@@ -382,6 +383,24 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
         // noop – bridge handles fallback
       }
     }, [value]);
+    const handleRelativeLinkClick = useCallback(
+      (href: string) => {
+        // Try to match against current diff paths first
+        if (findMatchingDiffPath && onCodeClick) {
+          const matched = findMatchingDiffPath(href);
+          if (matched) {
+            onCodeClick(matched);
+            return;
+          }
+        }
+        // Open in VSCode when running inside the VS Code webview iframe
+        if (inIframe()) {
+          openFileInVSCode(href, { openAsDiff: false });
+        }
+      },
+      [findMatchingDiffPath, onCodeClick]
+    );
+
     const imageNodeDefinition = useMemo(
       () =>
         createImageNode({
@@ -608,7 +627,11 @@ const WYSIWYGEditor = forwardRef<WYSIWYGEditorRef, WysiwygProps>(
                   </>
                 )}
                 {/* Link sanitization for read-only mode */}
-                {disabled && <ReadOnlyLinkPlugin />}
+                {disabled && (
+                  <ReadOnlyLinkPlugin
+                    onRelativeLinkClick={handleRelativeLinkClick}
+                  />
+                )}
                 {/* Clickable code for file paths in read-only mode */}
                 {disabled && findMatchingDiffPath && onCodeClick && (
                   <ClickableCodePlugin
