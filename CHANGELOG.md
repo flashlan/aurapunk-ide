@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Claude Code auth-failure recovery for headed sessions**: interactive (headed/tmux) sessions never pipe stderr to the app; Claude Code records a revoked/expired login as a synthetic assistant text record in the transcript (`model: "<synthetic>"`), which previously rendered with no recovery guidance. That record is now annotated with the same actionable guidance as the headless paths, and the `<synthetic>` placeholder no longer surfaces as the session model.
+
 ## [0.3.9] - 2026-09-18
 
 ### Fixed

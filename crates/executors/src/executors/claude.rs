@@ -1867,12 +1867,22 @@ impl ClaudeLogProcessor {
                             patches.push(patch);
                         }
                         ClaudeContentItem::Text { .. } | ClaudeContentItem::Thinking { .. } => {
-                            if let Some(entry) = Self::content_item_to_normalized_entry(
+                            if let Some(mut entry) = Self::content_item_to_normalized_entry(
                                 item,
                                 &message.role,
                                 worktree_path,
                                 &mut self.last_assistant_message,
                             ) {
+                                // Headed (interactive) Claude sessions report a
+                                // revoked/expired login as a *synthetic assistant
+                                // text* record in the transcript — never on stderr —
+                                // so the headless-only stderr annotation misses it.
+                                // Annotate assistant text here so the recovery
+                                // guidance appears for headed sessions too.
+                                if matches!(entry.entry_type, NormalizedEntryType::AssistantMessage)
+                                {
+                                    entry.content = annotate_claude_auth_failure(&entry.content);
+                                }
                                 let is_new = entry_index.is_none();
                                 let idx =
                                     entry_index.unwrap_or_else(|| entry_index_provider.next());
@@ -2624,6 +2634,11 @@ fn extract_model_name(
 ) -> Option<json_patch::Patch> {
     if processor.model_name.is_none()
         && let Some(model) = message.model.as_ref()
+        // `<synthetic>` is Claude Code's placeholder for locally-generated
+        // records (e.g. the revoked-login assistant message); it is not a real
+        // model and must not be reported as the session model.
+        && !model.trim().is_empty()
+        && model.as_str() != "<synthetic>"
     {
         processor.model_name = Some(model.clone());
         let entry = NormalizedEntry {
@@ -3388,6 +3403,33 @@ mod tests {
         let unrelated = r#"{"type":"result","subtype":"error","is_error":true,"result":"Some unrelated failure"}"#;
         let parsed: ClaudeJson = serde_json::from_str(unrelated).unwrap();
         assert!(normalize(&parsed, "").is_empty());
+    }
+
+    #[test]
+    fn claude_auth_failure_synthetic_transcript_assistant_gets_recovery_guidance() {
+        // Headed (interactive) sessions never pipe stderr to the app. Instead,
+        // Claude Code records the revoked login as a synthetic assistant text
+        // record in the transcript (`model: "<synthetic>"`), so it must be
+        // annotated here — not only on the headless stderr/result paths.
+        let line = r#"{"type":"assistant","isSidechain":false,"uuid":"u9","timestamp":"2026-09-18T16:16:43Z","message":{"id":"m9","type":"message","role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"Failed to authenticate. API Error: 401 OAuth access token has been revoked."}],"stop_reason":"stop_sequence"}}"#;
+        let parsed: ClaudeJson = serde_json::from_str(line).expect("synthetic transcript parses");
+        let mut processor = ClaudeLogProcessor::new();
+        let idx = EntryIndexProvider::test_new();
+        let patches = processor.normalize_entries(&parsed, "/repo", &idx);
+        let entries = patches_to_entries(&patches);
+
+        let assistant = entries
+            .iter()
+            .find(|e| matches!(e.entry_type, NormalizedEntryType::AssistantMessage))
+            .expect("assistant entry present");
+        assert!(assistant.content.contains(AUTH_FAILURE_MARKER));
+        assert!(assistant.content.contains(AUTH_FAILURE_GUIDANCE));
+
+        // The synthetic placeholder model must not leak into a model-init entry.
+        assert!(
+            !entries.iter().any(|e| e.content.contains("<synthetic>")),
+            "synthetic model must not surface as a session model: {entries:?}"
+        );
     }
 
     #[test]
