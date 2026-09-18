@@ -31,7 +31,7 @@ Rules:
 - [x] **Done** — Protected terminal completion with Integration Guard and Mem0 (`main`)
 - [x] **Done** — Settings: Appearance & Typography, custom theme editor, backgrounds, gradients, fonts, and theme export/import (`vk/8381-settings-fonts-s`)
 - [~] **In Progress** — Gate hosted Mem0 behind Cloud login and plan quotas (`vk/cloud-mem0-login-gate`)
-- [~] **In Progress** — aurapunk get_pipeline/get_rules MCP tools red: shared port-file misroutes MCP to the wrong backend; source fix + mem0 account-id fallback committed, needs packaged-app rebuild + session restart to activate (`vk/be93-toosl-aurapunk-g`)
+- [x] **Done** — aurapunk get_pipeline/get_rules MCP tools red: shared port-file misroutes MCP to the wrong backend; fixed via env-pinned backend URL + mem0 account-id fallback + memory settings correspondence; merged to main (`vk/be93-toosl-aurapunk-g`)
 
 ## Card Pipeline Protocol (MCP)
 
