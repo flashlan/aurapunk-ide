@@ -54,7 +54,7 @@ export class AdaptiveClassifier implements DecisionClassifier {
 
     // 2. If Jev is configured, try Jev first
     const jevAvailable = await this.jev.isAvailable();
-    if (jevAvailable && this.preferProvider !== 'laya') {
+    if (jevAvailable) {
       try {
         const result = await this.jev.evaluateQuestions(state, questions);
         this.lastUsedProvider = 'jev';

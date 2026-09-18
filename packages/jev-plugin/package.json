@@ -6,9 +6,9 @@
   "types": "./src/index.ts",
   "type": "module",
   "scripts": {
-    "check": "tsc --noEmit",
-    "poc": "tsx poc/demo.ts",
-    "test": "vitest run"
+    "check": "node ../../node_modules/typescript/bin/tsc --noEmit",
+    "poc": "npx tsx poc/demo.ts",
+    "test": "npx vitest run"
   },
   "keywords": [
     "claude-code-plugin",

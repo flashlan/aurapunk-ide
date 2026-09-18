@@ -14,7 +14,9 @@
   "include": [
     "src/**/*",
     "hooks/**/*",
-    "poc/**/*",
+    "poc/**/*"
+  ],
+  "exclude": [
     "tests/**/*"
   ]
 }
