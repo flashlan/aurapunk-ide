@@ -63,10 +63,16 @@ function appendAgentTurnEntries(
   // renders as an endless spinner: the operator cannot tell whether the run
   // finished or failed, and there is nothing left to stop. Finalize those
   // entries as failed whenever the turn is no longer running.
+  //
+  // `agent_pending_approval` is still a LIVE turn: the process is parked on a
+  // question/permission that the operator has not answered yet. Finalizing it
+  // would rewrite the `pending_approval` status to `failed`, so the chat box
+  // could no longer resolve the question's options and fell back to the
+  // approve/deny bar.
   turnEntries.push(
     ...finalizeStaleToolStatuses(
       turn.visibleEntries,
-      turn.kind === 'agent_running'
+      isLiveAgentTurn(turn.kind)
     )
   );
 
@@ -76,11 +82,20 @@ function appendAgentTurnEntries(
 }
 
 /**
+ * A turn whose process is still actively attached to the workspace. A turn
+ * parked on an unanswered question/permission (`agent_pending_approval`) is
+ * live too — its process is running and waiting for the operator.
+ */
+export function isLiveAgentTurn(kind: ConversationAgentTurn['kind']): boolean {
+  return kind === 'agent_running' || kind === 'agent_pending_approval';
+}
+
+/**
  * Rewrite still-pending tool statuses to `failed` for a process that is no
  * longer running. Returns the input untouched while the process runs, so a
  * live `created`/`pending_approval` tool keeps its real state.
  */
-function finalizeStaleToolStatuses(
+export function finalizeStaleToolStatuses(
   entries: readonly PatchTypeWithKey[],
   processStillRunning: boolean
 ): PatchTypeWithKey[] {
