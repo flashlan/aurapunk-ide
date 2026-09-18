@@ -26,6 +26,7 @@ import type { EditorType } from 'shared/types';
 import { useActionVisibilityContext } from '@/shared/hooks/useActionVisibilityContext';
 import { CopyButton } from '@/shared/components/CopyButton';
 import { isRealMobileDevice } from '@/shared/hooks/useIsMobile';
+import { ThinkingToggleButton } from './ThinkingToggleButton';
 
 /**
  * Check if a ContextBarItem is a divider
@@ -242,7 +243,13 @@ export function ContextBarContainer({
       ContextBarActionGroups.secondary,
       actionCtx
     );
-    return toRenderItems(filtered, 'secondary');
+    const thinkingToggle: ContextBarRenderItem = {
+      type: 'action',
+      key: 'secondary-thinking-toggle',
+      label: 'Toggle thinking',
+      customContent: <ThinkingToggleButton />,
+    };
+    return [...toRenderItems(filtered, 'secondary'), thinkingToggle];
   }, [actionCtx, toRenderItems]);
 
   if (isRealMobileDevice()) return null;

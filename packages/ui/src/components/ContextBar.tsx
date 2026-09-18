@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  type ButtonHTMLAttributes,
   type CSSProperties,
   type MouseEvent,
   type ReactNode,
@@ -8,17 +9,23 @@ import type { Icon } from '@phosphor-icons/react';
 import { cn } from '../lib/cn';
 import { Tooltip } from './Tooltip';
 
-interface ContextBarButtonProps {
+interface ContextBarButtonProps
+  extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon: Icon;
   label: string;
   iconClassName?: string;
-  onClick?: () => void;
-  disabled?: boolean;
 }
 
 const ContextBarButton = forwardRef<HTMLButtonElement, ContextBarButtonProps>(
   function ContextBarButton(
-    { icon: IconComponent, label, iconClassName, onClick, disabled },
+    {
+      icon: IconComponent,
+      label,
+      iconClassName,
+      className,
+      disabled,
+      ...props
+    },
     ref
   ) {
     return (
@@ -29,11 +36,12 @@ const ContextBarButton = forwardRef<HTMLButtonElement, ContextBarButtonProps>(
           'flex items-center justify-center transition-colors',
           'drop-shadow-[2px_2px_4px_rgba(121,121,121,0.25)]',
           'text-low group-hover:text-normal',
-          disabled && 'opacity-40'
+          disabled && 'opacity-40',
+          className
         )}
-        aria-label={label}
-        onClick={onClick}
         disabled={disabled}
+        {...props}
+        aria-label={label}
       >
         <IconComponent
           className={cn('size-icon-base', iconClassName)}

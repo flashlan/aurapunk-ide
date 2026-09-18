@@ -32,6 +32,7 @@ Rules:
 - [x] **Done** — Settings: Appearance & Typography, custom theme editor, backgrounds, gradients, fonts, and theme export/import (`vk/8381-settings-fonts-s`)
 - [~] **In Progress** — Gate hosted Mem0 behind Cloud login and plan quotas (`vk/cloud-mem0-login-gate`)
 - [x] **Done** — aurapunk get_pipeline/get_rules MCP tools red: shared port-file misroutes MCP to the wrong backend; fixed via env-pinned backend URL + mem0 account-id fallback + memory settings correspondence; merged to main (`vk/be93-toosl-aurapunk-g`)
+- [~] **In Progress** — Tooltips da barra flutuante (ContextBar) + botão show/hide thinking (`vk/1633-renderizar-toolt`)
 
 ## Card Pipeline Protocol (MCP)
 
