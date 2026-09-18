@@ -318,6 +318,39 @@ const loadLayaGuardrailsEnabled = (): boolean => {
   return true;
 };
 
+// Persisted Abide Guardrails
+export type AbideGuardrailsEngine = 'laya' | 'jev' | 'adaptive';
+export type AbideGuardrailsAction = 'block' | 'warn';
+
+const ABIDE_GUARDRAILS_ENABLED_KEY = 'vk-abide-guardrails-enabled';
+const ABIDE_GUARDRAILS_ENGINE_KEY = 'vk-abide-guardrails-engine';
+const ABIDE_GUARDRAILS_ACTION_KEY = 'vk-abide-guardrails-action';
+
+const loadAbideGuardrailsEnabled = (): boolean => {
+  try {
+    const stored = localStorage.getItem(ABIDE_GUARDRAILS_ENABLED_KEY);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return true;
+};
+
+const loadAbideGuardrailsEngine = (): AbideGuardrailsEngine => {
+  try {
+    const stored = localStorage.getItem(ABIDE_GUARDRAILS_ENGINE_KEY);
+    if (stored === 'laya' || stored === 'jev' || stored === 'adaptive')
+      return stored;
+  } catch {}
+  return 'adaptive';
+};
+
+const loadAbideGuardrailsAction = (): AbideGuardrailsAction => {
+  try {
+    const stored = localStorage.getItem(ABIDE_GUARDRAILS_ACTION_KEY);
+    if (stored === 'block' || stored === 'warn') return stored;
+  } catch {}
+  return 'block';
+};
+
 // Combined pipeline selection (pipeline id + ticked stage ids), so a card
 // created with "Quick + memory on" re-opens the same way next time. Stored as
 // JSON `{ "id": "quick", "enabledIds": ["memory", "implement", ...] }`.
@@ -814,6 +847,14 @@ type State = {
   layaGuardrailsEnabled: boolean;
   setLayaGuardrailsEnabled: (enabled: boolean) => void;
 
+  // Abide Active Rule Guardrails
+  abideGuardrailsEnabled: boolean;
+  setAbideGuardrailsEnabled: (enabled: boolean) => void;
+  abideGuardrailsEngine: AbideGuardrailsEngine;
+  setAbideGuardrailsEngine: (engine: AbideGuardrailsEngine) => void;
+  abideGuardrailsAction: AbideGuardrailsAction;
+  setAbideGuardrailsAction: (action: AbideGuardrailsAction) => void;
+
   // Last selected project (persisted via scratch store).
   // ADR-018 — `selectedOrgId` removed.
   selectedProjectId: string | null;
@@ -1083,6 +1124,29 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
       localStorage.setItem(LAYA_GUARDRAILS_ENABLED_KEY, String(enabled));
     } catch {}
     set({ layaGuardrailsEnabled: enabled });
+  },
+
+  // Abide Active Rule Guardrails
+  abideGuardrailsEnabled: loadAbideGuardrailsEnabled(),
+  setAbideGuardrailsEnabled: (enabled) => {
+    try {
+      localStorage.setItem(ABIDE_GUARDRAILS_ENABLED_KEY, String(enabled));
+    } catch {}
+    set({ abideGuardrailsEnabled: enabled });
+  },
+  abideGuardrailsEngine: loadAbideGuardrailsEngine(),
+  setAbideGuardrailsEngine: (engine) => {
+    try {
+      localStorage.setItem(ABIDE_GUARDRAILS_ENGINE_KEY, engine);
+    } catch {}
+    set({ abideGuardrailsEngine: engine });
+  },
+  abideGuardrailsAction: loadAbideGuardrailsAction(),
+  setAbideGuardrailsAction: (action) => {
+    try {
+      localStorage.setItem(ABIDE_GUARDRAILS_ACTION_KEY, action);
+    } catch {}
+    set({ abideGuardrailsAction: action });
   },
 
   // Typography & Custom Theme actions
@@ -1860,6 +1924,21 @@ export const useLayaGuardrailsEnabled = () =>
   useUiPreferencesStore((s) => s.layaGuardrailsEnabled);
 export const useSetLayaGuardrailsEnabled = () =>
   useUiPreferencesStore((s) => s.setLayaGuardrailsEnabled);
+
+export const useAbideGuardrailsEnabled = () =>
+  useUiPreferencesStore((s) => s.abideGuardrailsEnabled);
+export const useSetAbideGuardrailsEnabled = () =>
+  useUiPreferencesStore((s) => s.setAbideGuardrailsEnabled);
+
+export const useAbideGuardrailsEngine = () =>
+  useUiPreferencesStore((s) => s.abideGuardrailsEngine);
+export const useSetAbideGuardrailsEngine = () =>
+  useUiPreferencesStore((s) => s.setAbideGuardrailsEngine);
+
+export const useAbideGuardrailsAction = () =>
+  useUiPreferencesStore((s) => s.abideGuardrailsAction);
+export const useSetAbideGuardrailsAction = () =>
+  useUiPreferencesStore((s) => s.setAbideGuardrailsAction);
 
 // Hooks for typography & custom theme
 export function useUiFontFamily() {

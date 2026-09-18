@@ -193,31 +193,135 @@ function scopedMemoryUserId(c: any, userId: string): string {
   return licenseCheckUrl && accountId ? `${accountId}:${userId}` : userId;
 }
 
-async function hasActiveLicense(accountId: string): Promise<boolean> {
-  if (!licenseCheckUrl) return true;
-  if (!accountId || !licenseCheckToken) return false;
-  const cachedUntil = licenseCache.get(accountId);
-  if (cachedUntil && cachedUntil > Date.now()) return true;
+interface AccountQuotaResult {
+  active: boolean;
+  allowed: boolean;
+  plan: 'free' | 'pro' | 'enterprise';
+  limit: number;
+  used: number;
+  remaining: number;
+}
 
-  try {
-    const response = await fetch(licenseCheckUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${licenseCheckToken}`,
-      },
-      body: JSON.stringify({ account_id: accountId }),
-      signal: AbortSignal.timeout(3_000),
-    });
-    if (!response.ok) return false;
-    const body = await response.json().catch(() => ({} as any));
-    const active = body?.active === true || body?.licensed === true;
-    if (active) licenseCache.set(accountId, Date.now() + LICENSE_CACHE_MS);
-    return active;
-  } catch (error) {
-    console.error(`[auth] license check failed: ${(error as Error).message}`);
-    return false;
+const accountPlanCache = new Map<string, { plan: 'free' | 'pro' | 'enterprise'; active: boolean; expiresAt: number }>();
+const monthlyUsage = new Map<string, { count: number; period: string }>();
+
+const LAYA_CLOUD_FREE_LIMIT = Number(process.env.LAYA_CLOUD_FREE_LIMIT || 100);
+const LAYA_CLOUD_PAID_LIMIT = Number(process.env.LAYA_CLOUD_PAID_LIMIT || 10_000);
+
+function currentPeriodKey(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+async function checkAccountQuota(accountId: string): Promise<AccountQuotaResult> {
+  if (!licenseCheckUrl) {
+    return {
+      active: true,
+      allowed: true,
+      plan: 'pro',
+      limit: LAYA_CLOUD_PAID_LIMIT,
+      used: 0,
+      remaining: LAYA_CLOUD_PAID_LIMIT,
+    };
   }
+
+  if (!accountId || !licenseCheckToken) {
+    return {
+      active: false,
+      allowed: false,
+      plan: 'free',
+      limit: 0,
+      used: 0,
+      remaining: 0,
+    };
+  }
+
+  let cached = accountPlanCache.get(accountId);
+  if (!cached || cached.expiresAt <= Date.now()) {
+    try {
+      const response = await fetch(licenseCheckUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${licenseCheckToken}`,
+        },
+        body: JSON.stringify({ account_id: accountId }),
+        signal: AbortSignal.timeout(3_000),
+      });
+
+      if (!response.ok) {
+        return {
+          active: false,
+          allowed: false,
+          plan: 'free',
+          limit: 0,
+          used: 0,
+          remaining: 0,
+        };
+      }
+
+      const body = await response.json().catch(() => ({} as any));
+      const active = body?.active === true || body?.licensed === true;
+      const plan = (body?.plan || (body?.licensed ? 'pro' : 'free')).toLowerCase();
+      cached = {
+        active,
+        plan: plan === 'enterprise' ? 'enterprise' : plan === 'pro' ? 'pro' : 'free',
+        expiresAt: Date.now() + LICENSE_CACHE_MS,
+      };
+      accountPlanCache.set(accountId, cached);
+    } catch (error) {
+      console.error(`[quota] license & plan check failed: ${(error as Error).message}`);
+      return {
+        active: false,
+        allowed: false,
+        plan: 'free',
+        limit: 0,
+        used: 0,
+        remaining: 0,
+      };
+    }
+  }
+
+  if (!cached.active) {
+    return {
+      active: false,
+      allowed: false,
+      plan: cached.plan,
+      limit: 0,
+      used: 0,
+      remaining: 0,
+    };
+  }
+
+  const period = currentPeriodKey();
+  const usageKey = `${accountId}:${period}`;
+  const record = monthlyUsage.get(usageKey) || { count: 0, period };
+  if (record.period !== period) {
+    record.count = 0;
+    record.period = period;
+  }
+
+  const limit = cached.plan === 'free' ? LAYA_CLOUD_FREE_LIMIT : LAYA_CLOUD_PAID_LIMIT;
+  const isAllowed = record.count < limit;
+
+  if (isAllowed) {
+    record.count += 1;
+    monthlyUsage.set(usageKey, record);
+  }
+
+  return {
+    active: true,
+    allowed: isAllowed,
+    plan: cached.plan,
+    limit,
+    used: record.count,
+    remaining: Math.max(0, limit - record.count),
+  };
+}
+
+async function hasActiveLicense(accountId: string): Promise<boolean> {
+  const quota = await checkAccountQuota(accountId);
+  return quota.active;
 }
 
 const MEMORY_OPERATION_PREFIXES = [
@@ -1691,9 +1795,28 @@ app.use("*", async (c, next) => {
     if (!accountId) {
       return c.json({ error: "Account identity is required for server memory" }, 401);
     }
-    if (!(await hasActiveLicense(accountId))) {
+    const quota = await checkAccountQuota(accountId);
+    if (!quota.active) {
       return c.json({ error: "An active AuraPunk license is required for server memory" }, 403);
     }
+    if (!quota.allowed) {
+      c.header("X-AuraPunk-Plan", quota.plan);
+      c.header("X-AuraPunk-Quota-Limit", String(quota.limit));
+      c.header("X-AuraPunk-Quota-Remaining", "0");
+      return c.json(
+        {
+          error: `Laya Cloud monthly memory quota exceeded for ${quota.plan} plan (${quota.used}/${quota.limit}). Upgrade to Pro for high-volume memory operations.`,
+          plan: quota.plan,
+          limit: quota.limit,
+          used: quota.used,
+          remaining: 0,
+        },
+        429
+      );
+    }
+    c.header("X-AuraPunk-Plan", quota.plan);
+    c.header("X-AuraPunk-Quota-Limit", String(quota.limit));
+    c.header("X-AuraPunk-Quota-Remaining", String(quota.remaining));
   }
 
   return next();

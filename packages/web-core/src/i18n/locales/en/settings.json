@@ -48,6 +48,11 @@
       "enable": "Enabled",
       "homepage": "View on GitHub",
       "disabledHint": "Enable this add-on to use it.",
+      "jev_laya_suite": {
+        "name": "Fast Jev & Laya AI Suite",
+        "tagline": "Zero-token compaction, Abide rule guardrails & memory extraction",
+        "description": "Unified control center for local CPU decision heuristics (<1ms), Abide AGENTS.md rule enforcement on diffs, context auto-compactor, and Mem0 knowledge graph extraction."
+      },
       "graphify": {
         "name": "Graphify",
         "tagline": "Memory graph renderer",
