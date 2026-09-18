@@ -83,3 +83,44 @@ export function resolveApprovalQuestions(
     questions,
   };
 }
+
+/** What the chat box needs to render a pending approval's action bar. */
+export interface PendingApprovalSummary {
+  approvalId: string;
+  timeoutAt: string;
+  executionProcessId: string;
+  isQuestion: boolean;
+  questions: AskUserQuestionItem[] | undefined;
+}
+
+/**
+ * Pick which pending approval the chat box acts on.
+ *
+ * A single execution process can have more than one approval in flight — e.g.
+ * OpenCode raises a tool/directory permission while a questionnaire is also
+ * waiting. Returning whichever comes first would let the permission "shadow"
+ * the question, so the chat box renders the approve/deny bar and the operator
+ * never sees the options. Prefer a resolvable question; fall back to the first
+ * pending approval otherwise (the permission surfaces once the question is
+ * answered).
+ */
+export function pickPendingApproval(
+  approvals: ApprovalInfo[],
+  runningProcessIds: Iterable<string>,
+  entries: PatchTypeWithKey[]
+): PendingApprovalSummary | null {
+  const running = new Set(runningProcessIds);
+  const resolved = approvals
+    .filter((info) => running.has(info.execution_process_id))
+    .map((info) => ({ info, ...resolveApprovalQuestions(info, entries) }));
+  const chosen =
+    resolved.find((candidate) => candidate.isQuestion) ?? resolved[0];
+  if (!chosen) return null;
+  return {
+    approvalId: chosen.info.approval_id,
+    timeoutAt: chosen.info.timeout_at,
+    executionProcessId: chosen.info.execution_process_id,
+    isQuestion: chosen.isQuestion,
+    questions: chosen.questions,
+  };
+}

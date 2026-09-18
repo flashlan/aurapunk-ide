@@ -8,6 +8,7 @@ import type {
 import type { PatchTypeWithKey } from '@/shared/hooks/useConversationHistory/types';
 import {
   findQuestionsInEntries,
+  pickPendingApproval,
   resolveApprovalQuestions,
   toAskUserQuestionItems,
 } from './pendingApprovalQuestions';
@@ -188,5 +189,50 @@ describe('findQuestionsInEntries', () => {
 
   it('returns undefined when nothing matches', () => {
     expect(findQuestionsInEntries([], 'approval-1')).toBeUndefined();
+  });
+});
+
+describe('pickPendingApproval', () => {
+  it('prefers a questionnaire over a concurrent tool permission', () => {
+    const permission = approval({
+      approval_id: 'perm-1',
+      kind: 'tool',
+      is_question: false,
+      questions: undefined,
+    });
+    const question = approval({ approval_id: 'approval-1' });
+    const picked = pickPendingApproval(
+      [permission, question],
+      ['proc-1'],
+      [questionEntry('approval-1', inlineQuestions)]
+    );
+    expect(picked?.approvalId).toBe('approval-1');
+    expect(picked?.isQuestion).toBe(true);
+    expect(picked?.questions).toEqual(inlineQuestions);
+  });
+
+  it('falls back to the first approval when none is a question', () => {
+    const permission = approval({
+      approval_id: 'perm-1',
+      kind: 'tool',
+      is_question: false,
+      questions: undefined,
+    });
+    const picked = pickPendingApproval([permission], ['proc-1'], []);
+    expect(picked?.approvalId).toBe('perm-1');
+    expect(picked?.isQuestion).toBe(false);
+  });
+
+  it('ignores approvals whose process is not running', () => {
+    const picked = pickPendingApproval(
+      [approval({})],
+      ['other-process'],
+      [questionEntry('approval-1', inlineQuestions)]
+    );
+    expect(picked).toBeNull();
+  });
+
+  it('returns null when nothing is pending', () => {
+    expect(pickPendingApproval([], ['proc-1'], [])).toBeNull();
   });
 });

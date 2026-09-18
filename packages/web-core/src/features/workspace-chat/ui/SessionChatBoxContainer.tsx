@@ -36,7 +36,7 @@ import { useMessageEditRetry } from '../model/hooks/useMessageEditRetry';
 import { useBranchStatus } from '@/shared/hooks/useBranchStatus';
 import { useWorkspaceBranch } from '../model/hooks/useWorkspaceBranch';
 import { useApprovalMutation } from '../model/hooks/useApprovalMutation';
-import { resolveApprovalQuestions } from '../model/pendingApprovalQuestions';
+import { pickPendingApproval } from '../model/pendingApprovalQuestions';
 import { useApprovals } from '@/shared/hooks/useApprovals';
 import { ResolveConflictsDialog } from '@/shared/dialogs/tasks/ResolveConflictsDialog';
 import { workspaceSummaryKeys } from '@/shared/hooks/workspaceSummaryKeys';
@@ -260,31 +260,21 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     useWorkspaceExecution(workspaceId);
 
   // Approvals state
-  const { getPendingForProcess } = useApprovals();
+  const { pendingApprovals } = useApprovals();
 
-  // Get pending approval from running processes
-  const pendingApproval = useMemo(() => {
-    const runningProcesses = processes.filter(
-      (p) => p.status === ExecutionProcessStatus.running
-    );
-    for (const proc of runningProcesses) {
-      const info = getPendingForProcess(proc.id);
-      if (info) {
-        const { isQuestion, questions } = resolveApprovalQuestions(
-          info,
-          entries
-        );
-        return {
-          approvalId: info.approval_id,
-          timeoutAt: info.timeout_at,
-          executionProcessId: info.execution_process_id,
-          isQuestion,
-          questions,
-        };
-      }
-    }
-    return null;
-  }, [processes, getPendingForProcess, entries]);
+  // Get pending approval from running processes. Prefer a questionnaire over a
+  // concurrent tool permission so the question's options are not shadowed.
+  const pendingApproval = useMemo(
+    () =>
+      pickPendingApproval(
+        pendingApprovals,
+        processes
+          .filter((p) => p.status === ExecutionProcessStatus.running)
+          .map((p) => p.id),
+        entries
+      ),
+    [processes, pendingApprovals, entries]
+  );
 
   // Use approval_id as scratch key when pending approval exists to avoid
   // prefilling approval response with queued follow-up message
