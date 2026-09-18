@@ -70,6 +70,35 @@ function isAuraPunkCloudUrl(url: string): boolean {
   return url.replace(/\/+$/, '').endsWith('/api/memory/v1');
 }
 
+// Same dot palette as the header Mem0StatusIndicator: green = reachable,
+// gray = unreachable or still checking.
+const MODULE_DOT_OK = '#22c55e';
+const MODULE_DOT_IDLE = '#9ca3af';
+
+function ModuleStatusDot({
+  ok,
+  label,
+  stateText,
+  hint,
+}: {
+  ok: boolean;
+  label: string;
+  stateText: string;
+  hint: string;
+}) {
+  return (
+    <div className="flex items-center gap-2" title={hint}>
+      <span
+        aria-hidden
+        className="size-2 shrink-0 rounded-full"
+        style={{ backgroundColor: ok ? MODULE_DOT_OK : MODULE_DOT_IDLE }}
+      />
+      <span className="text-xs font-medium text-normal">{label}</span>
+      <span className="text-2xs text-low">{stateText}</span>
+    </div>
+  );
+}
+
 function readCloudAccount(): CloudAccountSnapshot | null {
   try {
     const raw = window.localStorage.getItem(CLOUD_ACCOUNT_STORAGE_KEY);
@@ -501,6 +530,49 @@ export function MemorySettingsSection() {
           {t('settings.memory.loading', 'Loading memory config…')}
         </div>
       )}
+
+      <div className="rounded-sm border border-border bg-panel p-3">
+        <div className="text-sm font-medium text-high">
+          {t('settings.memory.modules.title', 'Module status')}
+        </div>
+        <div className="mt-1 text-xs text-low">
+          {t(
+            'settings.memory.modules.hint',
+            'Live availability of the services agents rely on. Gray means unreachable or still checking.'
+          )}
+        </div>
+        <div className="mt-3 flex flex-col gap-2">
+          <ModuleStatusDot
+            ok={connection !== null}
+            label={t(
+              'settings.memory.modules.integrationGuard',
+              'Integration Guard'
+            )}
+            stateText={
+              connection !== null
+                ? t('settings.memory.modules.available', 'Available')
+                : t('settings.memory.modules.unknown', 'Unknown')
+            }
+            hint={t(
+              'settings.memory.modules.integrationGuardHint',
+              'Runs inside the backend: green while this settings API answers.'
+            )}
+          />
+          <ModuleStatusDot
+            ok={connection !== null}
+            label={t('settings.memory.modules.aurapunkMcp', 'Aurapunk MCP')}
+            stateText={
+              connection !== null
+                ? t('settings.memory.modules.available', 'Available')
+                : t('settings.memory.modules.unknown', 'Unknown')
+            }
+            hint={t(
+              'settings.memory.modules.aurapunkMcpHint',
+              'Stdio server agents use (aurapunk-mcp). It can only serve tools while this backend is reachable.'
+            )}
+          />
+        </div>
+      </div>
 
       {config && (
         <>

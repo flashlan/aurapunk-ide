@@ -42,15 +42,15 @@ Add the following configuration to your agent's MCP servers configuration:
 ```json
 {
   "mcpServers": {
-    "vibe_kanban": {
+    "aurapunk": {
       "command": "npx",
-      "args": ["-y", "vibe-kanban@latest", "--mcp"]
+      "args": ["-y", "aurapunk-ide@latest", "--mcp", "--mode", "global"]
     }
   }
 }
 ```
 
-`--mcp` launches the local MCP stdio server. Any additional arguments after `--mcp` are passed through to the `vibe-kanban-mcp` binary.
+`--mcp` launches the local MCP stdio server. Any additional arguments after `--mcp` are passed through to the `aurapunk-mcp` binary.
 
 ## Available MCP Tools
 
