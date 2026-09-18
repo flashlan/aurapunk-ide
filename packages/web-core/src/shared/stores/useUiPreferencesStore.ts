@@ -351,6 +351,21 @@ const loadAbideGuardrailsAction = (): AbideGuardrailsAction => {
   return 'block';
 };
 
+// Feature Checkbox Keys for Specific Guardrails
+const GUARDRAIL_PROTECTED_FILES_KEY = 'vk-guardrail-protected-files';
+const GUARDRAIL_AI_ATTRIBUTION_KEY = 'vk-guardrail-ai-attribution';
+const GUARDRAIL_SECRET_LEAK_KEY = 'vk-guardrail-secret-leak';
+const GUARDRAIL_GIT_OPS_KEY = 'vk-guardrail-git-ops';
+const GUARDRAIL_SEMANTIC_JEV_KEY = 'vk-guardrail-semantic-jev';
+
+const loadBoolPref = (key: string, defaultValue = true): boolean => {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return defaultValue;
+};
+
 // Combined pipeline selection (pipeline id + ticked stage ids), so a card
 // created with "Quick + memory on" re-opens the same way next time. Stored as
 // JSON `{ "id": "quick", "enabledIds": ["memory", "implement", ...] }`.
@@ -855,6 +870,18 @@ type State = {
   abideGuardrailsAction: AbideGuardrailsAction;
   setAbideGuardrailsAction: (action: AbideGuardrailsAction) => void;
 
+  // Specific Rule Activation Checkboxes
+  guardrailProtectedFiles: boolean;
+  setGuardrailProtectedFiles: (enabled: boolean) => void;
+  guardrailAiAttribution: boolean;
+  setGuardrailAiAttribution: (enabled: boolean) => void;
+  guardrailSecretLeak: boolean;
+  setGuardrailSecretLeak: (enabled: boolean) => void;
+  guardrailGitOps: boolean;
+  setGuardrailGitOps: (enabled: boolean) => void;
+  guardrailSemanticJev: boolean;
+  setGuardrailSemanticJev: (enabled: boolean) => void;
+
   // Last selected project (persisted via scratch store).
   // ADR-018 — `selectedOrgId` removed.
   selectedProjectId: string | null;
@@ -1147,6 +1174,43 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
       localStorage.setItem(ABIDE_GUARDRAILS_ACTION_KEY, action);
     } catch {}
     set({ abideGuardrailsAction: action });
+  },
+
+  // Specific Rule Activation Checkboxes
+  guardrailProtectedFiles: loadBoolPref(GUARDRAIL_PROTECTED_FILES_KEY),
+  setGuardrailProtectedFiles: (enabled) => {
+    try {
+      localStorage.setItem(GUARDRAIL_PROTECTED_FILES_KEY, String(enabled));
+    } catch {}
+    set({ guardrailProtectedFiles: enabled });
+  },
+  guardrailAiAttribution: loadBoolPref(GUARDRAIL_AI_ATTRIBUTION_KEY),
+  setGuardrailAiAttribution: (enabled) => {
+    try {
+      localStorage.setItem(GUARDRAIL_AI_ATTRIBUTION_KEY, String(enabled));
+    } catch {}
+    set({ guardrailAiAttribution: enabled });
+  },
+  guardrailSecretLeak: loadBoolPref(GUARDRAIL_SECRET_LEAK_KEY),
+  setGuardrailSecretLeak: (enabled) => {
+    try {
+      localStorage.setItem(GUARDRAIL_SECRET_LEAK_KEY, String(enabled));
+    } catch {}
+    set({ guardrailSecretLeak: enabled });
+  },
+  guardrailGitOps: loadBoolPref(GUARDRAIL_GIT_OPS_KEY),
+  setGuardrailGitOps: (enabled) => {
+    try {
+      localStorage.setItem(GUARDRAIL_GIT_OPS_KEY, String(enabled));
+    } catch {}
+    set({ guardrailGitOps: enabled });
+  },
+  guardrailSemanticJev: loadBoolPref(GUARDRAIL_SEMANTIC_JEV_KEY),
+  setGuardrailSemanticJev: (enabled) => {
+    try {
+      localStorage.setItem(GUARDRAIL_SEMANTIC_JEV_KEY, String(enabled));
+    } catch {}
+    set({ guardrailSemanticJev: enabled });
   },
 
   // Typography & Custom Theme actions
@@ -1939,6 +2003,31 @@ export const useAbideGuardrailsAction = () =>
   useUiPreferencesStore((s) => s.abideGuardrailsAction);
 export const useSetAbideGuardrailsAction = () =>
   useUiPreferencesStore((s) => s.setAbideGuardrailsAction);
+
+export const useGuardrailProtectedFiles = () =>
+  useUiPreferencesStore((s) => s.guardrailProtectedFiles);
+export const useSetGuardrailProtectedFiles = () =>
+  useUiPreferencesStore((s) => s.setGuardrailProtectedFiles);
+
+export const useGuardrailAiAttribution = () =>
+  useUiPreferencesStore((s) => s.guardrailAiAttribution);
+export const useSetGuardrailAiAttribution = () =>
+  useUiPreferencesStore((s) => s.setGuardrailAiAttribution);
+
+export const useGuardrailSecretLeak = () =>
+  useUiPreferencesStore((s) => s.guardrailSecretLeak);
+export const useSetGuardrailSecretLeak = () =>
+  useUiPreferencesStore((s) => s.setGuardrailSecretLeak);
+
+export const useGuardrailGitOps = () =>
+  useUiPreferencesStore((s) => s.guardrailGitOps);
+export const useSetGuardrailGitOps = () =>
+  useUiPreferencesStore((s) => s.setGuardrailGitOps);
+
+export const useGuardrailSemanticJev = () =>
+  useUiPreferencesStore((s) => s.guardrailSemanticJev);
+export const useSetGuardrailSemanticJev = () =>
+  useUiPreferencesStore((s) => s.setGuardrailSemanticJev);
 
 // Hooks for typography & custom theme
 export function useUiFontFamily() {

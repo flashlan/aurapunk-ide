@@ -7,6 +7,11 @@ import {
   DatabaseIcon,
   CloudIcon,
   CheckCircleIcon,
+  FileCodeIcon,
+  UserCircleGearIcon,
+  KeyIcon,
+  GitForkIcon,
+  SparkleIcon,
 } from '@phosphor-icons/react';
 import {
   useAbideGuardrailsEnabled,
@@ -15,6 +20,16 @@ import {
   useSetAbideGuardrailsEngine,
   useAbideGuardrailsAction,
   useSetAbideGuardrailsAction,
+  useGuardrailProtectedFiles,
+  useSetGuardrailProtectedFiles,
+  useGuardrailAiAttribution,
+  useSetGuardrailAiAttribution,
+  useGuardrailSecretLeak,
+  useSetGuardrailSecretLeak,
+  useGuardrailGitOps,
+  useSetGuardrailGitOps,
+  useGuardrailSemanticJev,
+  useSetGuardrailSemanticJev,
   useCompactorEngine,
   useSetCompactorEngine,
   useCompactionThreshold,
@@ -40,6 +55,18 @@ export const JevLayaSuitePanel: React.FC = () => {
   const setAbideEngine = useSetAbideGuardrailsEngine();
   const abideAction = useAbideGuardrailsAction();
   const setAbideAction = useSetAbideGuardrailsAction();
+
+  // Individual Feature Checkboxes
+  const guardrailProtectedFiles = useGuardrailProtectedFiles();
+  const setGuardrailProtectedFiles = useSetGuardrailProtectedFiles();
+  const guardrailAiAttribution = useGuardrailAiAttribution();
+  const setGuardrailAiAttribution = useSetGuardrailAiAttribution();
+  const guardrailSecretLeak = useGuardrailSecretLeak();
+  const setGuardrailSecretLeak = useSetGuardrailSecretLeak();
+  const guardrailGitOps = useGuardrailGitOps();
+  const setGuardrailGitOps = useSetGuardrailGitOps();
+  const guardrailSemanticJev = useGuardrailSemanticJev();
+  const setGuardrailSemanticJev = useSetGuardrailSemanticJev();
 
   // Compactor
   const compactorEngine = useCompactorEngine();
@@ -85,7 +112,7 @@ export const JevLayaSuitePanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Module 1: Abide Rule Guardrails */}
+      {/* Module 1: Abide Rule Guardrails Engine */}
       <div className="rounded-md border border-border/80 bg-panel p-4 space-y-3">
         <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
           <div className="flex items-center gap-2">
@@ -190,8 +217,7 @@ export const JevLayaSuitePanel: React.FC = () => {
 
             <p className="text-2xs text-low">
               • <strong>Laya Local</strong> evaluates AST &amp; protected paths
-              (e.g. shared/types.ts, AI attribution trailers, raw secrets) in
-              &lt;1ms on local CPU with 0 tokens.
+              in &lt;1ms on local CPU with 0 tokens.
               <br />• <strong>Fast Jev</strong> evaluates semantic architectural
               rules via Vercel AI Gateway (~300ms).
             </p>
@@ -199,7 +225,173 @@ export const JevLayaSuitePanel: React.FC = () => {
         )}
       </div>
 
-      {/* Module 2: Context Auto-Compaction */}
+      {/* Module 2: Specific Rule Activation Checkbox Matrix */}
+      <div className="rounded-md border border-border/80 bg-panel p-4 space-y-3">
+        <div className="border-b border-border/60 pb-2">
+          <div className="text-sm font-medium text-high flex items-center gap-2">
+            <ShieldCheckIcon
+              className="size-4 text-emerald-400"
+              weight="bold"
+            />
+            <span>Matriz de Ativação de Regras e Guardrails</span>
+          </div>
+          <div className="text-2xs text-low">
+            Ative ou desative individualmente cada guardrail do sistema conforme
+            sua necessidade.
+          </div>
+        </div>
+
+        <div className="divide-y divide-border/40">
+          {/* Rule 1: Bloqueio de arquivos protegidos */}
+          <div className="py-2.5 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <FileCodeIcon
+                className="size-4.5 text-brand mt-0.5 shrink-0"
+                weight="bold"
+              />
+              <div className="space-y-0.5">
+                <div className="text-xs font-medium text-normal flex items-center gap-1.5">
+                  <span>Bloqueio imediato de arquivos protegidos</span>
+                  <span className="rounded-xs bg-emerald-500/15 px-1.5 py-0.2 text-[10px] font-mono text-emerald-400">
+                    Laya &lt;1ms
+                  </span>
+                </div>
+                <p className="text-2xs text-low">
+                  Impede edições manuais em arquivos gerados ou de tipos
+                  protegidos (ex: <code>shared/types.ts</code>). Força a
+                  regeneração através das ferramentas oficiais.
+                </p>
+              </div>
+            </div>
+            <SettingsCheckbox
+              id="guardrail-protected-files"
+              label=""
+              checked={guardrailProtectedFiles}
+              onChange={setGuardrailProtectedFiles}
+            />
+          </div>
+
+          {/* Rule 2: Bloqueio de trailers de co-autoria de IA */}
+          <div className="py-2.5 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <UserCircleGearIcon
+                className="size-4.5 text-brand mt-0.5 shrink-0"
+                weight="bold"
+              />
+              <div className="space-y-0.5">
+                <div className="text-xs font-medium text-normal flex items-center gap-1.5">
+                  <span>Bloqueio de trailers de co-autoria de IA</span>
+                  <span className="rounded-xs bg-emerald-500/15 px-1.5 py-0.2 text-[10px] font-mono text-emerald-400">
+                    Laya &lt;1ms
+                  </span>
+                </div>
+                <p className="text-2xs text-low">
+                  Remove e bloqueia menções de co-autoria e trailers de
+                  assistentes (ex: <code>Co-Authored-By: Claude</code>,{' '}
+                  <code>Generated by AI</code>) mantendo a autoria limpa.
+                </p>
+              </div>
+            </div>
+            <SettingsCheckbox
+              id="guardrail-ai-attribution"
+              label=""
+              checked={guardrailAiAttribution}
+              onChange={setGuardrailAiAttribution}
+            />
+          </div>
+
+          {/* Rule 3: Bloqueio de chaves/segredos expostos */}
+          <div className="py-2.5 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <KeyIcon
+                className="size-4.5 text-amber-400 mt-0.5 shrink-0"
+                weight="bold"
+              />
+              <div className="space-y-0.5">
+                <div className="text-xs font-medium text-normal flex items-center gap-1.5">
+                  <span>Bloqueio de chaves e segredos expostos</span>
+                  <span className="rounded-xs bg-emerald-500/15 px-1.5 py-0.2 text-[10px] font-mono text-emerald-400">
+                    Laya &lt;1ms
+                  </span>
+                </div>
+                <p className="text-2xs text-low">
+                  Impede que chaves de API ao vivo (<code>ts_live_...</code>,{' '}
+                  <code>sk-...</code>, tokens) sejam commitadas diretamente em
+                  arquivos do repositório.
+                </p>
+              </div>
+            </div>
+            <SettingsCheckbox
+              id="guardrail-secret-leak"
+              label=""
+              checked={guardrailSecretLeak}
+              onChange={setGuardrailSecretLeak}
+            />
+          </div>
+
+          {/* Rule 4: Bloqueio de operações perigosas em completion */}
+          <div className="py-2.5 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <GitForkIcon
+                className="size-4.5 text-red-400 mt-0.5 shrink-0"
+                weight="bold"
+              />
+              <div className="space-y-0.5">
+                <div className="text-xs font-medium text-normal flex items-center gap-1.5">
+                  <span>Bloqueio de comandos git manuais no completion</span>
+                  <span className="rounded-xs bg-emerald-500/15 px-1.5 py-0.2 text-[10px] font-mono text-emerald-400">
+                    Laya &lt;1ms
+                  </span>
+                </div>
+                <p className="text-2xs text-low">
+                  Bloqueia execuções manuais de <code>git push</code>,{' '}
+                  <code>git merge</code> ou rebase fora do Integration Guard
+                  Protocol oficial.
+                </p>
+              </div>
+            </div>
+            <SettingsCheckbox
+              id="guardrail-git-ops"
+              label=""
+              checked={guardrailGitOps}
+              onChange={setGuardrailGitOps}
+            />
+          </div>
+
+          {/* Rule 5: Avaliação semântica via Jev com limiar calibrado */}
+          <div className="py-2.5 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <SparkleIcon
+                className="size-4.5 text-brand mt-0.5 shrink-0"
+                weight="bold"
+              />
+              <div className="space-y-0.5">
+                <div className="text-xs font-medium text-normal flex items-center gap-1.5">
+                  <span>
+                    Avaliação semântica via Fast Jev (Vercel AI / TypeSafe)
+                  </span>
+                  <span className="rounded-xs bg-brand/20 px-1.5 py-0.2 text-[10px] font-mono text-brand">
+                    Jev ~300ms
+                  </span>
+                </div>
+                <p className="text-2xs text-low">
+                  Envia diffs e regras semânticas complexas (ex: regras de
+                  arquitetura, tratamento de erros, ausência de abstrações de
+                  uso único) para o modelo de decisão Jev com limiar calibrado.
+                </p>
+              </div>
+            </div>
+            <SettingsCheckbox
+              id="guardrail-semantic-jev"
+              label=""
+              checked={guardrailSemanticJev}
+              onChange={setGuardrailSemanticJev}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Module 3: Context Auto-Compaction */}
       <div className="rounded-md border border-border/80 bg-panel p-4 space-y-3">
         <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
           <div className="flex items-center gap-2">
@@ -270,7 +462,7 @@ export const JevLayaSuitePanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Module 3: Vercel AI Gateway Configuration */}
+      {/* Module 4: Vercel AI Gateway Configuration */}
       <div className="rounded-md border border-border/80 bg-panel p-4 space-y-3">
         <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
           <div className="flex items-center gap-2">
@@ -341,7 +533,7 @@ export const JevLayaSuitePanel: React.FC = () => {
         )}
       </div>
 
-      {/* Module 4: Cloud Laya & Quotas */}
+      {/* Module 5: Cloud Laya & Quotas */}
       <div className="rounded-md border border-border/80 bg-panel p-4 space-y-2.5">
         <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
           <div className="flex items-center gap-2">

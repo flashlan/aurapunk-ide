@@ -109,6 +109,7 @@ export interface EvaluateDiffOptions {
   filePath: string;
   diff: string;
   rules?: AbideRule[];
+  enabledRuleIds?: string[];
   engine?: "laya" | "jev" | "adaptive";
   jevApiKey?: string;
   vercelAiUrl?: string;
@@ -125,6 +126,7 @@ export async function evaluateDiffRules({
   filePath,
   diff,
   rules = AURAPUNK_STANDARD_RULES,
+  enabledRuleIds,
   engine = "adaptive",
   jevApiKey,
   vercelAiUrl,
@@ -135,6 +137,10 @@ export async function evaluateDiffRules({
   const startTime = Date.now();
   const violations: RuleViolation[] = [];
 
+  const activeRules = enabledRuleIds
+    ? rules.filter((r) => enabledRuleIds.includes(r.id))
+    : rules;
+
   // Extract added lines from diff
   const addedLines = diff
     .split("\n")
@@ -143,7 +149,7 @@ export async function evaluateDiffRules({
   const addedContent = addedLines.join("\n");
 
   // Step 1: Execute Laya System-1 Deterministic Checks
-  for (const rule of rules) {
+  for (const rule of activeRules) {
     if (rule.layaCheck) {
       // Check forbidden files
       if (rule.layaCheck.forbiddenFiles) {
