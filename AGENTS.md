@@ -297,3 +297,25 @@ fixed them. Newest last.
 - **Verified:** `cargo check --workspace` clean; `cargo test -p mcp` green
   (46 lib + 12 bin, incl. the router exact-set gate); web-core `tsc --noEmit`
   clean; Prettier clean.
+
+### 2026-09-18 — AskUserQuestion voltou a virar barra Approve/Deny (regressão pós-fix)
+- **Sintoma:** na v0.3.7 o `AskUserQuestion` do OpenCode (headless) parou de
+  mostrar as opções; o chat caía na barra "Provide feedback to request
+  changes..." (Approve/Deny).
+- **Causa raiz (frontend, não backend):** o backend entregava certo — entrada
+  `tool_use`/`ask_user_question` com `status: pending_approval` e `approval_id`
+  batendo com o store. Mas `deriveConversationEntries.ts::finalizeStaleToolStatuses`
+  só considerava vivo o turno `agent_running`; um turno parado numa aprovação é
+  classificado como `agent_pending_approval`, então o `pending_approval` era
+  reescrito para `failed` e `findQuestionsInEntries` (que exige `pending_approval`)
+  não achava mais a pergunta → `isQuestion=false` → barra Approve/Deny.
+- **Fix:** `isLiveAgentTurn(kind)` trata `agent_pending_approval` como vivo
+  (commit `2bc6d928`, main). Coberto por `deriveConversationEntries.test.ts`.
+- **Also:** `pendingApprovalQuestions.ts` foi endurecido para (a) aceitar
+  `kind` ausente (perguntas resolvidas são a fonte de verdade, excluindo
+  `plan_approval`) e (b) ignorar entradas placeholder vazias; `pickPendingApproval`
+  prioriza uma pergunta sobre uma permissão de ferramenta concorrente
+  (`36ff0528`).
+- **Diagnóstico:** o DOM foi inspecionado com Chrome headless via CDP contra o
+  app real (`--remote-debugging-port`), capturando `document.querySelectorAll('button')`
+  e o fim do `document.body.innerText` enquanto a pergunta estava pendente.
