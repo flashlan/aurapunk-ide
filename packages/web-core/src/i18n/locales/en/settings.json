@@ -55,7 +55,7 @@
       },
       "viewer": {
         "userId": "Memory user",
-        "userIdHint": "mem0 user_id whose graph is rendered (one per repository).",
+        "userIdHint": "Bare repository slug — cloud accounts are scoped automatically, so never paste the full accountId:slug form.",
         "reload": "Reload graph",
         "search": "Search nodes…",
         "matches": "{{count}} matching nodes",
