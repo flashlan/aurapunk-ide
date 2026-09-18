@@ -1812,6 +1812,23 @@ export const queueApi = {
   },
 
   /**
+   * Interrupt the active turn and dispatch this follow-up immediately.
+   */
+  sendNow: async (
+    sessionId: string,
+    data: DraftFollowUpData
+  ): Promise<QueueStatus> => {
+    const response = await makeRequest(
+      `/api/sessions/${sessionId}/queue/send-now`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }
+    );
+    return handleApiResponse<QueueStatus>(response);
+  },
+
+  /**
    * Cancel a queued follow-up message
    */
   cancel: async (sessionId: string): Promise<QueueStatus> => {

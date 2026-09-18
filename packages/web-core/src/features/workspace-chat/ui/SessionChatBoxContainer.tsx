@@ -532,7 +532,10 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     queuedMessage,
     queuedConfig,
     isQueueLoading,
+    error: queueError,
+    clearError: clearQueueError,
     queueMessage,
+    sendNow,
     cancelQueue,
     refreshQueueStatus,
   } = useSessionQueueInteraction({ sessionId });
@@ -690,6 +693,36 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     reviewContext,
   ]);
 
+  const handleSendNow = useCallback(async () => {
+    const message = queuedMessage ?? localMessage;
+    const config = queuedConfig ?? executorConfig;
+    if ((!message.trim() && !reviewMarkdown) || !config) return;
+
+    const prompt = queuedMessage
+      ? queuedMessage
+      : buildAgentPrompt(message, [reviewMarkdown]).prompt;
+
+    cancelDebouncedSave();
+    await saveToScratch(message, config);
+    await sendNow(prompt, config);
+
+    setLocalMessage('');
+    clearUploadedAttachments();
+    reviewContext?.clearComments();
+  }, [
+    queuedMessage,
+    localMessage,
+    queuedConfig,
+    executorConfig,
+    reviewMarkdown,
+    cancelDebouncedSave,
+    saveToScratch,
+    sendNow,
+    setLocalMessage,
+    clearUploadedAttachments,
+    reviewContext,
+  ]);
+
   // Editor change handler
   const handleEditorChange = useCallback(
     (value: string) => {
@@ -700,6 +733,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         setLocalMessage(value);
       }
       if (sendError) clearError();
+      if (queueError) clearQueueError();
     },
     [
       isQueued,
@@ -708,6 +742,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       executorConfig,
       sendError,
       clearError,
+      queueError,
+      clearQueueError,
       setLocalMessage,
     ]
   );
@@ -1111,6 +1147,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         actions={{
           onSend: () => {},
           onQueue: () => {},
+          onSendNow: () => {},
           onCancelQueue: () => {},
           onStop: () => {},
           onClearEditor: () => {},
@@ -1172,6 +1209,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         // into a live tmux session, so onPasteFiles is a no-op there.
         onSend: handleSend,
         onQueue: handleQueueMessage,
+        onSendNow: handleSendNow,
         onCancelQueue: handleCancelQueue,
         onStop: stopExecution,
         onClearEditor: () => {
@@ -1206,7 +1244,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         conflictedFilesCount,
         onResolveConflicts: handleResolveConflicts,
       }}
-      error={sendError}
+      error={queueError ?? sendError}
       agent={effectiveExecutor}
       todos={todos}
       inProgressTodo={inProgressTodo}

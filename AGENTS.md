@@ -36,6 +36,7 @@ Rules:
 - [~] **In Progress** — Merge account+logout and login+signup into single sidebar entries with auth modal (`vk/e59a-mesclar-account`)
 - [~] **In Progress** — AskUserQuestion opções não renderizam: harden resolveApprovalQuestions (kind ausente/placeholder) (`vk/d6af-quesiojn-da-llm`)
 - [x] **Done** — Claude Code erro: surfaced 401 revoked-login recovery guidance for headed (transcript) sessions + ignore `<synthetic>` model (`vk/5cb6-claiude-code-err`)
+- [x] **Done** — Send now no chat mantendo Queue e Stop (`vk/340d-send-now`)
 
 ## Card Pipeline Protocol (MCP)
 

@@ -689,16 +689,14 @@ impl LocalContainerService {
                         .is_some();
                     let mut started_queued_follow_up = false;
 
-                    // Only execute queued messages if the execution succeeded
-                    // If it failed or was killed, just clear the queue and finalize
-                    let should_execute_queued = !matches!(
-                        ctx.execution_process.status,
-                        ExecutionProcessStatus::Failed | ExecutionProcessStatus::Killed
-                    );
-
                     if let Some(queued_msg) =
                         container.queued_message_service.take_queued(ctx.session.id)
                     {
+                        // Normal queues wait for successful completion. "Send now"
+                        // queues are also allowed through the intentional kill used
+                        // to interrupt the current turn, but never after a failure.
+                        let should_execute_queued =
+                            queued_msg.should_dispatch_after(&ctx.execution_process.status);
                         if should_execute_queued {
                             tracing::info!(
                                 "Found queued message for session {}, starting follow-up execution",

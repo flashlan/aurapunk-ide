@@ -65,6 +65,7 @@ export type ExecutionStatus =
 interface ActionsProps {
   onSend: () => void;
   onQueue: () => void;
+  onSendNow: () => void;
   onCancelQueue: () => void;
   onStop: () => void;
   onClearEditor: () => void;
@@ -589,6 +590,11 @@ export function SessionChatBox<TExecutor extends string = string>({
               value={t('conversation.actions.queue')}
             />
             <PrimaryButton
+              onClick={actions.onSendNow}
+              disabled={!canSend}
+              value={t('conversation.actions.sendNow')}
+            />
+            <PrimaryButton
               onClick={actions.onStop}
               variant="secondary"
               value={t('conversation.actions.stop')}
@@ -604,6 +610,10 @@ export function SessionChatBox<TExecutor extends string = string>({
               onClick={actions.onCancelQueue}
               value={t('conversation.actions.cancelQueue')}
               actionIcon={XIcon}
+            />
+            <PrimaryButton
+              onClick={actions.onSendNow}
+              value={t('conversation.actions.sendNow')}
             />
             <PrimaryButton
               onClick={actions.onStop}

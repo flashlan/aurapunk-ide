@@ -139,6 +139,7 @@
       "send": "Send",
       "sending": "Sending",
       "queue": "Queue",
+      "sendNow": "Send now",
       "cancelQueue": "Cancel Queue",
       "requestChanges": "Request Changes",
       "approve": "Approve",

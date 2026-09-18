@@ -17,11 +17,17 @@ interface UseSessionQueueInteractionResult {
   queuedConfig: ExecutorConfig | null;
   /** Whether a queue operation is in progress */
   isQueueLoading: boolean;
+  /** Error message from the latest queue operation. */
+  error: string | null;
+  /** Clear the latest queue error. */
+  clearError: () => void;
   /** Queue a message for later execution */
   queueMessage: (
     message: string,
     executorConfig: ExecutorConfig
   ) => Promise<void>;
+  /** Interrupt the active turn and deliver a follow-up immediately. */
+  sendNow: (message: string, executorConfig: ExecutorConfig) => Promise<void>;
   /** Cancel the queued message */
   cancelQueue: () => Promise<void>;
   /** Refresh queue status from server */
@@ -81,6 +87,23 @@ export function useSessionQueueInteraction({
     },
   });
 
+  const sendNowMutation = useMutation({
+    mutationFn: ({
+      message,
+      executorConfig,
+    }: {
+      message: string;
+      executorConfig: ExecutorConfig;
+    }) =>
+      queueApi.sendNow(sessionId!, {
+        message,
+        executor_config: executorConfig,
+      }),
+    onSuccess: (status) => {
+      queryClient.setQueryData([QUEUE_STATUS_KEY, sessionId], status);
+    },
+  });
+
   const queueMessage = useCallback(
     async (message: string, executorConfig: ExecutorConfig) => {
       if (!sessionId) return;
@@ -97,6 +120,25 @@ export function useSessionQueueInteraction({
     await cancelMutation.mutateAsync();
   }, [sessionId, cancelMutation]);
 
+  const sendNow = useCallback(
+    async (message: string, executorConfig: ExecutorConfig) => {
+      if (!sessionId) return;
+      await sendNowMutation.mutateAsync({ message, executorConfig });
+    },
+    [sessionId, sendNowMutation]
+  );
+
+  const mutationError =
+    sendNowMutation.error ?? queueMutation.error ?? cancelMutation.error;
+  const error = mutationError
+    ? `Failed to update queue: ${mutationError.message}`
+    : null;
+  const clearError = useCallback(() => {
+    sendNowMutation.reset();
+    queueMutation.reset();
+    cancelMutation.reset();
+  }, [sendNowMutation, queueMutation, cancelMutation]);
+
   const refreshQueueStatus = useCallback(async () => {
     if (!sessionId) return;
     await refetch();
@@ -106,8 +148,14 @@ export function useSessionQueueInteraction({
     isQueued,
     queuedMessage,
     queuedConfig,
-    isQueueLoading: queueMutation.isPending || cancelMutation.isPending,
+    isQueueLoading:
+      queueMutation.isPending ||
+      cancelMutation.isPending ||
+      sendNowMutation.isPending,
+    error,
+    clearError,
     queueMessage,
+    sendNow,
     cancelQueue,
     refreshQueueStatus,
   };
