@@ -313,17 +313,32 @@ export function MemoryGraphViewer() {
   }, []);
 
   // Memory (local and cloud) is scoped per repository, so 'default' rarely
-  // has a graph. Default to the first known repo slug, falling back to
-  // 'default' when the repo list is unavailable.
+  // has a graph. Probe every known repo slug and open the first one that
+  // actually has nodes, falling back to the first slug (or 'default' when
+  // the repo list is unavailable).
   useEffect(() => {
     let cancelled = false;
     void fetchRepoSlugs()
       .then((slugs) => (cancelled ? [] : slugs))
       .catch((): string[] => [])
-      .then((slugs) => {
+      .then(async (slugs) => {
         if (cancelled) return;
         setRepoSlugs(slugs);
-        const initial = slugs[0] ?? 'default';
+        let initial = slugs[0] ?? 'default';
+        if (slugs.length > 0) {
+          const settled = await Promise.all(
+            slugs.map(async (slug) => {
+              try {
+                const g = await fetchMemoryGraph(slug);
+                return { slug, count: g.nodes.length };
+              } catch {
+                return { slug, count: -1 };
+              }
+            })
+          );
+          if (cancelled) return;
+          initial = settled.find((s) => s.count > 0)?.slug ?? initial;
+        }
         setUserId(initial);
         void load(initial);
       });
