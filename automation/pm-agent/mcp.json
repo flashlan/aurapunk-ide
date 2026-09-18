@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "vibe-kanban": {
+    "aurapunk": {
       "command": "aurapunk-mcp",
       "args": ["--mode", "global"],
       "env": {

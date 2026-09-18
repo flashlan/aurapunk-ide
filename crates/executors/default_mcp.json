@@ -1,5 +1,5 @@
 {
-  "vibe_kanban": {
+  "aurapunk": {
     "command": "npx",
     "args": [
       "-y",
@@ -47,9 +47,9 @@
     ]
   },
   "meta": {
-    "vibe_kanban": {
-      "name": "Vibe Kanban",
-      "description": "Create, update and delete Vibe Kanban tasks",
+    "aurapunk": {
+      "name": "AuraPunk",
+      "description": "Create, update and delete AuraPunk tasks",
       "url": "https://www.vibekanban.com/docs/integrations/vibe-kanban-mcp-server",
       "icon": "favicon-vk-light.svg"
     },
