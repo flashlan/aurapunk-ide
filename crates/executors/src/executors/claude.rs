@@ -86,6 +86,24 @@ fn annotate_claude_auth_failure(line: &str) -> String {
     annotated
 }
 
+/// Extract a Claude Code authentication-failure message from a `result`
+/// message, if either its `result` or `error` field carries the marker.
+///
+/// Claude reports a revoked/expired login inconsistently: usually on stderr
+/// (handled by [`annotate_claude_auth_failure`]), but sometimes as an error
+/// `result` on stdout instead. The default log strategy silently dropped those
+/// error results, so the operator saw the bare failure with no recovery path.
+fn claude_auth_failure_text<'a>(
+    result: Option<&'a serde_json::Value>,
+    error: Option<&'a str>,
+) -> Option<&'a str> {
+    result
+        .and_then(serde_json::Value::as_str)
+        .into_iter()
+        .chain(error)
+        .find(|text| text.contains(AUTH_FAILURE_MARKER))
+}
+
 fn base_command(claude_code_router: bool) -> &'static str {
     if claude_code_router {
         "npx -y @musistudio/claude-code-router@1.0.66 code"
@@ -2214,6 +2232,7 @@ impl ClaudeLogProcessor {
                 model_usage,
                 subtype,
                 result,
+                error,
                 ..
             } => {
                 // get the real model context window and correct the context usage entry
@@ -2227,7 +2246,27 @@ impl ClaudeLogProcessor {
                     patches.push(self.add_token_usage_entry(entry_index_provider));
                 }
 
-                if matches!(self.strategy, HistoryStrategy::AmpResume) && is_error.unwrap_or(false)
+                if is_error.unwrap_or(false)
+                    && let Some(text) = claude_auth_failure_text(result.as_ref(), error.as_deref())
+                {
+                    // Auth failures also arrive as an error `result` on stdout,
+                    // not only on stderr. Emit the recovery guidance as an error
+                    // entry instead of dropping the message (the default
+                    // strategy previously emitted nothing for error results).
+                    let entry = NormalizedEntry {
+                        timestamp: None,
+                        entry_type: NormalizedEntryType::ErrorMessage {
+                            error_type: NormalizedEntryError::Other,
+                        },
+                        content: annotate_claude_auth_failure(text),
+                        metadata: Some(
+                            serde_json::to_value(claude_json).unwrap_or(serde_json::Value::Null),
+                        ),
+                    };
+                    let idx = entry_index_provider.next();
+                    patches.push(ConversationPatch::add_normalized_entry(idx, entry));
+                } else if matches!(self.strategy, HistoryStrategy::AmpResume)
+                    && is_error.unwrap_or(false)
                 {
                     let entry = NormalizedEntry {
                         timestamp: None,
@@ -3311,6 +3350,44 @@ mod tests {
         let annotated_partial = annotate_claude_auth_failure(partial);
         assert!(annotated_partial.contains(AUTH_FAILURE_GUIDANCE));
         assert!(!annotated_partial.ends_with('\n'));
+    }
+
+    #[test]
+    fn claude_auth_failure_error_result_gets_recovery_guidance() {
+        // The CLI can report the revoked login as an error `result` on stdout
+        // instead of on stderr. It must surface as an actionable entry carrying
+        // the recovery guidance rather than being dropped.
+        let result_json = r#"{"type":"result","subtype":"error","is_error":true,"result":"Failed to authenticate. API Error: 401 OAuth access token has been revoked."}"#;
+        let parsed: ClaudeJson = serde_json::from_str(result_json).unwrap();
+        let entries = normalize(&parsed, "");
+
+        assert_eq!(
+            entries.len(),
+            1,
+            "expected one actionable entry, got {entries:?}"
+        );
+        assert!(
+            matches!(
+                entries[0].entry_type,
+                NormalizedEntryType::ErrorMessage { .. }
+            ),
+            "expected an error message entry, got {:?}",
+            entries[0].entry_type
+        );
+        assert!(entries[0].content.contains(AUTH_FAILURE_MARKER));
+        assert!(entries[0].content.contains(AUTH_FAILURE_GUIDANCE));
+
+        // The `error` field is honoured too.
+        let error_field_json = r#"{"type":"result","subtype":"error","is_error":true,"error":"Failed to authenticate. API Error: 401 OAuth access token has been revoked."}"#;
+        let parsed: ClaudeJson = serde_json::from_str(error_field_json).unwrap();
+        let entries = normalize(&parsed, "");
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].content.contains(AUTH_FAILURE_GUIDANCE));
+
+        // Non-auth error results keep their previous behavior (dropped).
+        let unrelated = r#"{"type":"result","subtype":"error","is_error":true,"result":"Some unrelated failure"}"#;
+        let parsed: ClaudeJson = serde_json::from_str(unrelated).unwrap();
+        assert!(normalize(&parsed, "").is_empty());
     }
 
     #[test]
