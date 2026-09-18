@@ -1,0 +1,37 @@
+{
+  "name": "fast-jev-compaction",
+  "version": "0.1.0",
+  "description": "Replaces lossy compaction summary with Fast Jev & Laya System-1 decisions: scores tool calls/results, drops stale items, preserves verbatim history, with Laya fallback.",
+  "author": "Aurapunk IDE / tamaratran / NandhaKishorM",
+  "homepage": "https://github.com/tamaratran/fast-jev-compaction",
+  "hooks": {
+    "session.compact": "./hooks/fast-jev.ts"
+  },
+  "options": {
+    "provider": {
+      "type": "string",
+      "default": "auto",
+      "description": "Classifier provider: 'auto' (Jev with Laya fallback), 'jev', or 'laya'"
+    },
+    "keepThreshold": {
+      "type": "number",
+      "default": 0.5,
+      "description": "Minimum keep probability threshold for retaining tool calls/results"
+    },
+    "preserveRecentMessages": {
+      "type": "number",
+      "default": 6,
+      "description": "Number of most recent messages to keep completely untouched"
+    },
+    "truncateHeadChars": {
+      "type": "number",
+      "default": 300,
+      "description": "Characters of a dropped tool result retained before truncation note"
+    },
+    "maxStateTokens": {
+      "type": "number",
+      "default": 25000,
+      "description": "Maximum estimated tokens allowed for the classifier state"
+    }
+  }
+}
