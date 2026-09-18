@@ -1013,14 +1013,8 @@ fn default_memory_user_id() -> String {
 async fn memory_graph_overview(
     Json(body): Json<MemoryGraphRequest>,
 ) -> ResponseJson<ApiResponse<MemoryGraphOverview>> {
-    // The graph projection only exists in self-hosted mem0-vk. The
-    // AuraPunk Cloud gateway speaks the mem0_vk adapter protocol but does
-    // not expose /api/graph/* — fail fast with the documented message
-    // instead of leaking the gateway's 404.
-    let memory = memory_config::load();
-    if !memory.enabled
-        || memory.adapter == MemoryAdapter::Mem0Platform
-        || is_aura_punk_cloud_gateway(&memory.active_url())
+    if !memory_config::load().enabled
+        || memory_config::load().adapter == MemoryAdapter::Mem0Platform
     {
         return ResponseJson(ApiResponse::error(
             "memory graph is unavailable for this memory adapter",
