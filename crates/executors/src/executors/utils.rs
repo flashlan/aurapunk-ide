@@ -42,19 +42,21 @@ where
 pub fn reorder_slash_commands(
     commands: impl IntoIterator<Item = SlashCommandDescription>,
 ) -> Vec<SlashCommandDescription> {
-    let mut compact_command = None;
+    let mut compact_commands = Vec::new();
     let mut review_commands = None;
     let mut remaining_commands = Vec::new();
 
     for command in commands {
         match command.name.as_str() {
-            "compact" => compact_command = Some(command),
+            "compact" | "compress" | "autocompress" | "autocompact" => {
+                compact_commands.push(command);
+            }
             "review" => review_commands = Some(command),
             _ => remaining_commands.push(command),
         }
     }
 
-    compact_command
+    compact_commands
         .into_iter()
         .chain(review_commands)
         .chain(remaining_commands)
