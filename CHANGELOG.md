@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-09-18
+
+### Fixed
+
+- **Claude Code stdout error/auth failure recovery**: Claude reports revoked/expired logins inconsistently — usually on stderr, but sometimes as an error `result` on stdout. The default log strategy previously silently dropped those error results; now surfaces actionable recovery guidance instead of dropping the message.
+
 ### Added
 
 - MCP tools to manage a project's card statuses (board columns):
