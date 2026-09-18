@@ -81,6 +81,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { Queue, Worker, type Job } from "bullmq";
 import IORedis from "ioredis";
+import { Agent, type Dispatcher } from "undici";
 import { timingSafeEqual } from "node:crypto";
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -541,6 +542,11 @@ Rules:
 - Relations: only if clearly stated or strongly implied.
 - Output ONLY the JSON object. No code fences. No commentary. No reasoning blocks. No <think> tags.`;
 
+// Slow local LLM inference (CPU) can take many minutes before the first
+// byte; undici's default 300s headers/body timeouts would abort it
+// (surfaced as `fetch failed` / UND_ERR_HEADERS_TIMEOUT on long extractions).
+const llmDispatcher = new Agent({ headersTimeout: 1_800_000, bodyTimeout: 1_800_000 });
+
 async function llmChat(
   system: string,
   user: string,
@@ -588,7 +594,8 @@ async function llmChat(
             temperature: 0.1,
             max_tokens: maxTokens,
           }),
-        });
+          dispatcher: llmDispatcher,
+        } as RequestInit & { dispatcher: Dispatcher });
       } catch (err) {
         console.warn(`[llm] ${cand.provider} network error, trying next: ${(err as Error).message}`);
         exhausted = true;
