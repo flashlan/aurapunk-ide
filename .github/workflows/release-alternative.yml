@@ -197,6 +197,10 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
+          # Let GitHub build the release body ("What's Changed" from the commits
+          # since the previous tag) so release pages aren't blank; the in-app
+          # new-release badge reads this body and falls back to CHANGELOG.md.
+          generate_release_notes: true
           # Prerelease tags (e.g. v0.2.8-beta.1) become GitHub pre-releases so the
           # CLI's releases/latest manifest pointer stays on the last stable build.
           prerelease: ${{ contains(github.ref_name, '-') }}
