@@ -38,7 +38,9 @@
         "backup": "Backup",
         "backupDesc": "Export / import local data",
         "addons": "Add-ons",
-        "addonsDesc": "Optional add-ons that extend the app"
+        "addonsDesc": "Optional add-ons that extend the app",
+        "statuses": "Card Statuses",
+        "statusesDesc": "Inject pre-fabricated SDLC status sets into a project"
       }
     },
     "addons": {
@@ -77,6 +79,19 @@
         "zoomOut": "Zoom out",
         "zoomReset": "Reset view",
         "graphLabel": "Interactive mem0 knowledge graph"
+      }
+    },
+    "statuses": {
+      "subtitle": "Add a pre-fabricated SDLC set of card statuses to a project. They become available in every card status picker of that project.",
+      "preset": {
+        "title": "SDLC status preset",
+        "description": "Inject planning, development, testing, review, iteration and deployment as board columns for the selected project. Existing statuses are kept and duplicates are skipped.",
+        "button": "Inject SDLC statuses",
+        "projectPlaceholder": "Select a project",
+        "terminal": "Terminal status",
+        "added": "Added {{count}} SDLC statuses.",
+        "alreadyPresent": "All SDLC statuses are already present on this project.",
+        "error": "Failed to inject statuses: {{error}}"
       }
     },
     "hostPicker": {

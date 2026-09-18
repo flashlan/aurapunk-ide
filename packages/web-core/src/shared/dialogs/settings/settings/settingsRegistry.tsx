@@ -11,6 +11,7 @@ import {
   DatabaseIcon,
   ArchiveIcon,
   PuzzlePieceIcon,
+  ColumnsIcon,
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
 import { GeneralSettingsSection } from './GeneralSettingsSection';
@@ -25,6 +26,7 @@ import { UsageSettingsSection } from './UsageSettingsSection';
 import { MemorySettingsSection } from './MemorySettingsSection';
 import { BackupSettingsSection } from './BackupSettingsSection';
 import { AddonsSettingsSection } from './AddonsSettingsSection';
+import { StatusesSettingsSection } from './StatusesSettingsSection';
 
 // ADR-018 — `organizations` and `remote-projects` sections are gone.
 // Only host-scoped sections remain; the `universal` group is empty.
@@ -40,7 +42,8 @@ export type SettingsSectionType =
   | 'usage'
   | 'memory'
   | 'backup'
-  | 'addons';
+  | 'addons'
+  | 'statuses';
 
 export type SettingsSectionGroup = 'host';
 
@@ -57,6 +60,7 @@ export type SettingsSectionInitialState = {
   memory: undefined;
   backup: undefined;
   addons: undefined;
+  statuses: undefined;
 };
 
 export interface SettingsSectionDefinition {
@@ -78,6 +82,7 @@ export const SETTINGS_SECTION_DEFINITIONS: SettingsSectionDefinition[] = [
   { id: 'memory', icon: DatabaseIcon, group: 'host' },
   { id: 'backup', icon: ArchiveIcon, group: 'host' },
   { id: 'addons', icon: PuzzlePieceIcon, group: 'host' },
+  { id: 'statuses', icon: ColumnsIcon, group: 'host' },
 ];
 
 export function isHostSpecificSettingsSection(
@@ -123,6 +128,8 @@ export function renderSettingsSection(
       return <BackupSettingsSection />;
     case 'addons':
       return <AddonsSettingsSection />;
+    case 'statuses':
+      return <StatusesSettingsSection />;
     default:
       return <GeneralSettingsSection />;
   }
