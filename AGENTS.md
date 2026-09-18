@@ -31,6 +31,7 @@ Rules:
 - [x] **Done** — Protected terminal completion with Integration Guard and Mem0 (`main`)
 - [x] **Done** — Settings: Appearance & Typography, custom theme editor, backgrounds, gradients, fonts, and theme export/import (`vk/8381-settings-fonts-s`)
 - [~] **In Progress** — Gate hosted Mem0 behind Cloud login and plan quotas (`vk/cloud-mem0-login-gate`)
+- [~] **In Progress** — aurapunk get_pipeline/get_rules MCP tools red: shared port-file misroutes MCP to the wrong backend; fix committed, needs rebuild + session restart to activate (`vk/be93-toosl-aurapunk-g`)
 
 ## Card Pipeline Protocol (MCP)
 
@@ -187,3 +188,24 @@ fixed them. Newest last.
 - **Tests:** new `findNodePath.test.ts` (path/finder predicates) plus the
   updated `SidebarProjectTree.test.tsx` activation test; full `@vibe/ui`
   suite green (272).
+
+### 2026-09-17 — Red `get_pipeline` / `get_rules` MCP tools: wrong backend
+- **Symptom:** inside a session the `aurapunk_get_pipeline` and
+  `aurapunk_get_rules` tool entries show a red status dot and behave as
+  "not available".
+- **Root cause:** every AuraPunk server writes one shared temp port file
+  (`$TMPDIR/aurapunk/aurapunk.port`); last writer wins. A packaged-app
+  workspace (`~/Library/Application Support/ai.bloop.vibe-kanban/db.v2.sqlite`)
+  whose MCP read a port file clobbered by a dev server (`:3002`, different DB)
+  resolves no workspace context → `get_pipeline` fails with
+  `workspace_id is required`; workspace-scoped tools (e.g.
+  `declare_agent_work`) 404 entirely. The MCP itself connects fine, so only
+  context-dependent tools go red.
+- **Fix:** `utils::port_file` now remembers this process' own bound port
+  (`active_backend_url()`); `start_execution_inner` (and the headed-resume
+  path) inject it as `AURAPUNK_BACKEND_URL` / legacy `VIBE_BACKEND_URL` into
+  `ExecutionEnv`, which the executor passes to its MCP child. The MCP client
+  prefers those env vars over the port file, so each instance's sessions
+  target their own backend regardless of which server wrote the file last.
+- **Note:** existing sessions must be restarted to pick up the new env var;
+  the global port file is otherwise unchanged (still the fallback).

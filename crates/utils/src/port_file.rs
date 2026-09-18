@@ -1,7 +1,40 @@
-use std::{env, path::PathBuf};
+use std::{env, path::PathBuf, sync::OnceLock};
 
 use serde::{Deserialize, Serialize};
 use tokio::fs;
+
+/// The port this process' own backend is bound to, learned when the port file
+/// is written at startup.
+///
+/// The on-disk port file is a single global path shared by every AuraPunk
+/// server on the machine (dev server, packaged Tauri app, …): the last writer
+/// wins. A coding agent spawned by one instance can therefore read a *different*
+/// instance's port, and its MCP child loses the workspace context (the tools
+/// then fail with "workspace_id is required"). Remembering our own port here
+/// lets the spawning server hand its agents an unambiguous
+/// `AURAPUNK_BACKEND_URL` env var, which the MCP client prefers over the file.
+static ACTIVE_PORT: OnceLock<u16> = OnceLock::new();
+
+/// The port this process' own backend bound to, if known.
+///
+/// `None` until [`write_port_file_with_proxy`] has run (i.e. before the server
+/// is listening).
+pub fn active_port() -> Option<u16> {
+    ACTIVE_PORT.get().copied()
+}
+
+/// Build the backend base URL for this process' own server, or `None` when the
+/// port isn't known yet. Matches `aurapunk_mcp`'s own resolution (host
+/// `localhost`, so macOS' `::1`-first resolution works).
+pub fn active_backend_url() -> Option<String> {
+    active_port().map(backend_url_for_port)
+}
+
+/// Format the backend base URL for a bound port. Kept pure so the shape is
+/// testable without touching the process-global [`ACTIVE_PORT`].
+fn backend_url_for_port(port: u16) -> String {
+    format!("http://localhost:{port}")
+}
 
 /// Canonical application name used for the runtime port file, and its
 /// pre-rename (Vibe Kanban) counterpart. The rename from Vibe Kanban to
@@ -27,6 +60,11 @@ pub async fn write_port_file_with_proxy(
     };
     let content = serde_json::to_string(&port_info)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+    // Remember our own port before touching the shared file, so an executor
+    // spawned later in this process can inject the correct backend URL even if
+    // another instance overwrites the file in the meantime.
+    let _ = ACTIVE_PORT.set(main_port);
 
     let mut canonical = None;
     for app in [PORT_FILE_APP, PORT_FILE_APP_LEGACY] {
@@ -89,4 +127,15 @@ async fn read_port_info_for(app_name: &str) -> std::io::Result<PortInfo> {
         main_port: port,
         preview_proxy_port: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::backend_url_for_port;
+
+    #[test]
+    fn backend_url_uses_localhost_and_the_given_port() {
+        assert_eq!(backend_url_for_port(3002), "http://localhost:3002");
+        assert_eq!(backend_url_for_port(51182), "http://localhost:51182");
+    }
 }

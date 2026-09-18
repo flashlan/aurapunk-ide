@@ -2774,6 +2774,18 @@ impl ContainerService for LocalContainerService {
             commit_reminder_prompt,
         );
 
+        // Point the agent (and the MCP server it spawns) at THIS server
+        // instance, not whatever the shared temp port file happens to say.
+        // Several AuraPunk servers share one port file (last writer wins), so a
+        // session spawned by one instance could otherwise resolve another
+        // instance's backend and lose its workspace context — surfacing as red
+        // `get_pipeline` / `get_rules` MCP tools. The MCP client prefers these
+        // env vars over the port file. Legacy name kept for older launchers.
+        if let Some(url) = utils::port_file::active_backend_url() {
+            env.insert("AURAPUNK_BACKEND_URL", &url);
+            env.insert("VIBE_BACKEND_URL", &url);
+        }
+
         // Always inject workspace/session context
         env.insert("VK_WORKSPACE_ID", workspace.id.to_string());
         env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
@@ -3118,6 +3130,12 @@ impl ContainerService for LocalContainerService {
         let mut env = ExecutionEnv::new(repo_context, false, String::new());
         env.insert("VK_WORKSPACE_ID", workspace.id.to_string());
         env.insert("VK_WORKSPACE_BRANCH", &workspace.branch);
+        // Same instance-pinned backend URL as the headless path: the headed
+        // agent's MCP child must not follow a clobbered shared port file.
+        if let Some(url) = utils::port_file::active_backend_url() {
+            env.insert("AURAPUNK_BACKEND_URL", &url);
+            env.insert("VIBE_BACKEND_URL", &url);
+        }
         let env = env.with_profile(&claude.cmd);
         let mut env_map = env.vars.clone();
         env_map.insert("NPM_CONFIG_LOGLEVEL".to_string(), "error".to_string());
