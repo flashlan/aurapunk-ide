@@ -1930,7 +1930,7 @@ export function KanbanContainer() {
             isMobile={isMobile}
           />
           {!isMobile && (
-            <div className="ml-auto flex min-w-0 max-w-full items-center gap-half">
+            <div className="ml-auto flex min-w-0 max-w-full flex-col items-end gap-half">
               <NewReleaseBadge />
               <AgentActivityIndicator projectId={projectId} />
             </div>
