@@ -1614,10 +1614,13 @@ export function UsageSettingsSection() {
                       />
                     </div>
                     <p className="text-[10px] text-low">
-                      Docker run command:{' '}
+                      Build &amp; Run Docker:{' '}
                       <code className="text-normal bg-secondary px-1 py-0.5 rounded font-mono">
-                        docker run -d -p 8080:8080 convaiinnovations/laya
+                        docker build -t laya-local packages/jev-plugin/docker &amp;&amp; docker run -d -p 8080:8080 laya-local
                       </code>
+                    </p>
+                    <p className="text-[10px] text-accent">
+                      💡 Tip: Select &quot;Embedded&quot; above to run locally in-process without Docker!
                     </p>
                   </div>
                 )}
