@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type {
   ApprovalInfo,
+  ApprovalQuestion,
   AskUserQuestionItem,
   NormalizedEntryType,
 } from 'shared/types';
@@ -92,6 +93,20 @@ describe('toAskUserQuestionItems', () => {
     expect(toAskUserQuestionItems(undefined)).toBeUndefined();
     expect(toAskUserQuestionItems([])).toBeUndefined();
   });
+
+  it('tolerates a question with a missing options array', () => {
+    const malformed = [
+      { question: 'Pick', multiSelect: false },
+    ] as unknown as ApprovalQuestion[];
+    expect(toAskUserQuestionItems(malformed)).toEqual([
+      {
+        question: 'Pick',
+        header: '',
+        options: [],
+        multiSelect: false,
+      },
+    ]);
+  });
 });
 
 describe('resolveApprovalQuestions', () => {
@@ -131,6 +146,15 @@ describe('resolveApprovalQuestions', () => {
     expect(result.questions).toBeUndefined();
   });
 
+  it('still renders as a question when `kind` is missing', () => {
+    const result = resolveApprovalQuestions(
+      approval({ kind: undefined, questions: undefined }),
+      [questionEntry('approval-1', inlineQuestions)]
+    );
+    expect(result.isQuestion).toBe(true);
+    expect(result.questions?.[0]?.question).toBe('Which approach?');
+  });
+
   it('never treats a plan approval as a questionnaire', () => {
     const result = resolveApprovalQuestions(
       approval({ kind: 'plan_approval', questions: inlineQuestions }),
@@ -145,6 +169,18 @@ describe('findQuestionsInEntries', () => {
     expect(
       findQuestionsInEntries(
         [questionEntry('approval-1', inlineQuestions)],
+        'approval-1'
+      )
+    ).toEqual(inlineQuestions);
+  });
+
+  it('skips an empty placeholder entry for the same approval', () => {
+    expect(
+      findQuestionsInEntries(
+        [
+          questionEntry('approval-1', []),
+          questionEntry('approval-1', inlineQuestions),
+        ],
         'approval-1'
       )
     ).toEqual(inlineQuestions);

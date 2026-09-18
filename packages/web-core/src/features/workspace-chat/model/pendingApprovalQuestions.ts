@@ -17,7 +17,7 @@ export function toAskUserQuestionItems(
   return questions.map((q) => ({
     question: q.question,
     header: q.header ?? '',
-    options: q.options.map((o) => ({
+    options: (q.options ?? []).map((o) => ({
       label: o.label,
       description: o.description ?? '',
     })),
@@ -43,7 +43,12 @@ export function findQuestionsInEntries(
       entryType.status.approval_id === approvalId &&
       entryType.action_type.action === 'ask_user_question'
     ) {
-      return entryType.action_type.questions;
+      // A placeholder entry for the same call can exist before the question
+      // payload arrives; it must not shadow a later entry that actually
+      // carries options.
+      if (entryType.action_type.questions.length > 0) {
+        return entryType.action_type.questions;
+      }
     }
   }
   return undefined;
@@ -59,9 +64,11 @@ export function findQuestionsInEntries(
  * AskUserQuestion with no options. Prefer the inline copy and fall back to the
  * transcript scan for headless approvals, which set only the kind.
  *
- * `isQuestion` is true only when there is at least one question to render, so
- * the chat box falls back to the approve/deny bar instead of showing a dead
- * question banner.
+ * `isQuestion` is driven by the *resolved* questions, not by `kind` alone: a
+ * question approval whose `kind` is missing (older backends) or whose inline
+ * copy is empty still renders as long as options were recovered. A plan
+ * approval is never treated as a questionnaire. When no questions resolve, the
+ * chat box falls back to the approve/deny bar instead of a dead banner.
  */
 export function resolveApprovalQuestions(
   info: ApprovalInfo,
@@ -70,8 +77,9 @@ export function resolveApprovalQuestions(
   const questions =
     toAskUserQuestionItems(info.questions) ??
     findQuestionsInEntries(entries, info.approval_id);
+  const hasQuestions = (questions?.length ?? 0) > 0;
   return {
-    isQuestion: info.kind === 'question' && (questions?.length ?? 0) > 0,
+    isQuestion: hasQuestions && info.kind !== 'plan_approval',
     questions,
   };
 }
