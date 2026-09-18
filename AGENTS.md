@@ -234,3 +234,38 @@ fixed them. Newest last.
   never touches the account, and exposes an editable self-managed URL. The
   AuraPunk Cloud button keeps using the signed-in account (access token as the
   mem0 bearer + account id header).
+
+### 2026-09-17 — Headed AskUserQuestion renders answers in the full workspace
+- **Owner feedback:** in the full workspace view (not the kanban chat
+  sidebar) a headed agent's question shows only as a transcript entry; the
+  chat box falls into the plan "Provide feedback to request changes…" bar
+  and never lists the options.
+- **Root cause:** `SessionChatBoxContainer.pendingApproval` recovered the
+  questions only by scanning normalized `tool_use` entries for a
+  `pending_approval` status whose `approval_id` matched the store. Headless
+  executors inject that id via their client log; **headed (tmux)** sessions
+  go through the `PreToolUse` bridge instead, so the transcript never sees
+  the backend id — the scan failed, `questions` was undefined, and the
+  `!questions` branch rendered the deny/feedback bar.
+- **Changes:** headed approvals already carry `ApprovalInfo.questions`
+  inline; the resolver now prefers it and only falls back to the transcript
+  scan for headless approvals. Mode selection is driven by the resolved
+  `isQuestion` flag (`kind === 'question'` with at least one question), so a
+  question approval with options never renders the feedback bar; a question
+  with no resolvable options still falls back to approve/deny rather than a
+  dead banner. Extracted the pure logic to
+  `model/pendingApprovalQuestions.ts` (`resolveApprovalQuestions`,
+  `toAskUserQuestionItems`, `findQuestionsInEntries`) and covered it with
+  `pendingApprovalQuestions.test.ts`.
+- **Verification:** `pendingApprovalQuestions.test.ts` 10/10 passing,
+  `tsc --noEmit` clean, Prettier clean (after `pnpm install --offline` in
+  this worktree).
+- **Note (resolved):** an earlier run in this session saw `get_pipeline` /
+  `declare_agent_work` return 404 and `complete_workspace_card` /
+  `link_workspace_issue` return 400 for this workspace. Root cause was the
+  shared temp port file (`$TMPDIR/aurapunk/aurapunk.port`, last writer
+  wins) resolving the MCP against a different backend than this workspace's;
+  fixed by `utils::port_file::active_backend_url()` plus injecting
+  `AURAPUNK_BACKEND_URL` / `VIBE_BACKEND_URL` into the execution env. After
+  installing the new app the MCP resolved the correct workspace context and
+  the card was completed.

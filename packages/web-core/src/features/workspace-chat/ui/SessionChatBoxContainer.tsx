@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDropzone } from 'react-dropzone';
 import {
-  type AskUserQuestionItem,
   BaseAgentCapability,
   type Session,
   type BaseCodingAgent,
@@ -37,6 +36,7 @@ import { useMessageEditRetry } from '../model/hooks/useMessageEditRetry';
 import { useBranchStatus } from '@/shared/hooks/useBranchStatus';
 import { useWorkspaceBranch } from '../model/hooks/useWorkspaceBranch';
 import { useApprovalMutation } from '../model/hooks/useApprovalMutation';
+import { resolveApprovalQuestions } from '../model/pendingApprovalQuestions';
 import { useApprovals } from '@/shared/hooks/useApprovals';
 import { ResolveConflictsDialog } from '@/shared/dialogs/tasks/ResolveConflictsDialog';
 import { workspaceSummaryKeys } from '@/shared/hooks/workspaceSummaryKeys';
@@ -270,24 +270,15 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     for (const proc of runningProcesses) {
       const info = getPendingForProcess(proc.id);
       if (info) {
-        let questions: AskUserQuestionItem[] | undefined;
-        for (const entry of entries) {
-          if (entry.type !== 'NORMALIZED_ENTRY') continue;
-          const entryType = entry.content.entry_type;
-          if (
-            entryType.type === 'tool_use' &&
-            entryType.status.status === 'pending_approval' &&
-            entryType.status.approval_id === info.approval_id &&
-            entryType.action_type.action === 'ask_user_question'
-          ) {
-            questions = entryType.action_type.questions;
-            break;
-          }
-        }
+        const { isQuestion, questions } = resolveApprovalQuestions(
+          info,
+          entries
+        );
         return {
           approvalId: info.approval_id,
           timeoutAt: info.timeout_at,
           executionProcessId: info.execution_process_id,
+          isQuestion,
           questions,
         };
       }
@@ -1251,7 +1242,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           : undefined
       }
       approvalMode={
-        pendingApproval && !pendingApproval.questions
+        pendingApproval && !pendingApproval.isQuestion
           ? {
               isActive: true,
               onApprove: handleApprove,
@@ -1263,10 +1254,10 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           : undefined
       }
       askQuestionMode={
-        pendingApproval?.questions
+        pendingApproval?.isQuestion
           ? {
               isActive: true,
-              questions: pendingApproval.questions,
+              questions: pendingApproval.questions ?? [],
               onSubmitAnswers: handleAnswerQuestion,
               isSubmitting: isAnswering,
               isTimedOut: isApprovalTimedOut,
