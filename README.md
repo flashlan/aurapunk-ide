@@ -19,7 +19,7 @@
 <p align="center">
   🆓 <b>Free &amp; open source</b> &nbsp;·&nbsp;
   📋 <b>Kanban-based orchestration</b> &nbsp;·&nbsp;
-  🤖 <b>Multi-agent</b> — Claude, Codex, Antigravity, OpenCode, Gemini CLI &amp; more, side by side &nbsp;·&nbsp;
+  🤖 <b>Multi-agent</b> — CommandCode, Claude, Codex, Antigravity, OpenCode, Gemini CLI &amp; more, side by side &nbsp;·&nbsp;
   ⚡ <b>Prompt cache-hit architecture</b> &nbsp;·&nbsp;
   🧠 <b>Vector &amp; semantic memory</b> shared across sessions and agents
 </p>
@@ -128,7 +128,7 @@ Following the [shutdown of Bloop's hosted servers](https://vibekanban.com/blog/s
 
 ## Overview
 
-Software engineering increasingly means directing coding agents — planning work, spawning a model to implement it, reviewing its diff, and shipping. `AuraPunk IDE` is a kanban board that plans and tracks agent work, plus a workspace runtime that turns each card into a real branch, terminal, and dev server where any of 10+ coding agents (Claude Code, OpenCode, Qwen Code, Codex, Gemini CLI, Antigravity, Copilot, Amp, Cursor, Droid, CCR) executes the plan.
+Software engineering increasingly means directing coding agents — planning work, spawning a model to implement it, reviewing its diff, and shipping. `AuraPunk IDE` is a kanban board that plans and tracks agent work, plus a workspace runtime that turns each card into a real branch, terminal, and dev server where any of 11+ coding agents (CommandCode, Claude Code, OpenCode, Qwen Code, Codex, Gemini CLI, Antigravity, Copilot, Amp, Cursor, Droid, CCR) executes the plan.
 
 - **Kanban planning** — boards, columns, priorities, tags, sub-issues, and pipelines.
 - **Agent workspaces** — each card launches a branch, terminal, dev server, and an agent following a configurable pipeline.
@@ -148,7 +148,7 @@ Software engineering increasingly means directing coding agents — planning wor
 - **Cross-session memory** — ephemeral, or none → **native `mem0` with Qdrant and a NetworkX graph**
 - **Prompt cache-hit architecture** — not present → **deterministic memory-prefix injection preserves cache hits**
 - **Telemetry and observability** — none, or minimal → **`Settings → Usage` dashboard: tokens, activity heatmaps, per-agent breakdown**
-- **Coding agent support** — legacy CLI subset → **10+ agents, including Claude Code, Antigravity, Codex, Gemini CLI**
+- **Coding agent support** — legacy CLI subset → **11+ agents, including CommandCode, Claude Code, Antigravity, Codex, Gemini CLI**
 - **Antigravity (AGY) agent** — not supported, or basic text mode → **full `stream-json` parsing, tool-use cards, reasoning-effort control**
 - **Chat input and history** — basic textarea → **terminal-style prompt history, configurable send shortcuts**
 - **Self-hosted git remotes** — GitHub only, or basic Gitea → **auto-routes between Gitea/Forgejo REST API and the GitHub CLI**
@@ -237,13 +237,14 @@ It can also be configured from the app: open **Settings → Memory** to manage t
 
 `AuraPunk IDE` integrates natively with 10+ coding agents:
 
-1. **Google Antigravity (`agy`)** (new) — full stream-JSON protocol, native visual cards for file inspection, search, bash commands, and edits; reasoning-effort controls; YOLO mode.
-2. **Anthropic Claude Code** — headed and headless modes, full MCP tool approvals, turn navigation.
-3. **OpenCode and OpenCode Headed** — multi-model agent runner with local and remote inference.
-4. **OpenAI Codex** — deep reasoning and plan generation.
-5. **Qwen Code** — high-performance local and cloud agent workflows.
-6. **Google Gemini CLI** — native Gemini execution.
-7. **GitHub Copilot CLI, Cursor Agent, Droid, and Amp**.
+1. **CommandCode (`command-code`)** (new) — provider/model selection from `command-code --list-models` (for example `deepseek/deepseek-v4-flash` or `anthropic/claude-opus-5`), reasoning-effort control, YOLO mode for autonomous runs, and MCP tools wired through `~/.commandcode/mcp.json`.
+2. **Google Antigravity (`agy`)** — full stream-JSON protocol, native visual cards for file inspection, search, bash commands, and edits; reasoning-effort controls; YOLO mode.
+3. **Anthropic Claude Code** — headed and headless modes, full MCP tool approvals, turn navigation.
+4. **OpenCode and OpenCode Headed** — multi-model agent runner with local and remote inference.
+5. **OpenAI Codex** — deep reasoning and plan generation.
+6. **Qwen Code** — high-performance local and cloud agent workflows.
+7. **Google Gemini CLI** — native Gemini execution.
+8. **GitHub Copilot CLI, Cursor Agent, Droid, and Amp**.
 
 ## Chat and Terminal Interaction
 
