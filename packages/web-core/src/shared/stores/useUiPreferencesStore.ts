@@ -11,6 +11,22 @@ export const RIGHT_MAIN_PANEL_MODES = {
   TERMINAL: 'terminal',
 } as const;
 
+/**
+ * The signed-in AuraPunk Cloud device token (format `ap_...`), persisted by the
+ * desktop auth flow. The hosted memory/Laya gateway authenticates every request
+ * with it, so the browser compactor needs it as a bearer for Cloud Laya calls.
+ */
+export function readCloudAccessToken(): string | null {
+  try {
+    const raw = window.localStorage.getItem('aurapunk-cloud-account');
+    if (!raw) return null;
+    const account = JSON.parse(raw) as { accessToken?: string };
+    return account.accessToken ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export type RightMainPanelMode =
   (typeof RIGHT_MAIN_PANEL_MODES)[keyof typeof RIGHT_MAIN_PANEL_MODES];
 

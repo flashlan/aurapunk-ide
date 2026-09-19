@@ -6,12 +6,19 @@ export class LayaClassifier implements DecisionClassifier {
   private endpoint?: string;
   private pythonBridgePath?: string;
   private allowEmbeddedFallback: boolean;
+  private headers: Record<string, string>;
   private fetchFn: typeof fetch;
 
   constructor(options: {
     endpoint?: string;
     pythonBridgePath?: string;
     fetchFn?: typeof fetch;
+    /**
+     * Extra request headers for the Laya HTTP endpoint. The hosted Cloud
+     * gateway authenticates the desktop device token, so cloud callers pass an
+     * `Authorization: Bearer <token>` here.
+     */
+    headers?: Record<string, string>;
     /**
      * Laya runs as a managed service (Docker container or Cloud gateway). When
      * `false`, an unreachable endpoint fails loudly instead of silently falling
@@ -24,6 +31,7 @@ export class LayaClassifier implements DecisionClassifier {
     this.endpoint = options.endpoint || (typeof process !== 'undefined' ? process.env.LAYA_ENDPOINT : undefined);
     this.pythonBridgePath = options.pythonBridgePath;
     this.allowEmbeddedFallback = options.allowEmbeddedFallback ?? true;
+    this.headers = options.headers ?? {};
     this.fetchFn = options.fetchFn || fetch;
   }
 
@@ -45,9 +53,11 @@ export class LayaClassifier implements DecisionClassifier {
       try {
         const res = await this.fetchFn(`${this.endpoint}/predict`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...this.headers },
           body: JSON.stringify({ state, questions }),
-          signal: AbortSignal.timeout(2000),
+          // CPU inference of a large compaction state can exceed the original
+          // 2s probe budget; the cloud gateway itself allows 20s.
+          signal: AbortSignal.timeout(15000),
         });
         if (res.ok) {
           const data = await res.json();

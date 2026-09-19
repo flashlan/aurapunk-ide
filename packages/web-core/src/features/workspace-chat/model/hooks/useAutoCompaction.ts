@@ -10,6 +10,7 @@ import {
   useJevApiKey,
   useJevVercelUrl,
   useJevVercelKey,
+  readCloudAccessToken,
 } from '@/shared/stores/useUiPreferencesStore';
 import { executeSessionCompaction } from '../sessionCompactor';
 
@@ -113,6 +114,7 @@ export function useAutoCompaction({
           layaMode,
           layaDockerUrl,
           layaCloudUrl,
+          layaAuthToken: readCloudAccessToken() ?? undefined,
           jevApiKey,
           jevVercelAiUrl: jevVercelUrl,
           jevVercelAiKey: jevVercelKey,

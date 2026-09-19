@@ -60,6 +60,7 @@ import {
   useJevApiKey,
   useJevVercelUrl,
   useJevVercelKey,
+  readCloudAccessToken,
 } from '@/shared/stores/useUiPreferencesStore';
 import { useAutoCompaction } from '../model/hooks/useAutoCompaction';
 import {
@@ -618,6 +619,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           layaMode,
           layaDockerUrl,
           layaCloudUrl,
+          layaAuthToken: readCloudAccessToken() ?? undefined,
           jevApiKey,
           jevVercelAiUrl: jevVercelUrl,
           jevVercelAiKey: jevVercelKey,

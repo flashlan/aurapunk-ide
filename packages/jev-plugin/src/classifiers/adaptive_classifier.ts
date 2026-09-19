@@ -12,6 +12,8 @@ export interface AdaptiveClassifierOptions {
   pythonBridgePath?: string;
   fetchFn?: typeof fetch;
   preferProvider?: "auto" | "jev" | "laya";
+  /** Extra headers for the Laya endpoint (e.g. a Cloud device bearer token). */
+  layaHeaders?: Record<string, string>;
   /**
    * When `false`, an unreachable Laya endpoint fails loudly instead of falling
    * back to the embedded heuristic engine (Laya should run only via Docker or
@@ -39,6 +41,7 @@ export class AdaptiveClassifier implements DecisionClassifier {
       endpoint: options.layaEndpoint,
       pythonBridgePath: options.pythonBridgePath,
       fetchFn: options.fetchFn,
+      headers: options.layaHeaders,
       allowEmbeddedFallback: options.allowEmbeddedFallback,
     });
     this.preferProvider = options.preferProvider || "auto";

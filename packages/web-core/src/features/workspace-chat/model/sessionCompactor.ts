@@ -127,6 +127,8 @@ export interface ExecuteCompactionOptions {
   engine: CompactorEngineType;
   layaDockerUrl?: string;
   layaCloudUrl?: string;
+  /** Device bearer token for the hosted Cloud gateway (cloud mode only). */
+  layaAuthToken?: string;
   jevApiKey?: string;
   jevVercelAiUrl?: string;
   jevVercelAiKey?: string;
@@ -167,6 +169,7 @@ export async function executeSessionCompaction({
   engine,
   layaDockerUrl,
   layaCloudUrl,
+  layaAuthToken,
   jevApiKey,
   jevVercelAiUrl,
   jevVercelAiKey,
@@ -178,12 +181,19 @@ export async function executeSessionCompaction({
     layaDockerUrl,
     layaCloudUrl
   );
+  // The hosted Cloud gateway authenticates every call with the device token;
+  // the self-hosted Docker container needs no auth header.
+  const layaHeaders =
+    layaMode === 'cloud' && layaAuthToken
+      ? { Authorization: `Bearer ${layaAuthToken}` }
+      : undefined;
 
   // Pick classifier based on user preferences in Settings
   let classifier;
   if (engine === 'laya') {
     classifier = new LayaClassifier({
       endpoint: layaEndpoint,
+      headers: layaHeaders,
       allowEmbeddedFallback: false,
     });
   } else if (engine === 'jev') {
@@ -199,6 +209,7 @@ export async function executeSessionCompaction({
       vercelAiUrl: jevVercelAiUrl,
       vercelAiKey: jevVercelAiKey,
       layaEndpoint,
+      layaHeaders,
       allowEmbeddedFallback: false,
     });
   }
