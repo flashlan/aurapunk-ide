@@ -524,7 +524,11 @@ mod tests {
         });
         let violation = check_abide_guardrails("Bash", &input);
         assert!(violation.is_some());
-        assert!(violation.unwrap().contains("no-manual-git-push-in-completion"));
+        assert!(
+            violation
+                .unwrap()
+                .contains("no-manual-git-push-in-completion")
+        );
     }
 
     #[test]
@@ -541,4 +545,3 @@ mod tests {
         assert!(check_abide_guardrails("Bash", &cmd).is_none());
     }
 }
-

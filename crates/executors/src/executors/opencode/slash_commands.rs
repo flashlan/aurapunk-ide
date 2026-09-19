@@ -60,9 +60,7 @@ impl OpencodeSlashCommand {
 impl<'a> From<SlashCommandCall<'a>> for OpencodeSlashCommand {
     fn from(call: SlashCommandCall<'a>) -> Self {
         match call.name.as_str() {
-            "compact" | "summarize" | "compress" | "autocompress" | "autocompact" => {
-                Self::Compact
-            }
+            "compact" | "summarize" | "compress" | "autocompress" | "autocompact" => Self::Compact,
             "commands" => Self::Commands,
             "models" => Self::Models {
                 provider: call.arguments.split_whitespace().next().map(String::from),
@@ -83,11 +81,16 @@ pub(super) fn hardcoded_slash_commands() -> Vec<SlashCommandDescription> {
     vec![
         SlashCommandDescription {
             name: "compact".to_string(),
-            description: Some("compact and isolate session context (aliases: /compress, /autocompress)".to_string()),
+            description: Some(
+                "compact and isolate session context (aliases: /compress, /autocompress)"
+                    .to_string(),
+            ),
         },
         SlashCommandDescription {
             name: "compress".to_string(),
-            description: Some("alias for /compact: compact and isolate session context".to_string()),
+            description: Some(
+                "alias for /compact: compact and isolate session context".to_string(),
+            ),
         },
         SlashCommandDescription {
             name: "autocompress".to_string(),
