@@ -1080,22 +1080,138 @@ function extractStructureFastJevLaya(text: string, provider: "jev" | "laya"): Ex
   return { facts, entities, relations: relations.slice(0, 10) };
 }
 
+// ── TypeSafe Jev extraction (real model, with deterministic fallback) ────────
+//
+// Jev is a System-1 *classifier*: it answers typed questions, it does not write
+// free text. So the real model is used to *judge* the deterministic candidates
+// — keeping only durable, self-contained facts — instead of inventing facts.
+// Entities/relations still come from the deterministic pass. A missing key,
+// transport error, timeout or empty answer falls back to the deterministic
+// extractor, so `MEM0_LLM_PROVIDER=jev` never breaks.
+const TYPESAFE_JEV_DEFAULT_URL = "https://api.typesafe.ai/v1/systemone";
+const JEV_KEEP_THRESHOLD = 0.6;
+const JEV_MAX_CANDIDATES = 20;
+
+function jevHttpConfig(): { url: string; key: string; model: string } | null {
+  const provider = runtimeConfig.providers?.jev ?? config.llm.jev;
+  const envUrl = (process.env.TYPESAFE_JEV_URL || "").trim();
+  const envKey = (process.env.TYPESAFE_API_KEY || "").trim();
+  const configuredUrl = (provider?.url || "").trim();
+  const url =
+    envUrl ||
+    (configuredUrl === "embedded://jev" || !configuredUrl
+      ? ""
+      : configuredUrl) ||
+    (envKey ? TYPESAFE_JEV_DEFAULT_URL : "");
+  const configuredKey = (provider?.key || "").trim();
+  const key = envKey || (configuredKey && configuredKey !== "local" ? configuredKey : "");
+  if (!url || !key) return null;
+  const model =
+    (process.env.TYPESAFE_JEV_MODEL || "").trim() ||
+    (provider?.model && provider.model !== "fast-jev-v1"
+      ? provider.model
+      : "jev-latest");
+  return { url, key, model };
+}
+
+function noulProbability(answer: unknown): number | null {
+  if (answer == null) return null;
+  if (typeof answer === "number") return answer;
+  const record = answer as { probability?: unknown; noul?: unknown };
+  const value =
+    typeof record.probability === "number"
+      ? record.probability
+      : typeof record.noul === "number"
+        ? record.noul
+        : null;
+  return value;
+}
+
+async function extractWithJevModel(
+  text: string,
+  base: Extracted
+): Promise<Extracted | null> {
+  const cfg = jevHttpConfig();
+  if (!cfg) return null;
+  const candidates = base.facts.slice(0, JEV_MAX_CANDIDATES);
+  if (candidates.length === 0) return null;
+
+  const questions: Record<string, { type: "noul"; instructions: string }> = {};
+  candidates.forEach((candidate, i) => {
+    questions[`keep_${i}`] = {
+      type: "noul",
+      instructions:
+        `Is this a durable, self-contained fact worth remembering long-term ` +
+        `(architecture, decision, root cause, convention or dependency)? ` +
+        `Ignore transient logs, command output and one-off status. Fact: "${candidate}"`,
+    };
+  });
+
+  const resp = await fetch(cfg.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${cfg.key}`,
+    },
+    body: JSON.stringify({ model: cfg.model, state: text, questions }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!resp.ok) {
+    throw new Error(`TypeSafe HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  const answers = (data?.answers ?? {}) as Record<string, unknown>;
+  const kept = candidates.filter((_, i) => {
+    const probability = noulProbability(answers[`keep_${i}`]);
+    return probability === null ? true : probability >= JEV_KEEP_THRESHOLD;
+  });
+  const usage = (data?.usage ?? {}) as {
+    input_tokens?: number;
+    output_tokens?: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+  };
+  recordTokens("jev", data?.model || cfg.model, {
+    prompt_tokens: usage.input_tokens ?? usage.prompt_tokens ?? 0,
+    completion_tokens: usage.output_tokens ?? usage.completion_tokens ?? 0,
+  });
+  return { ...base, facts: kept.length ? kept : base.facts };
+}
+
 async function extractStructure(text: string): Promise<Extracted> {
   const fallback: Extracted = { facts: [text], entities: [], relations: [] };
   const provider = runtimeConfig.provider as LLMProvider;
 
-  // Fast Jev & Laya System-1 deterministic local extraction (<1ms, 0 tokens)
-  if (provider === "jev" || provider === "laya") {
+  // Jev: refine the deterministic candidates with the real TypeSafe model when a
+  // key is configured; otherwise (or on any failure) stay deterministic at 0 tokens.
+  if (provider === "jev") {
+    const base = extractStructureFastJevLaya(text, "jev");
     try {
-      const extracted = extractStructureFastJevLaya(text, provider);
-      recordTokens(provider, runtimeConfig.providers[provider]?.model || (provider === "jev" ? "fast-jev-v1" : "laya-system1-v1"), {
+      const viaModel = await extractWithJevModel(text, base);
+      if (viaModel) return viaModel;
+    } catch (err) {
+      console.error(
+        `[extract] Jev model extraction failed, using deterministic fallback: ${(err as Error).message}`
+      );
+    }
+    recordTokens("jev", "fast-jev-v1", {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+    });
+    return base;
+  }
+
+  // Laya: deterministic in-container extraction (<1ms, 0 tokens).
+  if (provider === "laya") {
+    try {
+      const extracted = extractStructureFastJevLaya(text, "laya");
+      recordTokens("laya", runtimeConfig.providers["laya"]?.model || "laya-system1-v1", {
         prompt_tokens: 0,
         completion_tokens: 0,
-        total_tokens: 0,
       });
       return extracted;
     } catch (err) {
-      console.error(`[extract] Fast Jev/Laya extraction failed: ${(err as Error).message}`);
+      console.error(`[extract] Laya deterministic extraction failed: ${(err as Error).message}`);
       return fallback;
     }
   }
