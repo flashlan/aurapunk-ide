@@ -4,7 +4,7 @@ Camada de memória compartilhada para agentes de código — MCP (Streamable-HTT
 
 ## Instalação mais simples — Docker Hub all-in-one
 
-A imagem `datyapoint/vk-mem0` inclui a API, Qdrant, Redis, embeddings locais e o grafo NetworkX. Você precisa apenas de uma chave para o provedor de extração:
+A imagem `datyapoint/vk-mem0` inclui a API, Qdrant, Redis, embeddings locais e o grafo NetworkX. Para a extração você pode usar uma chave de um provedor em nuvem (Groq, OpenRouter, OpenAI, Llama) **ou** a Laya local, que roda em uma **imagem separada** (veja *Laya (motor de decisão)* abaixo):
 
 ```bash
 docker run -d \
@@ -34,6 +34,24 @@ docker compose -f docker-compose.hub.yml up -d
 Todos os dados persistentes ficam no volume `vk_mem0_data`. As portas internas de Qdrant, Redis e embeddings não são publicadas no host.
 
 A tela **Settings → Memory** continua funcionando com esta imagem: ela lê e grava a configuração pela API `/api/config`, persistida em `/data/config.json`. Essas chaves selecionam o LLM que extrai fatos e relações (Groq, OpenRouter, OpenAI ou Llama). Os embeddings não precisam de chave porque o modelo local já está incluído na imagem.
+
+### Laya (motor de decisão)
+
+A Laya **não** vem nesta imagem — é uma imagem separada (`packages/jev-plugin/docker`, `laya-local`) que roda o modelo `convaiinnovations/laya` (System-1 ModernBERT) e serve `POST /predict` (ver a seção 7 do README do plugin). A extração de memória pode usá-la no lugar de um LLM em nuvem:
+
+```bash
+docker run -d --name laya-local --restart unless-stopped -p 8080:8080 laya-local
+
+docker run -d --name vk-mem0 --restart unless-stopped -p 8000:8000 \
+  -e MEM0_LLM_PROVIDER=laya \
+  -e MEM0_LAYA_URL=http://host.docker.internal:8080 \
+  -v vk_mem0_data:/data datyapoint/vk-mem0:latest
+```
+
+- De dentro do container, use `host.docker.internal` (Docker Desktop/OrbStack) ou o nome do container numa rede compartilhada — `127.0.0.1` seria o próprio container do mem0.
+- O **app desktop** fala direto com esse mesmo container Laya (Settings → Laya execution mode: docker, `http://localhost:8080`).
+- Se a Laya falhar ou estourar o timeout (~20 s), a extração cai no extrator determinístico de 0 tokens — nunca bloqueia uma gravação.
+- A Laya carrega o modelo em memória (~3 GB) e é CPU-only: em máquinas com 8 GB, rode-a sozinha (não junto de outra cópia da Laya).
 
 ### API authentication and hosted license checks
 

@@ -1,0 +1,12 @@
+# Build context is `mem0-vk/`. Everything the image needs is built inside the
+# Dockerfile (npm ci, pip installs), so keep the context small and deterministic.
+node_modules
+dist
+test
+backups
+.git
+.gitignore
+*.log
+.env
+.env.*
+.DS_Store
