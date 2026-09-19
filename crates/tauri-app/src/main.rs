@@ -350,9 +350,9 @@ fn main() {
                 }
                 let _ = window;
             } else {
-                // The installers put the MCP, review and TUI executables in
-                // Tauri's platform-specific resource directory. The embedded
-                // server uses this path when opening the terminal cockpit.
+                // The installers put the MCP, review, TUI and telegram-bridge executables,
+                // as well as bundled plugins (fast-jev-compaction), in
+                // Tauri's platform-specific resource directory.
                 if let Ok(resource_dir) = app.path().resource_dir() {
                     let bundled_bin_dir = resource_dir.join("bin");
                     if bundled_bin_dir.is_dir() {
@@ -362,6 +362,15 @@ fn main() {
                             std::env::set_var(
                                 "AURAPUNK_BUNDLED_BIN_DIR",
                                 bundled_bin_dir,
+                            )
+                        };
+                    }
+                    let bundled_plugins_dir = resource_dir.join("plugins");
+                    if bundled_plugins_dir.is_dir() {
+                        unsafe {
+                            std::env::set_var(
+                                "AURAPUNK_BUNDLED_PLUGINS_DIR",
+                                bundled_plugins_dir,
                             )
                         };
                     }

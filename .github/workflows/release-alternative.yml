@@ -109,11 +109,11 @@ jobs:
 
       - name: Build (zigbuild)
         if: matrix.zig
-        run: cargo zigbuild --release --target ${{ matrix.target }} --bin server --bin aurapunk-mcp --bin review --bin aurapunk-tui
+        run: cargo zigbuild --release --target ${{ matrix.target }} --bin server --bin aurapunk-mcp --bin review --bin aurapunk-tui --bin aurapunk-telegram-bridge
 
       - name: Build (native)
         if: ${{ !matrix.zig }}
-        run: cargo build --release --target ${{ matrix.target }} --bin server --bin aurapunk-mcp --bin review --bin aurapunk-tui
+        run: cargo build --release --target ${{ matrix.target }} --bin server --bin aurapunk-mcp --bin review --bin aurapunk-tui --bin aurapunk-telegram-bridge
 
       # Package each binary as <base>-<platform>.zip, where the entry inside the
       # zip is the bare binary name the CLI extracts and runs.
@@ -132,6 +132,8 @@ jobs:
           zip -q "dist-assets/aurapunk-review-$P.zip" aurapunk-review && rm aurapunk-review
           cp "target/$T/release/aurapunk-tui" aurapunk-tui
           zip -q "dist-assets/aurapunk-tui-$P.zip" aurapunk-tui && rm aurapunk-tui
+          cp "target/$T/release/aurapunk-telegram-bridge" aurapunk-telegram-bridge
+          zip -q "dist-assets/aurapunk-telegram-bridge-$P.zip" aurapunk-telegram-bridge && rm aurapunk-telegram-bridge
           ls -la dist-assets
 
       - name: Package (windows)
@@ -152,6 +154,9 @@ jobs:
           Copy-Item "target/$T/release/aurapunk-tui.exe" "aurapunk-tui.exe"
           Compress-Archive -Force -Path "aurapunk-tui.exe" -DestinationPath "dist-assets/aurapunk-tui-$P.zip"
           Remove-Item "aurapunk-tui.exe"
+          Copy-Item "target/$T/release/aurapunk-telegram-bridge.exe" "aurapunk-telegram-bridge.exe"
+          Compress-Archive -Force -Path "aurapunk-telegram-bridge.exe" -DestinationPath "dist-assets/aurapunk-telegram-bridge-$P.zip"
+          Remove-Item "aurapunk-telegram-bridge.exe"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -170,6 +175,13 @@ jobs:
           pattern: assets-*
           path: assets
           merge-multiple: true
+      - uses: actions/checkout@v4
+      - name: Package Fast Jev Compaction Plugin
+        run: |
+          mkdir -p staging/fast-jev-compaction
+          rsync -a --exclude='docker' --exclude='node_modules' --exclude='.git' packages/jev-plugin/ staging/fast-jev-compaction/
+          (cd staging && zip -rq ../assets/fast-jev-compaction-plugin.zip fast-jev-compaction)
+          rm -rf staging
 
       - name: Generate manifest.json
         run: |

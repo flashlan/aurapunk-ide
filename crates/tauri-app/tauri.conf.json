@@ -40,7 +40,8 @@
     },
     "windows": {},
     "resources": [
-      "resources/bin/*"
+      "resources/bin/*",
+      "resources/plugins/**/*"
     ],
     "icon": [
       "icons/32x32.png",

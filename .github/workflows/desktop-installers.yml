@@ -86,12 +86,16 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          cargo build --release --bin aurapunk-mcp --bin review --bin aurapunk-tui
+          cargo build --release --bin aurapunk-mcp --bin review --bin aurapunk-tui --bin aurapunk-telegram-bridge
           $binDir = Join-Path $env:GITHUB_WORKSPACE 'crates\tauri-app\resources\bin'
           New-Item -ItemType Directory -Force -Path $binDir | Out-Null
           Copy-Item 'target\release\aurapunk-mcp.exe' (Join-Path $binDir 'aurapunk-mcp.exe') -Force
           Copy-Item 'target\release\review.exe' (Join-Path $binDir 'aurapunk-review.exe') -Force
           Copy-Item 'target\release\aurapunk-tui.exe' (Join-Path $binDir 'aurapunk-tui.exe') -Force
+          Copy-Item 'target\release\aurapunk-telegram-bridge.exe' (Join-Path $binDir 'aurapunk-telegram-bridge.exe') -Force
+          $pluginsDir = Join-Path $env:GITHUB_WORKSPACE 'crates\tauri-app\resources\plugins\fast-jev-compaction'
+          New-Item -ItemType Directory -Force -Path $pluginsDir | Out-Null
+          Copy-Item -Path 'packages\jev-plugin\*' -Destination $pluginsDir -Recurse -Exclude 'docker','node_modules','.git' -Force
 
       - name: Build NSIS installer
         working-directory: crates/tauri-app
@@ -158,12 +162,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --release --bin aurapunk-mcp --bin review --bin aurapunk-tui
+          cargo build --release --bin aurapunk-mcp --bin review --bin aurapunk-tui --bin aurapunk-telegram-bridge
           bin_dir="$GITHUB_WORKSPACE/crates/tauri-app/resources/bin"
           mkdir -p "$bin_dir"
           cp target/release/aurapunk-mcp "$bin_dir/aurapunk-mcp"
           cp target/release/review "$bin_dir/aurapunk-review"
           cp target/release/aurapunk-tui "$bin_dir/aurapunk-tui"
+          cp target/release/aurapunk-telegram-bridge "$bin_dir/aurapunk-telegram-bridge"
+          plugins_dir="$GITHUB_WORKSPACE/crates/tauri-app/resources/plugins/fast-jev-compaction"
+          mkdir -p "$plugins_dir"
+          rsync -a --delete --exclude='node_modules' --exclude='.git' --exclude='docker' packages/jev-plugin/ "$plugins_dir/"
 
       - name: Build Intel app
         working-directory: crates/tauri-app
@@ -244,12 +252,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --release --bin aurapunk-mcp --bin review --bin aurapunk-tui
+          cargo build --release --bin aurapunk-mcp --bin review --bin aurapunk-tui --bin aurapunk-telegram-bridge
           bin_dir="$GITHUB_WORKSPACE/crates/tauri-app/resources/bin"
           mkdir -p "$bin_dir"
           cp target/release/aurapunk-mcp "$bin_dir/aurapunk-mcp"
           cp target/release/review "$bin_dir/aurapunk-review"
           cp target/release/aurapunk-tui "$bin_dir/aurapunk-tui"
+          cp target/release/aurapunk-telegram-bridge "$bin_dir/aurapunk-telegram-bridge"
+          plugins_dir="$GITHUB_WORKSPACE/crates/tauri-app/resources/plugins/fast-jev-compaction"
+          mkdir -p "$plugins_dir"
+          rsync -a --delete --exclude='node_modules' --exclude='.git' --exclude='docker' packages/jev-plugin/ "$plugins_dir/"
 
       - name: Build Apple Silicon app
         working-directory: crates/tauri-app
@@ -346,12 +358,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --release --bin aurapunk-mcp --bin review --bin aurapunk-tui
+          cargo build --release --bin aurapunk-mcp --bin review --bin aurapunk-tui --bin aurapunk-telegram-bridge
           bin_dir="$GITHUB_WORKSPACE/crates/tauri-app/resources/bin"
           mkdir -p "$bin_dir"
           cp target/release/aurapunk-mcp "$bin_dir/aurapunk-mcp"
           cp target/release/review "$bin_dir/aurapunk-review"
           cp target/release/aurapunk-tui "$bin_dir/aurapunk-tui"
+          cp target/release/aurapunk-telegram-bridge "$bin_dir/aurapunk-telegram-bridge"
+          plugins_dir="$GITHUB_WORKSPACE/crates/tauri-app/resources/plugins/fast-jev-compaction"
+          mkdir -p "$plugins_dir"
+          rsync -a --delete --exclude='node_modules' --exclude='.git' --exclude='docker' packages/jev-plugin/ "$plugins_dir/"
 
       - name: Build Linux installers
         working-directory: crates/tauri-app

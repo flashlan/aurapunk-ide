@@ -82,6 +82,8 @@ vibe-kanban-*.tgz
 # Platform-specific companion executables copied into desktop installers by CI.
 crates/tauri-app/resources/bin/*
 !crates/tauri-app/resources/bin/.gitkeep
+crates/tauri-app/resources/plugins/*
+!crates/tauri-app/resources/plugins/.gitkeep
 
 # Development ports file
 .dev-ports.json
