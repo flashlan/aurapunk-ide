@@ -53,9 +53,30 @@ import {
 import {
   testJevConnection,
   testLayaConnection,
+  testAgentDecisions,
+  testAbideGuardrails,
+  testMemoryExtraction,
   type ConnectionTestResult,
+  type ClassifierPreference,
 } from '@/shared/lib/decisionEngineTests';
 import { SettingsCheckbox } from './SettingsComponents';
+
+function TestResultRow({ result }: { result: ConnectionTestResult | null }) {
+  if (!result) return null;
+  return (
+    <div
+      className={`rounded-sm border px-2.5 py-1.5 text-2xs ${
+        result.ok
+          ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-400'
+          : 'border-error/40 bg-error/5 text-error'
+      }`}
+    >
+      {result.ok
+        ? `OK · ${result.latencyMs} ms${result.provider ? ` · ${result.provider}` : ''} · ${result.detail ?? ''}`
+        : `failed · ${result.error ?? 'unknown error'}`}
+    </div>
+  );
+}
 
 export const JevLayaSuitePanel: React.FC = () => {
   const { t } = useTranslation('settings');
@@ -99,37 +120,20 @@ export const JevLayaSuitePanel: React.FC = () => {
   const layaCloudUrl = useLayaCloudUrl();
 
   // Connection tests for every surface the decision engine feeds.
-  const [testBusy, setTestBusy] = useState<'jev' | 'laya' | null>(null);
-  const [jevTest, setJevTest] = useState<ConnectionTestResult | null>(null);
-  const [layaTest, setLayaTest] = useState<ConnectionTestResult | null>(null);
+  const [testBusy, setTestBusy] = useState<string | null>(null);
+  const [testResults, setTestResults] = useState<
+    Record<string, ConnectionTestResult | null>
+  >({});
 
-  const runJevTest = async () => {
-    setTestBusy('jev');
-    setJevTest(null);
+  const runTest = async (
+    id: string,
+    fn: () => Promise<ConnectionTestResult>
+  ) => {
+    setTestBusy(id);
+    setTestResults((prev) => ({ ...prev, [id]: null }));
     try {
-      setJevTest(
-        await testJevConnection({
-          apiKey: jevApiKey,
-          typesafeUrl: jevTypesafeUrl,
-        })
-      );
-    } finally {
-      setTestBusy(null);
-    }
-  };
-
-  const runLayaTest = async () => {
-    setTestBusy('laya');
-    setLayaTest(null);
-    try {
-      const endpoint = layaMode === 'cloud' ? layaCloudUrl : layaDockerUrl;
-      const token = layaMode === 'cloud' ? readCloudAccessToken() : null;
-      setLayaTest(
-        await testLayaConnection({
-          endpoint,
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        })
-      );
+      const result = await fn();
+      setTestResults((prev) => ({ ...prev, [id]: result }));
     } finally {
       setTestBusy(null);
     }
@@ -162,6 +166,55 @@ export const JevLayaSuitePanel: React.FC = () => {
       setPrimaryBusy(false);
     }
   };
+
+  const layaEndpoint = layaMode === 'cloud' ? layaCloudUrl : layaDockerUrl;
+  const layaToken = layaMode === 'cloud' ? readCloudAccessToken() : null;
+  const engineSettings = {
+    jevApiKey,
+    jevTypesafeUrl,
+    layaEndpoint,
+    layaHeaders: layaToken
+      ? { Authorization: `Bearer ${layaToken}` }
+      : undefined,
+  };
+  const prefer: ClassifierPreference = primaryEngine;
+
+  const testRows: Array<{
+    id: string;
+    label: string;
+    run: () => Promise<ConnectionTestResult>;
+  }> = [
+    {
+      id: 'jev',
+      label: 'Jev model (TypeSafe)',
+      run: () =>
+        testJevConnection({ apiKey: jevApiKey, typesafeUrl: jevTypesafeUrl }),
+    },
+    {
+      id: 'laya',
+      label: `Laya model (${layaMode})`,
+      run: () =>
+        testLayaConnection({
+          endpoint: engineSettings.layaEndpoint,
+          headers: engineSettings.layaHeaders,
+        }),
+    },
+    {
+      id: 'agent',
+      label: 'Agent decisions (RLCD · 9 decisions)',
+      run: () => testAgentDecisions(engineSettings, prefer),
+    },
+    {
+      id: 'abide',
+      label: `Abide guardrails (${abideEngine})`,
+      run: () => testAbideGuardrails(engineSettings, abideEngine),
+    },
+    {
+      id: 'memory',
+      label: 'Memory extraction (durability)',
+      run: () => testMemoryExtraction(engineSettings, prefer),
+    },
+  ];
 
   return (
     <div className="space-y-6 pt-2 text-normal">
@@ -241,60 +294,33 @@ export const JevLayaSuitePanel: React.FC = () => {
             Test decision engines
           </div>
           <div className="text-2xs text-low">
-            Runs one typed question against each configured model to confirm it
-            is reachable — the same path compaction and guardrails use.
+            Runs each surface through the exact path it uses at runtime —
+            compaction, Abide guardrails, agent decisions and mem0 extraction.
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void runJevTest()}
-            disabled={testBusy !== null}
-            className="rounded-xs px-2.5 py-1 text-2xs font-medium bg-secondary text-normal border border-border hover:text-high transition-colors disabled:opacity-50"
-          >
-            {testBusy === 'jev' ? 'Testing Jev…' : 'Test Jev (TypeSafe)'}
-          </button>
-          <button
-            type="button"
-            onClick={() => void runLayaTest()}
-            disabled={testBusy !== null}
-            className="rounded-xs px-2.5 py-1 text-2xs font-medium bg-secondary text-normal border border-border hover:text-high transition-colors disabled:opacity-50"
-          >
-            {testBusy === 'laya' ? 'Testing Laya…' : `Test Laya (${layaMode})`}
-          </button>
+        <div className="space-y-2">
+          {testRows.map((row) => (
+            <div
+              key={row.id}
+              className="space-y-1.5 rounded-sm border border-border/50 bg-secondary/30 p-2"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-2xs font-medium text-normal">
+                  {row.label}
+                </span>
+                <button
+                  type="button"
+                  disabled={testBusy !== null}
+                  onClick={() => void runTest(row.id, row.run)}
+                  className="rounded-xs px-2.5 py-1 text-2xs font-medium bg-secondary text-normal border border-border hover:text-high transition-colors disabled:opacity-50"
+                >
+                  {testBusy === row.id ? 'Testing…' : 'Test'}
+                </button>
+              </div>
+              <TestResultRow result={testResults[row.id] ?? null} />
+            </div>
+          ))}
         </div>
-        {jevTest && (
-          <div
-            className={`rounded-sm border px-2.5 py-1.5 text-2xs ${
-              jevTest.ok
-                ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-400'
-                : 'border-error/40 bg-error/5 text-error'
-            }`}
-          >
-            <strong>Jev (TypeSafe):</strong>{' '}
-            {jevTest.ok
-              ? `OK · ${jevTest.latencyMs} ms · ${jevTest.detail ?? ''}`
-              : `failed · ${jevTest.error ?? 'unknown error'}`}
-          </div>
-        )}
-        {layaTest && (
-          <div
-            className={`rounded-sm border px-2.5 py-1.5 text-2xs ${
-              layaTest.ok
-                ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-400'
-                : 'border-error/40 bg-error/5 text-error'
-            }`}
-          >
-            <strong>Laya ({layaMode}):</strong>{' '}
-            {layaTest.ok
-              ? `OK · ${layaTest.latencyMs} ms · ${layaTest.detail ?? ''}`
-              : `failed · ${layaTest.error ?? 'unknown error'}`}
-          </div>
-        )}
-        <p className="text-2xs text-low">
-          mem0 extraction runs on the server; its provider follows the Primary
-          engine choice above.
-        </p>
       </div>
 
       {/* Module 1: Abide Rule Guardrails Engine */}
