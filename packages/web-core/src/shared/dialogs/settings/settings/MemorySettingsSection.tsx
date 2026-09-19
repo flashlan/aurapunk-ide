@@ -1004,7 +1004,7 @@ export function MemorySettingsSection() {
                                     setDraft(
                                       p,
                                       'url',
-                                      'https://api.vercel.ai/v1/fast-jev'
+                                      'https://ai-gateway.vercel.sh/v4/ai/evaluation-model'
                                     );
                                   }
                                 }}
@@ -1044,7 +1044,7 @@ export function MemorySettingsSection() {
                                   onChange={(e) =>
                                     setDraft(p, 'url', e.target.value)
                                   }
-                                  placeholder="https://api.vercel.ai/v1/fast-jev"
+                                  placeholder="https://ai-gateway.vercel.sh/v4/ai/evaluation-model"
                                   className="min-w-0 rounded-sm border border-border bg-panel px-2 py-1.5 text-xs text-high placeholder:text-low focus:outline-none focus:ring-1 focus:ring-brand"
                                 />
                                 <input

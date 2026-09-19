@@ -580,7 +580,7 @@ export const JevLayaSuitePanel: React.FC = () => {
                   type="text"
                   value={jevVercelUrl}
                   onChange={(e) => setJevVercelUrl(e.target.value)}
-                  placeholder="https://api.vercel.ai/v1/fast-jev"
+                  placeholder="https://ai-gateway.vercel.sh/v4/ai/evaluation-model"
                   className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
                 />
               </div>

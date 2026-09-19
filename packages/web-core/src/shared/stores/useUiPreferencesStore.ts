@@ -329,9 +329,10 @@ const loadJevProviderMode = (): JevProviderMode => {
 const loadJevVercelUrl = (): string => {
   try {
     const stored = localStorage.getItem(JEV_VERCEL_URL_KEY);
-    if (stored) return stored;
+    // Migrate the legacy placeholder URL (it never existed on Vercel).
+    if (stored && !stored.includes('api.vercel.ai')) return stored;
   } catch {}
-  return 'https://api.vercel.ai/v1/fast-jev';
+  return 'https://ai-gateway.vercel.sh/v4/ai/evaluation-model';
 };
 
 const loadJevVercelKey = (): string => {
