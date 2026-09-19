@@ -1,5 +1,5 @@
 /**
- * Core type definitions for Fast Jev Compaction and Laya Decision Engine
+ * Core type definitions for Fast Jev Compaction and the RLCD decision engine (Laya or Jev)
  */
 
 export type Role = 'user' | 'assistant' | 'system' | 'tool';

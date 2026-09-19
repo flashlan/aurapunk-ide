@@ -7,7 +7,7 @@ import {
 import type { DecisionClassifier } from "../src/classifiers/interface.js";
 import type { TypedQuestion, DecisionAnswer } from "../src/types.js";
 
-describe("Abide Rule Guardrails - Laya System-1 & Jev System-2", () => {
+describe("Abide Rule Guardrails - RLCD (Laya or Jev)", () => {
   it("Laya blocks direct modification of shared/types.ts with repair prompt in <1ms", async () => {
     const diff = `
 --- a/shared/types.ts

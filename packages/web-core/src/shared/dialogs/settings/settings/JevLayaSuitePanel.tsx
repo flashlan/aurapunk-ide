@@ -128,7 +128,7 @@ export const JevLayaSuitePanel: React.FC = () => {
               </span>
             </div>
             <div className="text-xs text-low">
-              Unified control center for local AST decisions, Abide rule
+              Unified control center for the RLCD decision engine, Abide rule
               guardrails, and context auto-compaction.
             </div>
           </div>
@@ -136,7 +136,7 @@ export const JevLayaSuitePanel: React.FC = () => {
         <div className="flex items-center gap-2 text-xs font-mono text-low">
           <span className="flex items-center gap-1 text-emerald-400">
             <CheckCircleIcon className="size-3.5" weight="fill" />
-            Laya Engine (Docker / Cloud)
+            RLCD engine · Laya (Docker / Cloud)
           </span>
         </div>
       </div>
@@ -228,7 +228,7 @@ export const JevLayaSuitePanel: React.FC = () => {
                         : 'text-low hover:text-normal'
                     }`}
                   >
-                    🔄 Adaptive (Laya + Jev)
+                    🔄 Adaptive (Jev + RLCD)
                   </button>
                   <button
                     type="button"
@@ -239,7 +239,7 @@ export const JevLayaSuitePanel: React.FC = () => {
                         : 'text-low hover:text-normal'
                     }`}
                   >
-                    🐳 Laya (Docker / Cloud)
+                    ⚡ RLCD (local)
                   </button>
                   <button
                     type="button"

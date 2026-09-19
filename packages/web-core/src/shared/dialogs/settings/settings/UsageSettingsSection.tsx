@@ -668,7 +668,7 @@ export function UsageSettingsSection() {
     },
     {
       id: 'laya',
-      label: 'Laya System-1',
+      label: 'Laya model (System-1)',
       sublabel: 'Docker container or AuraPunk Cloud (no Embedded)',
     },
     {
@@ -1535,7 +1535,7 @@ export function UsageSettingsSection() {
                 <span>
                   {t(
                     'settings.usage.compactorEngineTitle',
-                    'Compactor Engine & Decision Classifier'
+                    'RLCD Engine & Decision Classifier'
                   )}
                 </span>
               </span>

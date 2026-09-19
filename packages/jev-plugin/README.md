@@ -1,4 +1,4 @@
-# Aurapunk Jev Plugin: Fast Jev Compaction & Laya Decision Engine
+# Aurapunk Jev Plugin: Fast Jev Compaction & the RLCD Decision Engine (Laya or Jev)
 
 Plugin para **Claude Code** e **Aurapunk IDE (Vibe Kanban)** que substitui a sumarização com perda de contexto por decisões estruturadas **System 1** do **Jev** (TypeSafe) com fallback automático para o **Laya** (ModernBERT / Convai Innovations).
 

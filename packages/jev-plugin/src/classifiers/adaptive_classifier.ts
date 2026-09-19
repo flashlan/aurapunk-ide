@@ -81,7 +81,7 @@ export class AdaptiveClassifier implements DecisionClassifier {
       } catch (err: any) {
         // Fallback to Laya with diagnostic note
         console.warn(
-          `[AdaptiveClassifier] Jev evaluation failed (${err?.message || err}). Falling back to Laya System-1 classifier.`,
+          `[AdaptiveClassifier] Jev evaluation failed (${err?.message || err}). Falling back to the RLCD classifier (Laya).`,
         );
       }
     }

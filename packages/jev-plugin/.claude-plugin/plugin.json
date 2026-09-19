@@ -1,7 +1,7 @@
 {
   "name": "fast-jev-compaction",
   "version": "0.1.0",
-  "description": "Replaces lossy compaction summary with Fast Jev & Laya System-1 decisions: scores tool calls/results, drops stale items, preserves verbatim history, with Laya fallback.",
+  "description": "Replaces lossy compaction summary with Fast Jev & RLCD decisions (Laya or Jev): scores tool calls/results, drops stale items, preserves verbatim history, with Laya fallback.",
   "author": "Aurapunk IDE / tamaratran / NandhaKishorM",
   "homepage": "https://github.com/tamaratran/fast-jev-compaction",
   "hooks": {

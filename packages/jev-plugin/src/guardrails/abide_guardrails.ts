@@ -2,7 +2,7 @@
  * Abide Rule Guardrails System
  *
  * Enforces AGENTS.md and repository rules on every edit/diff using:
- * 1. Laya System-1 Local Classifier (<1ms, local CPU, 0 tokens, deterministic AST/regex)
+ * 1. RLCD deterministic checks (<1ms, local CPU, 0 tokens, AST/regex)
  * 2. Fast Jev System-2 Decision Classifier (~300ms, calibrated probability via the TypeSafe API)
  * 3. Adaptive Router with Graceful Fallback (Laya -> Jev -> Laya)
  */
@@ -118,7 +118,7 @@ export interface EvaluateDiffOptions {
 
 /**
  * Evaluates a single file diff against repository rules.
- * Runs Laya (System-1 <1ms CPU) first, with graceful escalation to Jev (System-2) if needed.
+ * Runs the RLCD deterministic checks first, with graceful escalation to Jev (TypeSafe) if needed.
  */
 export async function evaluateDiffRules({
   filePath,
@@ -144,7 +144,7 @@ export async function evaluateDiffRules({
     .map((line) => line.substring(1));
   const addedContent = addedLines.join("\n");
 
-  // Step 1: Execute Laya System-1 Deterministic Checks
+  // Step 1: RLCD deterministic checks
   for (const rule of activeRules) {
     if (rule.layaCheck) {
       // Check forbidden files

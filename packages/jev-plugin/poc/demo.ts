@@ -1,6 +1,6 @@
 /**
  * Proof of Concept (POC) Demonstration
- * Fast Jev Compaction + Laya System-1 Decision Engine
+ * Fast Jev Compaction + RLCD Decision Engine (Laya or Jev)
  *
  * Demonstrates:
  * 1. O que o Laya consegue fazer sozinho (as 9 decisões autônomas)

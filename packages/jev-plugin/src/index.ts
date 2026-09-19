@@ -1,6 +1,6 @@
 /**
  * @aurapunk/jev-plugin
- * Universal Fast Jev Compaction and Laya System-1 Decision Engine
+ * Universal Fast Jev Compaction and the RLCD Decision Engine (Laya or Jev)
  */
 
 export * from "./types.js";

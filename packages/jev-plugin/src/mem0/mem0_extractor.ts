@@ -1,6 +1,6 @@
 /**
  * @aurapunk/jev-plugin
- * Fast Jev & Laya System-1 Semantic Graph & Vector Extractor for Mem0
+ * Fast Jev & RLCD Semantic Graph & Vector Extractor for Mem0
  * 
  * Provides deterministic, zero-token entity & relation extraction
  * and fact durability classification (<1ms, local CPU).
@@ -22,7 +22,7 @@ export interface Mem0ExtractionResult {
   facts: string[];
   entities: ExtractedEntity[];
   relations: ExtractedRelation[];
-  durabilityScore: number; // 0.0 - 1.0 (Laya System-1 score)
+  durabilityScore: number; // 0.0 - 1.0 (RLCD score)
   isVolatile: boolean;
   engine: 'fast-jev' | 'laya-classifier';
 }
@@ -194,7 +194,7 @@ export function extractEntitiesDeterministic(text: string, maxEntities = 8): Ext
   const techKeywords = [
     { name: 'Mem0', desc: 'Long-term agentic memory store', type: 'tech' as const },
     { name: 'FastJev', desc: 'Sub-millisecond token compactor & extractor', type: 'architecture' as const },
-    { name: 'Laya', desc: 'System-1 autonomous decision classifier', type: 'architecture' as const },
+    { name: 'Laya', desc: 'RLCD autonomous decision classifier', type: 'architecture' as const },
     { name: 'Qdrant', desc: 'Vector similarity database', type: 'tech' as const },
     { name: 'NetworkX', desc: 'Directed semantic knowledge graph', type: 'tech' as const },
     { name: 'Graphify', desc: 'Interactive memory graph viewer', type: 'architecture' as const },
@@ -285,7 +285,7 @@ export function extractRelationsDeterministic(
 }
 
 /**
- * Main Mem0 Structure Extractor using Fast Jev / Laya System-1.
+ * Main Mem0 Structure Extractor using Fast Jev / RLCD.
  * Returns self-contained facts, classified entities, and relations.
  */
 export function extractMem0Structure(

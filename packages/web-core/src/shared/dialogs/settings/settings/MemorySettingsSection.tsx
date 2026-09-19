@@ -936,12 +936,12 @@ export function MemorySettingsSection() {
                       <span className="inline-block size-2 rounded-full bg-success" />
                       {provider === 'jev'
                         ? 'Fast Jev Compactor & Deterministic Extractor Active'
-                        : 'Laya System-1 Agentic Classifier Active'}
+                        : 'RLCD classifier active (Laya model)'}
                     </div>
                     <div className="mt-1 text-2xs text-low leading-relaxed">
                       {provider === 'jev'
                         ? 'Runs sub-millisecond local token classification and AST parsing. Extracts durable facts, modules, files, and relations with zero token consumption and zero latency.'
-                        : 'Autonomous System-1 classification with 9 agent decisions. Classifies fact durability, filters out volatile compiler errors/logs, and builds clean semantic graph relations.'}
+                        : 'RLCD: autonomous System-1 classification with 9 agent decisions. Classifies fact durability, filters out volatile compiler errors/logs, and builds clean semantic graph relations.'}
                     </div>
                   </div>
                 )}

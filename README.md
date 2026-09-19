@@ -148,7 +148,7 @@ Software engineering increasingly means directing coding agents — planning wor
 - **Server infrastructure** — upstream sunsetting, Indie runs locally → **fully offline, self-hosted runtime**
 - **Cross-session memory** — ephemeral, or none → **native `mem0` with Qdrant and a NetworkX graph**
 - **Prompt cache-hit architecture** — not present → **deterministic memory-prefix injection preserves cache hits**
-- **Context compression & decisions** — lossy LLM summaries, or none → **zero-token Fast Jev compaction (`/compress`) with the Laya System-1 decision engine and Abide rule guardrails**
+- **Context compression & decisions** — lossy LLM summaries, or none → **zero-token Fast Jev compaction (`/compress`) with the RLCD decision engine (Laya or Jev) and Abide rule guardrails**
 - **Telemetry and observability** — none, or minimal → **`Settings → Usage` dashboard: tokens, activity heatmaps, per-agent breakdown**
 - **Coding agent support** — legacy CLI subset → **11+ agents, including CommandCode, Claude Code, Antigravity, Codex, Gemini CLI**
 - **Antigravity (AGY) agent** — not supported, or basic text mode → **full `stream-json` parsing, tool-use cards, reasoning-effort control**
@@ -248,9 +248,13 @@ The engine ships as [`@aurapunk/jev-plugin`](packages/jev-plugin) (also usable f
 - The initial prompt and the recent window are kept intact as a **prompt-cache anchor**, with older history isolated behind a milestone marker.
 - The project's own benchmarks report **~88.5% fewer tokens** with verbatim fidelity preserved.
 
-### Laya System-1 decision engine
+### RLCD decision engine (Laya or Jev)
 
-A non-autoregressive **ModernBERT** model (`convaiinnovations/laya`) answers typed questions (`choice`, `score`, `noul`) in a single forward pass and produces those keep/drop decisions — plus 9 autonomous agent decisions: does this need a tool, which tool, respond directly, is information missing, is confirmation required, what is the risk level, should it escalate, does the proposed call match the request, and which agent should take the task. It runs as a **self-hosted Docker container** or through the **AuraPunk Cloud gateway** (device-token authenticated) — never as a silent in-process heuristic. When Fast Jev (System-2, the semantic evaluator) is configured, it escalates architectural rules and falls back to Laya automatically.
+**RLCD is the engine; Laya and Jev are the models it can use.** RLCD answers typed questions (`choice`, `score`, `noul`) and produces the keep/drop decisions above — plus 9 autonomous agent decisions: does this need a tool, which tool, respond directly, is information missing, is confirmation required, what is the risk level, should it escalate, does the proposed call match the request, and which agent should take the task. Two models can back it:
+- **Laya** — a non-autoregressive ModernBERT model (`convaiinnovations/laya`), self-hosted as a **Docker container** or via the **AuraPunk Cloud gateway** (device-token authenticated).
+- **Jev** — TypeSafe's System One evaluation model, called over the TypeSafe API.
+
+When both are configured, RLCD escalates to Jev for complex semantic rules and falls back to Laya. Neither is ever a silent in-process heuristic.
 
 ### Abide rule guardrails
 
@@ -258,15 +262,15 @@ Every edit and diff is checked against the repository's `AGENTS.md` before it la
 
 ### Memory extraction at zero token cost
 
-The same engine replaces the extraction LLM in the memory service (`MEM0_LLM_PROVIDER=laya`): structured extraction runs **in-container in <1 ms and consumes 0 tokens**, while embedding vectors still come from your own host. Facts are still written to the mem0 graph and Qdrant, and searched semantically as usual.
+The same engine replaces the extraction LLM in the memory service: structured extraction runs **in-container in <1 ms and consumes 0 tokens**, while embedding vectors still come from your own host. Point `MEM0_LLM_PROVIDER` at `jev` or `laya` with a real endpoint (TypeSafe key, or the Laya Docker/Cloud `/predict`) and RLCD adds the model's judgement on top; otherwise it stays deterministic. Facts are still written to the mem0 graph and Qdrant, and searched semantically as usual.
 
 ```mermaid
 flowchart LR
     Chat["Long agent session"] --> FJ["Fast Jev Compaction"]
-    FJ -->|typed questions| Laya["Laya System-1<br/>ModernBERT / Docker / Cloud"]
-    Laya -->|keep or drop| FJ
+    FJ -->|typed questions| RLCD["RLCD engine<br/>Laya or Jev"]
+    RLCD -->|keep or drop| FJ
     FJ --> Compact["Milestone marker<br/>verbatim prompt + recent window"]
-    Laya --> Abide["Abide guardrails<br/>AGENTS.md rules"]
+    RLCD --> Abide["Abide guardrails<br/>AGENTS.md rules"]
     Compact --> Mem0["mem0 graph + Qdrant"]
 ```
 

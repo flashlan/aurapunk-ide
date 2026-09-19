@@ -1,7 +1,7 @@
 {
   "name": "@aurapunk/jev-plugin",
   "version": "0.1.0",
-  "description": "Fast Jev Compaction plugin with Laya System-1 decision engine fallback for universal autocompact and agent triage",
+  "description": "Fast Jev Compaction plugin with the RLCD decision engine (Laya or Jev) for universal autocompact and agent triage",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "type": "module",

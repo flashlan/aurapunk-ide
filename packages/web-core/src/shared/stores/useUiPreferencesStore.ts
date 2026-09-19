@@ -914,7 +914,7 @@ type State = {
   jevTypesafeUrl: string;
   setJevTypesafeUrl: (url: string) => void;
 
-  // Laya System-1 Guardrails
+  // RLCD guardrails (Laya or Jev)
   layaGuardrailsEnabled: boolean;
   setLayaGuardrailsEnabled: (enabled: boolean) => void;
 
