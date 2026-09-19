@@ -19,8 +19,21 @@ from typing import Any
 
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Laya ModernBERT Decision Server")
+
+# The AuraPunk desktop app calls this from a webview whose origin is
+# `http://localhost:<port>` — a *different* port, hence a cross-origin request.
+# Without these headers the browser blocks the call before the app ever sees a
+# response ("Load failed"), which looks like "container unreachable". This is a
+# local, single-user decision server, so any origin may call it.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 MODEL_ID = os.environ.get("LAYA_MODEL", "convaiinnovations/laya")
 agent: Any = None

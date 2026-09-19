@@ -23,7 +23,7 @@ O **Fast Jev Compaction** (`tamaratran/fast-jev-compaction`):
 
 ## 2. O que o Laya consegue fazer sozinho?
 
-Quando a API do TypeSafe Jev não estiver configurada (`TYPESAFE_API_KEY`), offline ou em ambientes locais/air-gapped, o plugin realiza o **fallback transparente para o Laya** (`NandhaKishorM/laya`).
+Quando a API do TypeSafe Jev não estiver configurada (`TYPESAFE_API_KEY`), offline ou em ambientes locais/air-gapped, o plugin realiza o **fallback transparente para o Laya** (`convaiinnovations/laya`).
 
 O Laya é um motor de decisão não-autoregressivo de 421M parâmetros baseado em ModernBERT-large (`convaiinnovations/laya`), capaz de responder perguntas tipadas (`choice`, `score`, `noul`) em um único forward pass (~35 ms em GPU).
 
@@ -131,3 +131,42 @@ const result = await compactMessages(transcript, {
 
 console.log(`Tokens reduzidos em ${(result.stats.reductionRatio * 100)}% sem perda de texto!`);
 ```
+
+---
+
+## 7. Rodando o Laya via Docker (OrbStack)
+
+A imagem empacota o `docker/server.py`: um FastAPI que expõe o contrato que o
+compactor chama — `POST /predict {state, questions}` → `{answers}` (alias
+`/evaluate`) e `GET /health`.
+
+```bash
+# 1. Build (CPU-only; funciona em arm64/Apple Silicon via OrbStack)
+docker build -t laya-local packages/jev-plugin/docker
+
+# 2. Volume para o cache do Hugging Face (~2.4 GB), para não rebaixar o
+#    modelo a cada recriação do container
+docker volume create laya-hf-cache
+
+# 3. Run — 8080 é o default do app (Settings → Laya execution mode: docker)
+docker run -d --name aurapunk-laya --restart unless-stopped \
+  -p 8080:8080 \
+  -v laya-hf-cache:/root/.cache/huggingface \
+  -e LAYA_MODEL=convaiinnovations/laya \
+  laya-local
+
+# 4. Verificar
+curl -s http://localhost:8080/health   # {"status":"ok","loaded":true,...}
+```
+
+Notas:
+
+- O servidor habilita **CORS** (`allow_origins=["*"]`): o app desktop chama de
+  um webview em outra origem (`http://localhost:<porta>`), e sem os headers o
+  navegador bloqueia a resposta (`Load failed`) — o container pareceria
+  "inacessível" mesmo estando no ar.
+- O primeiro start baixa ~2.4 GB de pesos; com o volume `laya-hf-cache` os
+  starts seguintes são imediatos (o health check tem `--start-period=300s`
+  por causa desse primeiro download).
+- Sem GPU: a inferência roda em CPU (~1–2 s por forward; ~35 ms em GPU no host
+  `sd`).
