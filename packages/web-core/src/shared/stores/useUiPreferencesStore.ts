@@ -249,6 +249,52 @@ const loadCompactorEngine = (): CompactorEngineType => {
   return DEFAULT_COMPACTOR_ENGINE;
 };
 
+// Central engine selector. One choice fans out to every Jev/Laya surface:
+// the compactor, the Abide guardrails and (via the mem0 endpoint) the memory
+// extraction provider. Individual settings can still be overridden after.
+export type PrimaryEngine = 'auto' | 'jev' | 'laya';
+export const DEFAULT_PRIMARY_ENGINE: PrimaryEngine = 'auto';
+const PRIMARY_ENGINE_KEY = 'vk-primary-engine';
+
+const loadPrimaryEngine = (): PrimaryEngine => {
+  try {
+    const stored = localStorage.getItem(PRIMARY_ENGINE_KEY);
+    if (stored === 'auto' || stored === 'jev' || stored === 'laya') {
+      return stored;
+    }
+  } catch {}
+  return DEFAULT_PRIMARY_ENGINE;
+};
+
+/** Fan a primary engine choice out to the client-side engine preferences. */
+export function primaryEngineMapping(engine: PrimaryEngine): {
+  compactorEngine: CompactorEngineType;
+  abideGuardrailsEngine: AbideGuardrailsEngine;
+  mem0Provider: 'jev' | 'laya';
+} {
+  switch (engine) {
+    case 'jev':
+      return {
+        compactorEngine: 'jev',
+        abideGuardrailsEngine: 'jev',
+        mem0Provider: 'jev',
+      };
+    case 'laya':
+      return {
+        compactorEngine: 'laya',
+        abideGuardrailsEngine: 'laya',
+        mem0Provider: 'laya',
+      };
+    default:
+      // Auto = Jev with an automatic Laya/deterministic fallback everywhere.
+      return {
+        compactorEngine: 'auto',
+        abideGuardrailsEngine: 'adaptive',
+        mem0Provider: 'jev',
+      };
+  }
+}
+
 // Persisted Laya execution mode ('docker' | 'cloud'). Laya runs only as a
 // managed service: either the self-hosted Docker container or the hosted
 // AuraPunk Cloud gateway. The old in-process 'embedded' heuristics are no
@@ -848,6 +894,10 @@ type State = {
   compactorEngine: CompactorEngineType;
   setCompactorEngine: (engine: CompactorEngineType) => void;
 
+  // Central Jev/Laya engine selector ('auto' | 'jev' | 'laya')
+  primaryEngine: PrimaryEngine;
+  setPrimaryEngine: (engine: PrimaryEngine) => void;
+
   // Laya Mode ('docker' | 'cloud') & URLs
   layaMode: LayaExecutionMode;
   setLayaMode: (mode: LayaExecutionMode) => void;
@@ -1100,6 +1150,18 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
       localStorage.setItem(COMPACTOR_ENGINE_KEY, engine);
     } catch {}
     set({ compactorEngine: engine });
+  },
+
+  // Central Jev/Laya engine selector (fans out to compactor + guardrails)
+  primaryEngine: loadPrimaryEngine(),
+  setPrimaryEngine: (engine) => {
+    const mapping = primaryEngineMapping(engine);
+    try {
+      localStorage.setItem(PRIMARY_ENGINE_KEY, engine);
+    } catch {}
+    get().setCompactorEngine(mapping.compactorEngine);
+    get().setAbideGuardrailsEngine(mapping.abideGuardrailsEngine);
+    set({ primaryEngine: engine });
   },
 
   // Laya Mode & URLs
@@ -1955,6 +2017,11 @@ export const useCompactorEngine = () =>
   useUiPreferencesStore((s) => s.compactorEngine);
 export const useSetCompactorEngine = () =>
   useUiPreferencesStore((s) => s.setCompactorEngine);
+
+export const usePrimaryEngine = () =>
+  useUiPreferencesStore((s) => s.primaryEngine);
+export const useSetPrimaryEngine = () =>
+  useUiPreferencesStore((s) => s.setPrimaryEngine);
 
 export const useLayaMode = () => useUiPreferencesStore((s) => s.layaMode);
 export const useSetLayaMode = () => useUiPreferencesStore((s) => s.setLayaMode);

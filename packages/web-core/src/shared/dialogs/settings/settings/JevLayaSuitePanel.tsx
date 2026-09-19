@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { updateMem0ExtractionProvider } from '@/shared/lib/mem0ExtractionProvider';
 import {
   LightningIcon,
   ShieldCheckIcon,
@@ -32,6 +33,9 @@ import {
   useSetGuardrailSemanticJev,
   useCompactorEngine,
   useSetCompactorEngine,
+  usePrimaryEngine,
+  useSetPrimaryEngine,
+  primaryEngineMapping,
   useCompactionThreshold,
   useSetCompactionThreshold,
   useJevApiKey,
@@ -40,6 +44,7 @@ import {
   useSetJevTypesafeUrl,
   type CompactorEngineType,
   type CompactionThreshold,
+  type PrimaryEngine,
 } from '@/shared/stores/useUiPreferencesStore';
 import { SettingsCheckbox } from './SettingsComponents';
 
@@ -79,6 +84,34 @@ export const JevLayaSuitePanel: React.FC = () => {
   const jevTypesafeUrl = useJevTypesafeUrl();
   const setJevTypesafeUrl = useSetJevTypesafeUrl();
 
+  // Central engine selector
+  const primaryEngine = usePrimaryEngine();
+  const setPrimaryEngine = useSetPrimaryEngine();
+  const [primaryBusy, setPrimaryBusy] = useState(false);
+  const [primaryNotice, setPrimaryNotice] = useState<string | null>(null);
+
+  const handlePrimaryEngine = async (engine: PrimaryEngine) => {
+    setPrimaryEngine(engine);
+    setPrimaryNotice(null);
+    try {
+      setPrimaryBusy(true);
+      await updateMem0ExtractionProvider(
+        primaryEngineMapping(engine).mem0Provider
+      );
+      setPrimaryNotice(
+        `Applied to compactor, guardrails and mem0 extraction (${engine}).`
+      );
+    } catch (e) {
+      setPrimaryNotice(
+        `Compactor and guardrails updated, but the mem0 extraction provider could not be changed: ${
+          e instanceof Error ? e.message : String(e)
+        }`
+      );
+    } finally {
+      setPrimaryBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6 pt-2 text-normal">
       {/* Overview Status Banner */}
@@ -106,6 +139,48 @@ export const JevLayaSuitePanel: React.FC = () => {
             Laya Engine (Docker / Cloud)
           </span>
         </div>
+      </div>
+
+      {/* Central Jev/Laya engine selector */}
+      <div className="rounded-md border border-brand/60 bg-brand/5 p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium text-high">
+              Primary Jev/Laya engine
+            </div>
+            <div className="text-2xs text-low">
+              One choice for every surface — context compaction, Abide
+              guardrails and mem0 extraction. Individual settings below can
+              still be overridden.
+            </div>
+          </div>
+          <div className="flex items-center rounded-sm bg-secondary p-0.5 text-2xs border border-border">
+            {(['auto', 'jev', 'laya'] as const).map((engine) => (
+              <button
+                key={engine}
+                type="button"
+                disabled={primaryBusy}
+                onClick={() => void handlePrimaryEngine(engine)}
+                className={`rounded-xs px-2.5 py-1 font-medium transition-colors disabled:opacity-50 ${
+                  primaryEngine === engine
+                    ? 'bg-panel text-high shadow-xs'
+                    : 'text-low hover:text-normal'
+                }`}
+              >
+                {engine === 'auto'
+                  ? 'Auto (Jev + Laya)'
+                  : engine === 'jev'
+                    ? 'Jev'
+                    : 'Laya'}
+              </button>
+            ))}
+          </div>
+        </div>
+        {primaryNotice && (
+          <div className="rounded-sm border border-border/50 bg-panel/60 px-2.5 py-1.5 text-2xs text-low">
+            {primaryNotice}
+          </div>
+        )}
       </div>
 
       {/* Module 1: Abide Rule Guardrails Engine */}
