@@ -1,7 +1,7 @@
 {
   "name": "aurapunk-ide",
   "private": true,
-  "version": "0.3.11",
+  "version": "0.3.12",
   "bin": {
     "aurapunk-ide": "npx-cli/bin/cli.js",
     "aurapunk": "npx-cli/bin/cli.js"

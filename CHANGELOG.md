@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.12] - 2026-09-19
+
+### Changed
+
+- **Settings copy**: the guardrails toggle is now **"Enable RLCD Autonomous
+  Guardrails (9 Decisions)"** (previously named after Laya System-1). The
+  behavior is unchanged; the label no longer implies a single provider.
+
 ## [0.3.11] - 2026-09-19
 
 ### Added
