@@ -1824,7 +1824,7 @@ export function UsageSettingsSection() {
                     className="size-3.5 text-emerald-400"
                     weight="bold"
                   />
-                  Enable Laya System-1 Autonomous Guardrails (9 Decisions)
+                  Enable RLCD Autonomous Guardrails (9 Decisions)
                 </span>
                 <span className="block text-[11px] text-low mt-0.5">
                   Evaluates instructions in &lt;1ms to intercept destructive
