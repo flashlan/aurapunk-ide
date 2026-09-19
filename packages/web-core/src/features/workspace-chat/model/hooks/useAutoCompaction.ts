@@ -106,19 +106,27 @@ export function useAutoCompaction({
         console.log(
           `[auto-compact] Token usage reached ${pct.toFixed(1)}% (threshold: ${thresholdPct}%). Executing compaction via ${engine}...`
         );
-        const { markerPatch } = await executeSessionCompaction({
-          entries,
-          engine,
-          layaMode,
-          layaDockerUrl,
-          layaCloudUrl,
-          layaAuthToken: readCloudAccessToken() ?? undefined,
-          jevApiKey,
-          jevTypesafeUrl,
+        const token = readCloudAccessToken() ?? undefined;
+        const run = (mode: 'docker' | 'cloud') =>
+          executeSessionCompaction({
+            entries,
+            engine,
+            layaMode: mode,
+            layaDockerUrl,
+            layaCloudUrl,
+            layaAuthToken: token,
+            jevApiKey,
+            jevTypesafeUrl,
+          });
+
+        const result = await run(layaMode).catch((firstErr) => {
+          // Fall back to the hosted Laya gateway when this Desktop is signed in.
+          if (token && layaMode !== 'cloud') return run('cloud');
+          throw firstErr;
         });
 
         // Inject marker into chat
-        setEntries([...entries, markerPatch]);
+        setEntries([...entries, result.markerPatch]);
         lastCompactAtRef.current.set(sessionId, Date.now());
       } catch (err) {
         console.warn('[auto-compact] Failed to execute auto-compaction:', err);

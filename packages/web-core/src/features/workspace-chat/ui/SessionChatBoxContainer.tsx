@@ -65,6 +65,7 @@ import { useAutoCompaction } from '../model/hooks/useAutoCompaction';
 import {
   executeSessionCompaction,
   prepareCloudPromptWithIsolation,
+  buildCompactionNotice,
 } from '../model/sessionCompactor';
 import { useInspectModeStore } from '../model/store/useInspectModeStore';
 import { Actions } from '@/shared/actions';
@@ -610,20 +611,44 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       await clearDraft();
       onScrollToBottom('auto');
 
-      try {
-        const { markerPatch } = await executeSessionCompaction({
+      const runCompaction = (mode: 'docker' | 'cloud', token?: string) =>
+        executeSessionCompaction({
           entries,
           engine: compactorEngine,
-          layaMode,
+          layaMode: mode,
           layaDockerUrl,
           layaCloudUrl,
-          layaAuthToken: readCloudAccessToken() ?? undefined,
+          layaAuthToken: token,
           jevApiKey,
           jevTypesafeUrl,
         });
-        setEntries([...entries, markerPatch]);
+
+      try {
+        let result: Awaited<ReturnType<typeof runCompaction>>;
+        const token = readCloudAccessToken() ?? undefined;
+        try {
+          result = await runCompaction(layaMode, token);
+        } catch (firstErr) {
+          // If the configured endpoint is unreachable but this Desktop is signed
+          // into AuraPunk Cloud, retry through the hosted Laya gateway.
+          if (token && layaMode !== 'cloud') {
+            result = await runCompaction('cloud', token);
+          } else {
+            throw firstErr;
+          }
+        }
+        setEntries([...entries, result.markerPatch]);
       } catch (err) {
-        console.warn('[compaction] Failed to execute manual compaction:', err);
+        const detail = err instanceof Error ? err.message : String(err);
+        setEntries([
+          ...entries,
+          buildCompactionNotice(
+            `**Context compaction could not run.** ${detail}\n\n` +
+              'Fix it in **Settings → Usage → Laya Execution Mode**: choose **Cloud** ' +
+              '(sign in to AuraPunk Cloud), start the Laya Docker container, or add a ' +
+              '**Jev (TypeSafe)** API key. The context was left unchanged.'
+          ),
+        ]);
       }
       return;
     }

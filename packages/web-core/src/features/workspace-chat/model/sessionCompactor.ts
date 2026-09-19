@@ -278,6 +278,24 @@ export async function executeSessionCompaction({
 }
 
 /**
+ * Visible chat notice (rendered as an assistant message) used to report a
+ * compaction that could not run — the manual `/compact` command used to fail
+ * silently, so the user had no idea why the context never shrank.
+ */
+export function buildCompactionNotice(message: string): PatchTypeWithKey {
+  return {
+    type: 'NORMALIZED_ENTRY',
+    patchKey: `compaction-notice-${Date.now()}`,
+    executionProcessId: 'session-compactor',
+    content: {
+      timestamp: new Date().toISOString(),
+      entry_type: { type: 'assistant_message' },
+      content: message,
+    },
+  };
+}
+
+/**
  * Formats a prompt payload isolating historical noise above the last compaction marker.
  */
 export function prepareCloudPromptWithIsolation(
