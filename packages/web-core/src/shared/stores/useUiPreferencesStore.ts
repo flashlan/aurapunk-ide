@@ -213,6 +213,159 @@ const loadCompactionThreshold = (): CompactionThreshold => {
   return DEFAULT_COMPACTION_THRESHOLD;
 };
 
+// Persisted compactor engine ('auto' | 'laya' | 'jev' | 'disabled')
+export type CompactorEngineType = 'auto' | 'laya' | 'jev' | 'disabled';
+export const DEFAULT_COMPACTOR_ENGINE: CompactorEngineType = 'auto';
+const COMPACTOR_ENGINE_KEY = 'vk-compactor-engine';
+
+const loadCompactorEngine = (): CompactorEngineType => {
+  try {
+    const stored = localStorage.getItem(COMPACTOR_ENGINE_KEY);
+    if (
+      stored === 'auto' ||
+      stored === 'laya' ||
+      stored === 'jev' ||
+      stored === 'disabled'
+    ) {
+      return stored;
+    }
+  } catch {}
+  return DEFAULT_COMPACTOR_ENGINE;
+};
+
+// Persisted Laya execution mode ('embedded' | 'docker')
+export type LayaExecutionMode = 'embedded' | 'docker';
+export const DEFAULT_LAYA_MODE: LayaExecutionMode = 'embedded';
+const LAYA_MODE_KEY = 'vk-laya-mode';
+
+const loadLayaMode = (): LayaExecutionMode => {
+  try {
+    const stored = localStorage.getItem(LAYA_MODE_KEY);
+    if (stored === 'embedded' || stored === 'docker') {
+      return stored;
+    }
+  } catch {}
+  return DEFAULT_LAYA_MODE;
+};
+
+// Persisted Laya Docker URL
+export const DEFAULT_LAYA_DOCKER_URL = 'http://localhost:8080';
+const LAYA_DOCKER_URL_KEY = 'vk-laya-docker-url';
+
+const loadLayaDockerUrl = (): string => {
+  try {
+    const stored = localStorage.getItem(LAYA_DOCKER_URL_KEY);
+    if (stored) return stored;
+  } catch {}
+  return DEFAULT_LAYA_DOCKER_URL;
+};
+
+// Persisted Jev API Key
+const JEV_API_KEY_STORAGE_KEY = 'vk-jev-api-key';
+
+const loadJevApiKey = (): string => {
+  try {
+    const stored = localStorage.getItem(JEV_API_KEY_STORAGE_KEY);
+    if (stored) return stored;
+  } catch {}
+  return '';
+};
+
+// Persisted Jev Vercel AI Gateway settings
+export type JevProviderMode = 'embedded' | 'vercel-ai' | 'typesafe';
+const JEV_PROVIDER_MODE_KEY = 'vk-jev-provider-mode';
+const JEV_VERCEL_URL_KEY = 'vk-jev-vercel-url';
+const JEV_VERCEL_KEY_KEY = 'vk-jev-vercel-key';
+
+const loadJevProviderMode = (): JevProviderMode => {
+  try {
+    const stored = localStorage.getItem(JEV_PROVIDER_MODE_KEY);
+    if (
+      stored === 'embedded' ||
+      stored === 'vercel-ai' ||
+      stored === 'typesafe'
+    ) {
+      return stored;
+    }
+  } catch {}
+  return 'embedded';
+};
+
+const loadJevVercelUrl = (): string => {
+  try {
+    const stored = localStorage.getItem(JEV_VERCEL_URL_KEY);
+    if (stored) return stored;
+  } catch {}
+  return 'https://api.vercel.ai/v1/fast-jev';
+};
+
+const loadJevVercelKey = (): string => {
+  try {
+    const stored = localStorage.getItem(JEV_VERCEL_KEY_KEY);
+    if (stored) return stored;
+  } catch {}
+  return '';
+};
+
+// Persisted Laya Guardrails Enabled
+const LAYA_GUARDRAILS_ENABLED_KEY = 'vk-laya-guardrails-enabled';
+
+const loadLayaGuardrailsEnabled = (): boolean => {
+  try {
+    const stored = localStorage.getItem(LAYA_GUARDRAILS_ENABLED_KEY);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return true;
+};
+
+// Persisted Abide Guardrails
+export type AbideGuardrailsEngine = 'laya' | 'jev' | 'adaptive';
+export type AbideGuardrailsAction = 'block' | 'warn';
+
+const ABIDE_GUARDRAILS_ENABLED_KEY = 'vk-abide-guardrails-enabled';
+const ABIDE_GUARDRAILS_ENGINE_KEY = 'vk-abide-guardrails-engine';
+const ABIDE_GUARDRAILS_ACTION_KEY = 'vk-abide-guardrails-action';
+
+const loadAbideGuardrailsEnabled = (): boolean => {
+  try {
+    const stored = localStorage.getItem(ABIDE_GUARDRAILS_ENABLED_KEY);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return true;
+};
+
+const loadAbideGuardrailsEngine = (): AbideGuardrailsEngine => {
+  try {
+    const stored = localStorage.getItem(ABIDE_GUARDRAILS_ENGINE_KEY);
+    if (stored === 'laya' || stored === 'jev' || stored === 'adaptive')
+      return stored;
+  } catch {}
+  return 'adaptive';
+};
+
+const loadAbideGuardrailsAction = (): AbideGuardrailsAction => {
+  try {
+    const stored = localStorage.getItem(ABIDE_GUARDRAILS_ACTION_KEY);
+    if (stored === 'block' || stored === 'warn') return stored;
+  } catch {}
+  return 'block';
+};
+
+// Feature Checkbox Keys for Specific Guardrails
+const GUARDRAIL_PROTECTED_FILES_KEY = 'vk-guardrail-protected-files';
+const GUARDRAIL_AI_ATTRIBUTION_KEY = 'vk-guardrail-ai-attribution';
+const GUARDRAIL_SECRET_LEAK_KEY = 'vk-guardrail-secret-leak';
+const GUARDRAIL_GIT_OPS_KEY = 'vk-guardrail-git-ops';
+const GUARDRAIL_SEMANTIC_JEV_KEY = 'vk-guardrail-semantic-jev';
+
+const loadBoolPref = (key: string, defaultValue = true): boolean => {
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored !== null) return stored === 'true';
+  } catch {}
+  return defaultValue;
+};
+
 // Combined pipeline selection (pipeline id + ticked stage ids), so a card
 // created with "Quick + memory on" re-opens the same way next time. Stored as
 // JSON `{ "id": "quick", "enabledIds": ["memory", "implement", ...] }`.
@@ -679,9 +832,55 @@ type State = {
   // Global thinking visibility (header button expands/collapses all blocks)
   thinkingExpanded: boolean;
 
-  // Auto-compaction threshold ('75' | '85' | '95' | 'full')
+  // Auto-compaction threshold ('50' | '65' | '75' | '85' | '95' | 'full')
   compactionThreshold: CompactionThreshold;
   setCompactionThreshold: (threshold: CompactionThreshold) => void;
+
+  // Compactor Engine & Classifier selection ('auto' | 'laya' | 'jev' | 'disabled')
+  compactorEngine: CompactorEngineType;
+  setCompactorEngine: (engine: CompactorEngineType) => void;
+
+  // Laya Mode ('embedded' | 'docker') & URL
+  layaMode: LayaExecutionMode;
+  setLayaMode: (mode: LayaExecutionMode) => void;
+  layaDockerUrl: string;
+  setLayaDockerUrl: (url: string) => void;
+
+  // TypeSafe Jev API Key
+  jevApiKey: string;
+  setJevApiKey: (key: string) => void;
+
+  // Jev Vercel AI Gateway settings
+  jevProviderMode: JevProviderMode;
+  setJevProviderMode: (mode: JevProviderMode) => void;
+  jevVercelUrl: string;
+  setJevVercelUrl: (url: string) => void;
+  jevVercelKey: string;
+  setJevVercelKey: (key: string) => void;
+
+  // Laya System-1 Guardrails
+  layaGuardrailsEnabled: boolean;
+  setLayaGuardrailsEnabled: (enabled: boolean) => void;
+
+  // Abide Active Rule Guardrails
+  abideGuardrailsEnabled: boolean;
+  setAbideGuardrailsEnabled: (enabled: boolean) => void;
+  abideGuardrailsEngine: AbideGuardrailsEngine;
+  setAbideGuardrailsEngine: (engine: AbideGuardrailsEngine) => void;
+  abideGuardrailsAction: AbideGuardrailsAction;
+  setAbideGuardrailsAction: (action: AbideGuardrailsAction) => void;
+
+  // Specific Rule Activation Checkboxes
+  guardrailProtectedFiles: boolean;
+  setGuardrailProtectedFiles: (enabled: boolean) => void;
+  guardrailAiAttribution: boolean;
+  setGuardrailAiAttribution: (enabled: boolean) => void;
+  guardrailSecretLeak: boolean;
+  setGuardrailSecretLeak: (enabled: boolean) => void;
+  guardrailGitOps: boolean;
+  setGuardrailGitOps: (enabled: boolean) => void;
+  guardrailSemanticJev: boolean;
+  setGuardrailSemanticJev: (enabled: boolean) => void;
 
   // Last selected project (persisted via scratch store).
   // ADR-018 — `selectedOrgId` removed.
@@ -886,6 +1085,132 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
       // localStorage unavailable
     }
     set({ compactionThreshold: threshold });
+  },
+
+  // Compactor Engine & Classifier
+  compactorEngine: loadCompactorEngine(),
+  setCompactorEngine: (engine) => {
+    try {
+      localStorage.setItem(COMPACTOR_ENGINE_KEY, engine);
+    } catch {}
+    set({ compactorEngine: engine });
+  },
+
+  // Laya Mode & URL
+  layaMode: loadLayaMode(),
+  setLayaMode: (mode) => {
+    try {
+      localStorage.setItem(LAYA_MODE_KEY, mode);
+    } catch {}
+    set({ layaMode: mode });
+  },
+  layaDockerUrl: loadLayaDockerUrl(),
+  setLayaDockerUrl: (url) => {
+    try {
+      localStorage.setItem(LAYA_DOCKER_URL_KEY, url);
+    } catch {}
+    set({ layaDockerUrl: url });
+  },
+
+  // TypeSafe Jev API Key
+  jevApiKey: loadJevApiKey(),
+  setJevApiKey: (key) => {
+    try {
+      localStorage.setItem(JEV_API_KEY_STORAGE_KEY, key);
+    } catch {}
+    set({ jevApiKey: key });
+  },
+
+  // Jev Vercel AI Gateway
+  jevProviderMode: loadJevProviderMode(),
+  setJevProviderMode: (mode) => {
+    try {
+      localStorage.setItem(JEV_PROVIDER_MODE_KEY, mode);
+    } catch {}
+    set({ jevProviderMode: mode });
+  },
+  jevVercelUrl: loadJevVercelUrl(),
+  setJevVercelUrl: (url) => {
+    try {
+      localStorage.setItem(JEV_VERCEL_URL_KEY, url);
+    } catch {}
+    set({ jevVercelUrl: url });
+  },
+  jevVercelKey: loadJevVercelKey(),
+  setJevVercelKey: (key) => {
+    try {
+      localStorage.setItem(JEV_VERCEL_KEY_KEY, key);
+    } catch {}
+    set({ jevVercelKey: key });
+  },
+
+  // Laya Guardrails
+  layaGuardrailsEnabled: loadLayaGuardrailsEnabled(),
+  setLayaGuardrailsEnabled: (enabled) => {
+    try {
+      localStorage.setItem(LAYA_GUARDRAILS_ENABLED_KEY, String(enabled));
+    } catch {}
+    set({ layaGuardrailsEnabled: enabled });
+  },
+
+  // Abide Active Rule Guardrails
+  abideGuardrailsEnabled: loadAbideGuardrailsEnabled(),
+  setAbideGuardrailsEnabled: (enabled) => {
+    try {
+      localStorage.setItem(ABIDE_GUARDRAILS_ENABLED_KEY, String(enabled));
+    } catch {}
+    set({ abideGuardrailsEnabled: enabled });
+  },
+  abideGuardrailsEngine: loadAbideGuardrailsEngine(),
+  setAbideGuardrailsEngine: (engine) => {
+    try {
+      localStorage.setItem(ABIDE_GUARDRAILS_ENGINE_KEY, engine);
+    } catch {}
+    set({ abideGuardrailsEngine: engine });
+  },
+  abideGuardrailsAction: loadAbideGuardrailsAction(),
+  setAbideGuardrailsAction: (action) => {
+    try {
+      localStorage.setItem(ABIDE_GUARDRAILS_ACTION_KEY, action);
+    } catch {}
+    set({ abideGuardrailsAction: action });
+  },
+
+  // Specific Rule Activation Checkboxes
+  guardrailProtectedFiles: loadBoolPref(GUARDRAIL_PROTECTED_FILES_KEY),
+  setGuardrailProtectedFiles: (enabled) => {
+    try {
+      localStorage.setItem(GUARDRAIL_PROTECTED_FILES_KEY, String(enabled));
+    } catch {}
+    set({ guardrailProtectedFiles: enabled });
+  },
+  guardrailAiAttribution: loadBoolPref(GUARDRAIL_AI_ATTRIBUTION_KEY),
+  setGuardrailAiAttribution: (enabled) => {
+    try {
+      localStorage.setItem(GUARDRAIL_AI_ATTRIBUTION_KEY, String(enabled));
+    } catch {}
+    set({ guardrailAiAttribution: enabled });
+  },
+  guardrailSecretLeak: loadBoolPref(GUARDRAIL_SECRET_LEAK_KEY),
+  setGuardrailSecretLeak: (enabled) => {
+    try {
+      localStorage.setItem(GUARDRAIL_SECRET_LEAK_KEY, String(enabled));
+    } catch {}
+    set({ guardrailSecretLeak: enabled });
+  },
+  guardrailGitOps: loadBoolPref(GUARDRAIL_GIT_OPS_KEY),
+  setGuardrailGitOps: (enabled) => {
+    try {
+      localStorage.setItem(GUARDRAIL_GIT_OPS_KEY, String(enabled));
+    } catch {}
+    set({ guardrailGitOps: enabled });
+  },
+  guardrailSemanticJev: loadBoolPref(GUARDRAIL_SEMANTIC_JEV_KEY),
+  setGuardrailSemanticJev: (enabled) => {
+    try {
+      localStorage.setItem(GUARDRAIL_SEMANTIC_JEV_KEY, String(enabled));
+    } catch {}
+    set({ guardrailSemanticJev: enabled });
   },
 
   // Typography & Custom Theme actions
@@ -1626,6 +1951,83 @@ export const useCompactionThreshold = () =>
   useUiPreferencesStore((s) => s.compactionThreshold);
 export const useSetCompactionThreshold = () =>
   useUiPreferencesStore((s) => s.setCompactionThreshold);
+
+export const useCompactorEngine = () =>
+  useUiPreferencesStore((s) => s.compactorEngine);
+export const useSetCompactorEngine = () =>
+  useUiPreferencesStore((s) => s.setCompactorEngine);
+
+export const useLayaMode = () => useUiPreferencesStore((s) => s.layaMode);
+export const useSetLayaMode = () => useUiPreferencesStore((s) => s.setLayaMode);
+
+export const useLayaDockerUrl = () =>
+  useUiPreferencesStore((s) => s.layaDockerUrl);
+export const useSetLayaDockerUrl = () =>
+  useUiPreferencesStore((s) => s.setLayaDockerUrl);
+
+export const useJevApiKey = () => useUiPreferencesStore((s) => s.jevApiKey);
+export const useSetJevApiKey = () =>
+  useUiPreferencesStore((s) => s.setJevApiKey);
+
+export const useJevProviderMode = () =>
+  useUiPreferencesStore((s) => s.jevProviderMode);
+export const useSetJevProviderMode = () =>
+  useUiPreferencesStore((s) => s.setJevProviderMode);
+
+export const useJevVercelUrl = () =>
+  useUiPreferencesStore((s) => s.jevVercelUrl);
+export const useSetJevVercelUrl = () =>
+  useUiPreferencesStore((s) => s.setJevVercelUrl);
+
+export const useJevVercelKey = () =>
+  useUiPreferencesStore((s) => s.jevVercelKey);
+export const useSetJevVercelKey = () =>
+  useUiPreferencesStore((s) => s.setJevVercelKey);
+
+export const useLayaGuardrailsEnabled = () =>
+  useUiPreferencesStore((s) => s.layaGuardrailsEnabled);
+export const useSetLayaGuardrailsEnabled = () =>
+  useUiPreferencesStore((s) => s.setLayaGuardrailsEnabled);
+
+export const useAbideGuardrailsEnabled = () =>
+  useUiPreferencesStore((s) => s.abideGuardrailsEnabled);
+export const useSetAbideGuardrailsEnabled = () =>
+  useUiPreferencesStore((s) => s.setAbideGuardrailsEnabled);
+
+export const useAbideGuardrailsEngine = () =>
+  useUiPreferencesStore((s) => s.abideGuardrailsEngine);
+export const useSetAbideGuardrailsEngine = () =>
+  useUiPreferencesStore((s) => s.setAbideGuardrailsEngine);
+
+export const useAbideGuardrailsAction = () =>
+  useUiPreferencesStore((s) => s.abideGuardrailsAction);
+export const useSetAbideGuardrailsAction = () =>
+  useUiPreferencesStore((s) => s.setAbideGuardrailsAction);
+
+export const useGuardrailProtectedFiles = () =>
+  useUiPreferencesStore((s) => s.guardrailProtectedFiles);
+export const useSetGuardrailProtectedFiles = () =>
+  useUiPreferencesStore((s) => s.setGuardrailProtectedFiles);
+
+export const useGuardrailAiAttribution = () =>
+  useUiPreferencesStore((s) => s.guardrailAiAttribution);
+export const useSetGuardrailAiAttribution = () =>
+  useUiPreferencesStore((s) => s.setGuardrailAiAttribution);
+
+export const useGuardrailSecretLeak = () =>
+  useUiPreferencesStore((s) => s.guardrailSecretLeak);
+export const useSetGuardrailSecretLeak = () =>
+  useUiPreferencesStore((s) => s.setGuardrailSecretLeak);
+
+export const useGuardrailGitOps = () =>
+  useUiPreferencesStore((s) => s.guardrailGitOps);
+export const useSetGuardrailGitOps = () =>
+  useUiPreferencesStore((s) => s.setGuardrailGitOps);
+
+export const useGuardrailSemanticJev = () =>
+  useUiPreferencesStore((s) => s.guardrailSemanticJev);
+export const useSetGuardrailSemanticJev = () =>
+  useUiPreferencesStore((s) => s.setGuardrailSemanticJev);
 
 // Hooks for typography & custom theme
 export function useUiFontFamily() {

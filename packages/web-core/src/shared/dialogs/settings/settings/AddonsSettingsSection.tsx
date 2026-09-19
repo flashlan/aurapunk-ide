@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowSquareOutIcon } from '@phosphor-icons/react';
 import { SettingsCard, SettingsCheckbox } from './SettingsComponents';
 import { MemoryGraphViewer } from './MemoryGraphViewer';
+import { JevLayaSuitePanel } from './JevLayaSuitePanel';
 
 /**
  * Settings → Add-ons: registry of optional integrations.
@@ -23,6 +24,12 @@ interface AddonDefinition {
 }
 
 const ADDONS: AddonDefinition[] = [
+  {
+    id: 'jev_laya_suite',
+    homepage: 'https://github.com/coldteadotai/abide',
+    defaultEnabled: true,
+    renderPanel: () => <JevLayaSuitePanel />,
+  },
   {
     id: 'graphify',
     homepage: 'https://github.com/Graphify-Labs/graphify',

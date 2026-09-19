@@ -37,6 +37,7 @@ Rules:
 - [~] **In Progress** — AskUserQuestion opções não renderizam: harden resolveApprovalQuestions (kind ausente/placeholder) (`vk/d6af-quesiojn-da-llm`)
 - [x] **Done** — Claude Code erro: surfaced 401 revoked-login recovery guidance for headed (transcript) sessions + ignore `<synthetic>` model (`vk/5cb6-claiude-code-err`)
 - [x] **Done** — Send now no chat mantendo Queue e Stop (`vk/340d-send-now`)
+- [x] **Done** — Fast Jev Compaction plugin com fallback Laya como classificador e POC (`vk/cae6-jev-plugin`)
 
 ## Card Pipeline Protocol (MCP)
 

@@ -29,6 +29,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     EMBED_DIM=384 \
     MEM0_COLLECTION=mem0-vk \
     MEM0_DEFAULT_USER=default \
+    MEM0_LLM_PROVIDER=laya \
     ST_MODEL=${ST_MODEL} \
     HF_HOME=/opt/huggingface \
     HF_HUB_OFFLINE=1 \

@@ -9,9 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-09-18
+
 ### Fixed
 
 - **Claude Code auth-failure recovery for headed sessions**: interactive (headed/tmux) sessions never pipe stderr to the app; Claude Code records a revoked/expired login as a synthetic assistant text record in the transcript (`model: "<synthetic>"`), which previously rendered with no recovery guidance. That record is now annotated with the same actionable guidance as the headless paths, and the `<synthetic>` placeholder no longer surfaces as the session model.
+
+### Added
+
+- **Fast Jev & Laya AI Suite**:
+  - Context Auto-Compactor (`/compress`) reducing tokens by ~88.5% with milestone markers and verbatim transcript preservation.
+  - System-1 Laya decision classifier operating on local CPU in <1ms consuming 0 tokens.
+  - System-2 Fast Jev semantic evaluation with automatic graceful fallback to Laya.
+  - Zero-token Mem0 semantic graph extractor with local AST extraction and relation classification.
+- **Abide Active Rule Guardrails**:
+  - Deterministic evaluation of code edits and diffs against repository instructions (`AGENTS.md`).
+  - Self-healing in-turn repair prompts requesting immediate correction of rule violations.
+  - Rust PreToolUse hook (`crates/server/src/routes/approvals.rs`) intercepting tool calls to block manual edits to generated `shared/types.ts`, AI attribution trailers (`Co-Authored-By: Claude`), exposed API credentials, and unauthorized manual git completion commands.
+- **Unified Control Panel & Settings Matrix**:
+  - New **Fast Jev & Laya AI Suite** panel under Settings → Add-ons with live status indicators.
+  - Granular activation checkbox matrix for individual guardrails and compactor policies.
+  - Dedicated Vercel AI Gateway configuration for Fast Jev cloud connectivity.
+  - Mem0 Cloud quota tracking (Free 100 ops/month vs Pro 10,000 ops/month).
+- **Mem0 Cloud & Production Deployment**:
+  - Upgraded `mem0-vk` service with `MEM0_LLM_PROVIDER=laya`, replacing the 1.5B LLM extraction model with instant local CPU classification while preserving external vector embeddings on `sd-2`.
 
 ## [0.3.9] - 2026-09-18
 

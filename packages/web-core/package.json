@@ -9,6 +9,7 @@
     "./*": "./src/*"
   },
   "dependencies": {
+    "@aurapunk/jev-plugin": "workspace:*",
     "@codemirror/lang-json": "^6.0.2",
     "@codemirror/language": "^6.11.2",
     "@codemirror/lint": "^6.8.5",

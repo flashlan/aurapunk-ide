@@ -1,0 +1,24 @@
+{
+  "name": "@aurapunk/jev-plugin",
+  "version": "0.1.0",
+  "description": "Fast Jev Compaction plugin with Laya System-1 decision engine fallback for universal autocompact and agent triage",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "type": "module",
+  "scripts": {
+    "check": "node ../../node_modules/typescript/bin/tsc --noEmit",
+    "poc": "npx tsx poc/demo.ts",
+    "test": "npx vitest run"
+  },
+  "keywords": [
+    "claude-code-plugin",
+    "context-compaction",
+    "fast-jev",
+    "laya",
+    "autocompact",
+    "system-1-decisions",
+    "agent-guardrails"
+  ],
+  "author": "Aurapunk IDE",
+  "license": "Apache-2.0"
+}

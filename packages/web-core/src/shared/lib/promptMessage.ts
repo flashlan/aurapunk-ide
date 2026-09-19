@@ -12,8 +12,18 @@ export function buildAgentPrompt(
   rawUserMessage: string,
   contextParts: (string | null | undefined)[]
 ) {
-  const trimmed = rawUserMessage.trim();
+  let trimmed = rawUserMessage.trim();
   const isSlashCommand = !!trimmed && isSlashCommandPrompt(trimmed);
+
+  // Normalize aliases like /compress, /autocompress, /autocompact to /compact
+  // so underlying agents (Claude Code, OpenCode, etc.) execute cleanly
+  if (isSlashCommand) {
+    const aliasMatch = /^\/(?:compress|autocompress|autocompact)(\s.*)?$/i.exec(trimmed);
+    if (aliasMatch) {
+      const rest = aliasMatch[1] ? aliasMatch[1] : '';
+      trimmed = `/compact${rest}`;
+    }
+  }
 
   const parts = isSlashCommand
     ? [trimmed]

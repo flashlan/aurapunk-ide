@@ -86,7 +86,7 @@ import { timingSafeEqual } from "node:crypto";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-type LLMProvider = "groq" | "openrouter" | "llama" | "openai";
+type LLMProvider = "jev" | "laya" | "groq" | "openrouter" | "llama" | "openai";
 
 const config = {
   port: parseInt(process.env.PORT || "8000", 10),
@@ -122,7 +122,17 @@ const config = {
   },
 
   llm: {
-    provider: (process.env.MEM0_LLM_PROVIDER || "groq").toLowerCase() as LLMProvider,
+    provider: (process.env.MEM0_LLM_PROVIDER || "jev").toLowerCase() as LLMProvider,
+    jev: {
+      url: process.env.MEM0_JEV_URL || "embedded://jev",
+      key: process.env.MEM0_JEV_KEY || "local",
+      model: process.env.MEM0_JEV_MODEL || "fast-jev-v1",
+    },
+    laya: {
+      url: process.env.MEM0_LAYA_URL || "embedded://laya",
+      key: process.env.MEM0_LAYA_KEY || "local",
+      model: process.env.MEM0_LAYA_MODEL || "laya-system1-v1",
+    },
     groq: {
       url: process.env.GROQ_URL || "https://api.groq.com/openai/v1",
       key: process.env.GROQ_API_KEY || "",
@@ -183,31 +193,135 @@ function scopedMemoryUserId(c: any, userId: string): string {
   return licenseCheckUrl && accountId ? `${accountId}:${userId}` : userId;
 }
 
-async function hasActiveLicense(accountId: string): Promise<boolean> {
-  if (!licenseCheckUrl) return true;
-  if (!accountId || !licenseCheckToken) return false;
-  const cachedUntil = licenseCache.get(accountId);
-  if (cachedUntil && cachedUntil > Date.now()) return true;
+interface AccountQuotaResult {
+  active: boolean;
+  allowed: boolean;
+  plan: 'free' | 'pro' | 'enterprise';
+  limit: number;
+  used: number;
+  remaining: number;
+}
 
-  try {
-    const response = await fetch(licenseCheckUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${licenseCheckToken}`,
-      },
-      body: JSON.stringify({ account_id: accountId }),
-      signal: AbortSignal.timeout(3_000),
-    });
-    if (!response.ok) return false;
-    const body = await response.json().catch(() => ({} as any));
-    const active = body?.active === true || body?.licensed === true;
-    if (active) licenseCache.set(accountId, Date.now() + LICENSE_CACHE_MS);
-    return active;
-  } catch (error) {
-    console.error(`[auth] license check failed: ${(error as Error).message}`);
-    return false;
+const accountPlanCache = new Map<string, { plan: 'free' | 'pro' | 'enterprise'; active: boolean; expiresAt: number }>();
+const monthlyUsage = new Map<string, { count: number; period: string }>();
+
+const LAYA_CLOUD_FREE_LIMIT = Number(process.env.LAYA_CLOUD_FREE_LIMIT || 100);
+const LAYA_CLOUD_PAID_LIMIT = Number(process.env.LAYA_CLOUD_PAID_LIMIT || 10_000);
+
+function currentPeriodKey(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+async function checkAccountQuota(accountId: string): Promise<AccountQuotaResult> {
+  if (!licenseCheckUrl) {
+    return {
+      active: true,
+      allowed: true,
+      plan: 'pro',
+      limit: LAYA_CLOUD_PAID_LIMIT,
+      used: 0,
+      remaining: LAYA_CLOUD_PAID_LIMIT,
+    };
   }
+
+  if (!accountId || !licenseCheckToken) {
+    return {
+      active: false,
+      allowed: false,
+      plan: 'free',
+      limit: 0,
+      used: 0,
+      remaining: 0,
+    };
+  }
+
+  let cached = accountPlanCache.get(accountId);
+  if (!cached || cached.expiresAt <= Date.now()) {
+    try {
+      const response = await fetch(licenseCheckUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${licenseCheckToken}`,
+        },
+        body: JSON.stringify({ account_id: accountId }),
+        signal: AbortSignal.timeout(3_000),
+      });
+
+      if (!response.ok) {
+        return {
+          active: false,
+          allowed: false,
+          plan: 'free',
+          limit: 0,
+          used: 0,
+          remaining: 0,
+        };
+      }
+
+      const body = await response.json().catch(() => ({} as any));
+      const active = body?.active === true || body?.licensed === true;
+      const plan = (body?.plan || (body?.licensed ? 'pro' : 'free')).toLowerCase();
+      cached = {
+        active,
+        plan: plan === 'enterprise' ? 'enterprise' : plan === 'pro' ? 'pro' : 'free',
+        expiresAt: Date.now() + LICENSE_CACHE_MS,
+      };
+      accountPlanCache.set(accountId, cached);
+    } catch (error) {
+      console.error(`[quota] license & plan check failed: ${(error as Error).message}`);
+      return {
+        active: false,
+        allowed: false,
+        plan: 'free',
+        limit: 0,
+        used: 0,
+        remaining: 0,
+      };
+    }
+  }
+
+  if (!cached.active) {
+    return {
+      active: false,
+      allowed: false,
+      plan: cached.plan,
+      limit: 0,
+      used: 0,
+      remaining: 0,
+    };
+  }
+
+  const period = currentPeriodKey();
+  const usageKey = `${accountId}:${period}`;
+  const record = monthlyUsage.get(usageKey) || { count: 0, period };
+  if (record.period !== period) {
+    record.count = 0;
+    record.period = period;
+  }
+
+  const limit = cached.plan === 'free' ? LAYA_CLOUD_FREE_LIMIT : LAYA_CLOUD_PAID_LIMIT;
+  const isAllowed = record.count < limit;
+
+  if (isAllowed) {
+    record.count += 1;
+    monthlyUsage.set(usageKey, record);
+  }
+
+  return {
+    active: true,
+    allowed: isAllowed,
+    plan: cached.plan,
+    limit,
+    used: record.count,
+    remaining: Math.max(0, limit - record.count),
+  };
+}
+
+async function hasActiveLicense(accountId: string): Promise<boolean> {
+  const quota = await checkAccountQuota(accountId);
+  return quota.active;
 }
 
 const MEMORY_OPERATION_PREFIXES = [
@@ -250,6 +364,8 @@ function envRuntimeConfig(): RuntimeConfigShape {
     provider: config.llm.provider,
     graph_enabled: Boolean(config.graphUrl),
     providers: {
+      jev: providerFromEnv("jev"),
+      laya: providerFromEnv("laya"),
       groq: providerFromEnv("groq"),
       openrouter: providerFromEnv("openrouter"),
       llama: providerFromEnv("llama"),
@@ -271,6 +387,8 @@ function loadRuntimeConfig(): void {
             ? raw.graph_enabled
             : Boolean(config.graphUrl),
         providers: {
+          jev: { ...providerFromEnv("jev"), ...(raw.providers?.jev ?? {}) },
+          laya: { ...providerFromEnv("laya"), ...(raw.providers?.laya ?? {}) },
           groq: { ...providerFromEnv("groq"), ...(raw.providers?.groq ?? {}) },
           openrouter: { ...providerFromEnv("openrouter"), ...(raw.providers?.openrouter ?? {}) },
           llama: { ...providerFromEnv("llama"), ...(raw.providers?.llama ?? {}) },
@@ -311,7 +429,7 @@ function activeLlm(): { url: string; key: string; model: string } {
  * through to the next configured provider instead of hammering the same one.
  */
 function llmCandidates(): { provider: string; url: string; key: string; model: string }[] {
-  const order: LLMProvider[] = ["groq", "openrouter", "llama", "openai"];
+  const order: LLMProvider[] = ["jev", "laya", "groq", "openrouter", "llama", "openai"];
   const primary = runtimeConfig.provider as LLMProvider;
   const ordered = [primary, ...order.filter((p) => p !== primary)];
   const out: { provider: string; url: string; key: string; model: string }[] = [];
@@ -321,8 +439,8 @@ function llmCandidates(): { provider: string; url: string; key: string; model: s
     const model = c.model ?? "";
     const key = c.key ?? "";
     if (!url || !model) continue;
-    // Cloud providers without a key can't authenticate; llama is keyless.
-    if (p !== "llama" && !key) continue;
+    // Cloud providers without a key can't authenticate; llama, jev and laya are local/keyless.
+    if (p !== "llama" && p !== "jev" && p !== "laya" && !key) continue;
     out.push({ provider: p, url, key, model });
   }
   return out;
@@ -826,8 +944,162 @@ function hasGraphContent(content: string): boolean {
   return normalizeEntities(parsed.entities).length > 0 || normalizeRelations(parsed.relations).length > 0;
 }
 
+function extractStructureFastJevLaya(text: string, provider: "jev" | "laya"): Extracted {
+  const volatilePatterns = [
+    /error\[E\d+\]/i,
+    /TypeError:/i,
+    /ReferenceError:/i,
+    /SyntaxError:/i,
+    /Uncaught\s+/i,
+    /exit code\s+[1-9]\d*/i,
+    /Failed to compile/i,
+    /Command failed:/i,
+    /\[plugin:vite:/i,
+    /at\s+[\w.<>$]+\s+\(/i,
+    /npm ERR!/i,
+    /cargo build --/i,
+    /git status/i,
+    /pnpm (install|i|check)/i,
+  ];
+
+  const rawLines = text
+    .split(/\n|\.\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 15 && !volatilePatterns.some((p) => p.test(s)));
+
+  const facts: string[] = [];
+  for (const line of rawLines) {
+    const cleaned = line
+      .replace(/^[-*•]\s+/, "")
+      .replace(/^I\s+(have\s+)?(will|added|fixed|implemented|verified)\s+/i, "")
+      .trim();
+    if (cleaned.length >= 15 && !facts.includes(cleaned)) {
+      facts.push(cleaned);
+    }
+    if (facts.length >= 4) break;
+  }
+  if (facts.length === 0) {
+    facts.push(text.slice(0, 280).trim());
+  }
+
+  const entitiesMap = new Map<string, { name: string; type: string; description: string }>();
+
+  // 1. Files
+  const fileMatches = text.match(/\b(?:[\w.-]+\/)+[\w.-]+\.(?:ts|tsx|rs|py|json|toml|yaml|yml|md|html|css)\b/g) || [];
+  for (const f of fileMatches) {
+    if (!entitiesMap.has(f)) {
+      entitiesMap.set(f, {
+        name: f,
+        type: f.endsWith(".md") ? "decision" : "file",
+        description: f.endsWith(".md") ? "ADR / Architecture doc" : "Source file",
+      });
+    }
+  }
+
+  // 2. Crates / Packages
+  const pkgMatches = text.match(/\b(?:crates\/[a-zA-Z0-9_\-]+|packages\/[a-zA-Z0-9_\-]+|@[a-zA-Z0-9_\-]+\/[a-zA-Z0-9_\-]+)\b/g) || [];
+  for (const p of pkgMatches) {
+    if (!entitiesMap.has(p)) {
+      entitiesMap.set(p, {
+        name: p,
+        type: "module",
+        description: p.startsWith("crates/") ? "Rust crate" : "TypeScript package",
+      });
+    }
+  }
+
+  // 3. Endpoints
+  const routeRegex = /(?:POST|GET|PUT|PATCH|DELETE)\s+(\/[a-zA-Z0-9_\-\/{}:]+)|\b(\/api\/[a-zA-Z0-9_\-\/{}:]+)\b/g;
+  let rm: RegExpExecArray | null;
+  while ((rm = routeRegex.exec(text)) !== null) {
+    const route = rm[1] || rm[2];
+    if (route && !entitiesMap.has(route)) {
+      entitiesMap.set(route, {
+        name: route,
+        type: "endpoint",
+        description: "REST API route",
+      });
+    }
+  }
+
+  // 4. Architectural components
+  const symbolMatches = text.match(/\b[A-Z][a-zA-Z0-9]{2,}(?:Service|Container|Viewer|Section|Plugin|Compactor|Classifier|Adapter|Engine|Router|Config|Request|Response|Handler|Driver|Store)\b/g) || [];
+  for (const s of symbolMatches) {
+    if (!entitiesMap.has(s)) {
+      entitiesMap.set(s, {
+        name: s,
+        type: "architecture",
+        description: "Architectural component",
+      });
+    }
+  }
+
+  // 5. Tech keywords
+  const techKeywords = ["Mem0", "FastJev", "Laya", "Qdrant", "NetworkX", "Graphify"];
+  for (const kw of techKeywords) {
+    if (new RegExp(`\\b${kw}\\b`, "i").test(text) && !entitiesMap.has(kw)) {
+      entitiesMap.set(kw, {
+        name: kw,
+        type: "tech",
+        description: `${kw} system component`,
+      });
+    }
+  }
+
+  const entities = Array.from(entitiesMap.values()).slice(0, 8);
+  const relations: { subject: string; predicate: string; object: string }[] = [];
+
+  const searchRel = (pred: string, cues: RegExp[]) => {
+    for (let i = 0; i < entities.length; i++) {
+      for (let j = 0; j < entities.length; j++) {
+        if (i === j) continue;
+        const e1 = entities[i].name;
+        const e2 = entities[j].name;
+        for (const cue of cues) {
+          const esc1 = e1.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const esc2 = e2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const r = new RegExp(`${esc1}[^.\\n]{0,80}?${cue.source}[^.\\n]{0,80}?${esc2}`, "i");
+          if (r.test(text)) {
+            relations.push({ subject: e1, predicate: pred, object: e2 });
+            return;
+          }
+        }
+      }
+    }
+  };
+
+  searchRel("depends_on", [/depends\s+on/i, /relies\s+on/i, /requires/i]);
+  searchRel("imports", [/imports/i, /uses\s+module/i]);
+  searchRel("implements", [/implements/i, /satisfies/i]);
+  searchRel("routes_to", [/routes\s+to/i, /handlers?\s+for/i]);
+  searchRel("calls", [/calls/i, /invokes/i, /dispatches/i]);
+  searchRel("is_plugin_for", [/plugin\s+for/i, /extension\s+for/i]);
+  searchRel("configures", [/configures/i, /manages/i]);
+  searchRel("fixes", [/fixes/i, /resolves/i]);
+
+  return { facts, entities, relations: relations.slice(0, 10) };
+}
+
 async function extractStructure(text: string): Promise<Extracted> {
   const fallback: Extracted = { facts: [text], entities: [], relations: [] };
+  const provider = runtimeConfig.provider as LLMProvider;
+
+  // Fast Jev & Laya System-1 deterministic local extraction (<1ms, 0 tokens)
+  if (provider === "jev" || provider === "laya") {
+    try {
+      const extracted = extractStructureFastJevLaya(text, provider);
+      recordTokens(provider, runtimeConfig.providers[provider]?.model || (provider === "jev" ? "fast-jev-v1" : "laya-system1-v1"), {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: 0,
+      });
+      return extracted;
+    } catch (err) {
+      console.error(`[extract] Fast Jev/Laya extraction failed: ${(err as Error).message}`);
+      return fallback;
+    }
+  }
+
   const llm = activeLlm();
   if (!llm.url || !llm.model) return fallback;
   try {
@@ -1523,9 +1795,28 @@ app.use("*", async (c, next) => {
     if (!accountId) {
       return c.json({ error: "Account identity is required for server memory" }, 401);
     }
-    if (!(await hasActiveLicense(accountId))) {
+    const quota = await checkAccountQuota(accountId);
+    if (!quota.active) {
       return c.json({ error: "An active AuraPunk license is required for server memory" }, 403);
     }
+    if (!quota.allowed) {
+      c.header("X-AuraPunk-Plan", quota.plan);
+      c.header("X-AuraPunk-Quota-Limit", String(quota.limit));
+      c.header("X-AuraPunk-Quota-Remaining", "0");
+      return c.json(
+        {
+          error: `Laya Cloud monthly memory quota exceeded for ${quota.plan} plan (${quota.used}/${quota.limit}). Upgrade to Pro for high-volume memory operations.`,
+          plan: quota.plan,
+          limit: quota.limit,
+          used: quota.used,
+          remaining: 0,
+        },
+        429
+      );
+    }
+    c.header("X-AuraPunk-Plan", quota.plan);
+    c.header("X-AuraPunk-Quota-Limit", String(quota.limit));
+    c.header("X-AuraPunk-Quota-Remaining", String(quota.remaining));
   }
 
   return next();
@@ -1662,7 +1953,7 @@ app.get("/api/usage/tokens", async (c) => {
 app.get("/api/config", async (c) => {
   // Sanitized view: never leak full keys — only whether one is set.
   const providers: Record<string, any> = {};
-  for (const p of ["groq", "openrouter", "llama", "openai"] as LLMProvider[]) {
+  for (const p of ["jev", "laya", "groq", "openrouter", "llama", "openai"] as LLMProvider[]) {
     const pc = runtimeConfig.providers[p] ?? providerFromEnv(p);
     providers[p] = {
       url: pc.url || "",
@@ -1690,7 +1981,7 @@ app.post("/api/config", async (c) => {
     runtimeConfig.graph_enabled = body.graph_enabled;
   }
   if (body?.providers && typeof body.providers === "object") {
-    for (const p of ["groq", "openrouter", "llama", "openai"] as LLMProvider[]) {
+    for (const p of ["jev", "laya", "groq", "openrouter", "llama", "openai"] as LLMProvider[]) {
       const patch = body.providers[p];
       if (!patch || typeof patch !== "object") continue;
       const cur = runtimeConfig.providers[p] ?? providerFromEnv(p);
@@ -1705,7 +1996,7 @@ app.post("/api/config", async (c) => {
   persistRuntimeConfig();
   return c.json({ ok: true, ...(await (async () => {
     const providers: Record<string, any> = {};
-    for (const p of ["groq", "openrouter", "llama", "openai"] as LLMProvider[]) {
+    for (const p of ["jev", "laya", "groq", "openrouter", "llama", "openai"] as LLMProvider[]) {
       const pc = runtimeConfig.providers[p] ?? providerFromEnv(p);
       providers[p] = { url: pc.url || "", model: pc.model || "", has_key: Boolean(pc.key) };
     }

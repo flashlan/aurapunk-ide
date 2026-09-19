@@ -53,7 +53,17 @@ import {
   useWorkspacePanelState,
   RIGHT_MAIN_PANEL_MODES,
   useAnimateRunningOutline,
+  useCompactorEngine,
+  useLayaDockerUrl,
+  useJevApiKey,
+  useJevVercelUrl,
+  useJevVercelKey,
 } from '@/shared/stores/useUiPreferencesStore';
+import { useAutoCompaction } from '../model/hooks/useAutoCompaction';
+import {
+  executeSessionCompaction,
+  prepareCloudPromptWithIsolation,
+} from '../model/sessionCompactor';
 import { useInspectModeStore } from '../model/store/useInspectModeStore';
 import { Actions } from '@/shared/actions';
 import {
@@ -232,7 +242,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   }, [appNavigation, workspaceId]);
 
   // Get entries early to extract pending approval for scratch key
-  const { entries } = useEntries();
+  const { entries, setEntries } = useEntries();
   const tokenUsageInfo = useTokenUsage();
 
   // Extract user messages for turn navigation
@@ -554,8 +564,29 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     executorConfig,
   });
 
+  const compactorEngine = useCompactorEngine();
+  const layaDockerUrl = useLayaDockerUrl();
+  const jevApiKey = useJevApiKey();
+  const jevVercelUrl = useJevVercelUrl();
+  const jevVercelKey = useJevVercelKey();
+
+  // Auto-compaction when context usage crosses the user threshold
+  useAutoCompaction({
+    sessionId: isNewSessionMode ? undefined : sessionId,
+    tokenUsageInfo,
+    executorConfig,
+    isRunning:
+      isAttemptRunning ||
+      isSending ||
+      isStopping ||
+      !!pendingApproval?.approvalId,
+    entries,
+    setEntries,
+  });
+
   const handleSend = useCallback(async () => {
-    if (/^\/memory\s*$/i.test(localMessage.trim())) {
+    const trimmed = localMessage.trim();
+    if (/^\/memory\s*$/i.test(trimmed)) {
       cancelDebouncedSave();
       setLocalMessage('');
       clearUploadedAttachments();
@@ -564,9 +595,43 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       return;
     }
 
-    const { prompt, isSlashCommand } = buildAgentPrompt(localMessage, [
-      reviewMarkdown,
-    ]);
+    // Direct /compress, /autocompress, /compact, /autocompact command:
+    if (
+      /^\/(?:compress|autocompress|compact|autocompact)(?:\s.*)?$/i.test(
+        trimmed
+      )
+    ) {
+      cancelDebouncedSave();
+      setLocalMessage('');
+      clearUploadedAttachments();
+      await clearDraft();
+      onScrollToBottom('auto');
+
+      try {
+        const { markerPatch } = await executeSessionCompaction({
+          entries,
+          engine: compactorEngine,
+          layaDockerUrl,
+          jevApiKey,
+          jevVercelAiUrl: jevVercelUrl,
+          jevVercelAiKey: jevVercelKey,
+        });
+        setEntries([...entries, markerPatch]);
+      } catch (err) {
+        console.warn('[compaction] Failed to execute manual compaction:', err);
+      }
+      return;
+    }
+
+    const { prompt: rawPrompt, isSlashCommand } = buildAgentPrompt(
+      localMessage,
+      [reviewMarkdown]
+    );
+
+    // Isolate context: everything above the latest compaction marker is dropped!
+    const prompt = isSlashCommand
+      ? rawPrompt
+      : prepareCloudPromptWithIsolation(rawPrompt, entries);
 
     onScrollToBottom('auto');
 
@@ -598,6 +663,11 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     clearUploadedAttachments,
     clearDraft,
     reviewContext,
+    entries,
+    setEntries,
+    compactorEngine,
+    layaDockerUrl,
+    jevApiKey,
   ]);
 
   // --- Headed (interactive tmux) live status ---------------------------------

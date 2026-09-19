@@ -151,6 +151,20 @@ impl ClaudeCode {
                     ),
                 },
                 SlashCommandDescription {
+                    name: "compress".to_string(),
+                    description: Some(
+                        "Alias for /compact: compact and isolate session context using Fast Jev & Laya"
+                            .to_string(),
+                    ),
+                },
+                SlashCommandDescription {
+                    name: "autocompress".to_string(),
+                    description: Some(
+                        "Alias for /compact: trigger Fast Jev & Laya autocompaction"
+                            .to_string(),
+                    ),
+                },
+                SlashCommandDescription {
                     name: "review".to_string(),
                     description: Some("Review a pull request".to_string()),
                 },
