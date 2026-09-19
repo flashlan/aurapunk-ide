@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.19] - 2026-09-19
+
+### Fixed
+
+- **Jev calls go through the local backend (CORS).** TypeSafe's API sends no
+  `Access-Control-Allow-Origin`, so the desktop webview could not call it
+  directly (`Load failed`). Jev now posts to a same-origin backend proxy
+  (`POST /api/jev/evaluate`) that performs the request server to server and
+  forwards the caller's key. This fixes the Jev model, Agent decisions,
+  Memory-extraction tests, the Abide semantic evaluation and `/compact`.
+
 ## [0.3.18] - 2026-09-19
 
 ### Fixed
