@@ -235,6 +235,32 @@ docker compose up -d --build
 
 It can also be configured from the app: open **Settings → Memory** to manage the graph at runtime, configure extraction providers (Groq, OpenRouter, local llama), and view token usage.
 
+### Laya decision engine (second image)
+
+The memory layer and the Laya decision engine ship as **two separate images**. The all-in-one above stays lean (API, Qdrant, Redis, embeddings, graph); Laya is its own container, built from [`packages/jev-plugin/docker`](packages/jev-plugin/docker):
+
+```bash
+# 1. Build the image (CPU-only; works on arm64 via OrbStack / Docker Desktop)
+docker build -t laya-local packages/jev-plugin/docker
+
+# 2. Cache the ~2.4 GB of weights so recreating the container does not re-download them
+docker volume create laya-hf-cache
+
+# 3. Run it on 8080 — already the app default
+docker run -d --name laya-local --restart unless-stopped \
+  -p 8080:8080 \
+  -v laya-hf-cache:/root/.cache/huggingface \
+  -e LAYA_MODEL=convaiinnovations/laya \
+  laya-local
+
+curl http://localhost:8080/health   # {"status":"ok","loaded":true,...}
+```
+
+- **The desktop app** needs no extra configuration: `Settings → Laya execution mode: docker` defaults to `http://localhost:8080`. The server sends CORS headers because the app calls it from a webview on a *different* origin — without them the browser blocks the response and the container looks unreachable while it is actually healthy.
+- **The memory container** can use Laya for extraction instead of a cloud LLM: start `vk-mem0` with `-e MEM0_LLM_PROVIDER=laya -e MEM0_LAYA_URL=http://host.docker.internal:8080`. From inside a container, `127.0.0.1` would be mem0 itself. If Laya is unreachable or times out, extraction falls back to the deterministic 0-token extractor, so a memory write is never blocked.
+- Laya is **CPU-only** and loads the model into RAM (~3 GB). On an 8 GB machine run it alone, never next to a second copy.
+- Weights are not baked into the image; they download once into the `laya-hf-cache` volume on first start.
+
 ## Fast Jev and Laya: zero-token context compression
 
 Long agent sessions rot in two ways: the context window fills with stale tool output, and the usual fix — asking a model to summarize the history — is itself lossy and expensive. AuraPunk takes a different route, wired straight into the memory layer: **compress the transcript with structured decisions instead of a generative summary, and make the routine decisions without spending a token.**
@@ -251,7 +277,7 @@ The engine ships as [`@aurapunk/jev-plugin`](packages/jev-plugin) (also usable f
 ### RLCD decision engine (Laya or Jev)
 
 **RLCD is the engine; Laya and Jev are the models it can use.** RLCD answers typed questions (`choice`, `score`, `noul`) and produces the keep/drop decisions above — plus 9 autonomous agent decisions: does this need a tool, which tool, respond directly, is information missing, is confirmation required, what is the risk level, should it escalate, does the proposed call match the request, and which agent should take the task. Two models can back it:
-- **Laya** — a non-autoregressive ModernBERT model (`convaiinnovations/laya`), self-hosted as a **Docker container** or via the **AuraPunk Cloud gateway** (device-token authenticated).
+- **Laya** — a non-autoregressive ModernBERT model (`convaiinnovations/laya`), self-hosted as a **Docker container** (see [Laya decision engine](#laya-decision-engine-second-image)) or via the **AuraPunk Cloud gateway** (device-token authenticated).
 - **Jev** — TypeSafe's System One evaluation model, called over the TypeSafe API.
 
 When both are configured, RLCD escalates to Jev for complex semantic rules and falls back to Laya. Neither is ever a silent in-process heuristic.
