@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.18] - 2026-09-19
+
+### Fixed
+
+- **WebKit/Tauri `fetch` crash.** The Jev and Laya classifiers stored `fetch` as
+  a value and called it detached, which in the Tauri WKWebView (and Safari)
+  throws `Can only call Window.fetch on instances of Window`. That broke the Jev
+  model, Laya (Cloud), Agent decisions, Memory-extraction tests and `/compact`.
+  `fetch` is now bound to `globalThis`.
+
 ## [0.3.17] - 2026-09-19
 
 ### Added
