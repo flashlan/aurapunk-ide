@@ -1007,6 +1007,17 @@ fn default_memory_user_id() -> String {
     "default".to_string()
 }
 
+/// Render a reqwest transport failure together with its underlying cause.
+/// `reqwest::Error`'s `Display` omits the source, so a bare `{error}` leaves
+/// the operator with only the URL and no reason (the transport flap that this
+/// card reported looked exactly like that).
+fn describe_transport_error(error: &reqwest::Error) -> String {
+    match std::error::Error::source(error) {
+        Some(source) => format!("memory graph request failed: {error} ({source})"),
+        None => format!("memory graph request failed: {error}"),
+    }
+}
+
 /// Proxy the bounded semantic graph from mem0-vk. This keeps Qdrant and graph
 /// storage credentials server-side and returns only extracted concepts and
 /// relation labels to the local UI.
@@ -1025,29 +1036,40 @@ async fn memory_graph_overview(
         return ResponseJson(ApiResponse::error("user_id must not be empty"));
     }
     let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(8))
+        .timeout(Duration::from_secs(30))
         .build()
     {
         Ok(client) => client,
         Err(_) => return ResponseJson(ApiResponse::error("failed to build mem0 client")),
     };
     let url = format!("{}/api/graph/overview", mem0_url());
-    let response = match authorize_mem0(client.post(url))
-        .json(&serde_json::json!({ "user_id": user_id }))
-        .send()
-        .await
-    {
-        Ok(response) if response.status().is_success() => response,
-        Ok(response) => {
-            return ResponseJson(ApiResponse::error(&format!(
-                "memory graph returned status {}",
-                response.status()
-            )));
-        }
-        Err(error) => {
-            return ResponseJson(ApiResponse::error(&format!(
-                "memory graph request failed: {error}"
-            )));
+    let payload = serde_json::json!({ "user_id": user_id });
+    // The projection is computed on demand and can exceed a tight probe
+    // budget on a large repository. Retry a transient transport failure once
+    // (e.g. a gateway restart resetting the connection) before surfacing it,
+    // so a momentary flap doesn't bubble up as a raw reqwest error.
+    let mut attempt = 0u8;
+    let response = loop {
+        attempt += 1;
+        match authorize_mem0(client.post(&url))
+            .json(&payload)
+            .send()
+            .await
+        {
+            Ok(response) if response.status().is_success() => break response,
+            Ok(response) => {
+                return ResponseJson(ApiResponse::error(&format!(
+                    "memory graph returned status {}",
+                    response.status()
+                )));
+            }
+            Err(error) if attempt < 2 => {
+                tracing::warn!(%error, attempt, "memory graph request failed; retrying");
+                tokio::time::sleep(Duration::from_millis(400)).await;
+            }
+            Err(error) => {
+                return ResponseJson(ApiResponse::error(&describe_transport_error(&error)));
+            }
         }
     };
     match response.json::<MemoryGraphOverview>().await {
