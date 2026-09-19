@@ -523,7 +523,7 @@ export function MemorySettingsSection() {
       case 'jev':
         return '⚡ Fast Jev (Local CPU • Zero Tokens • <1ms)';
       case 'laya':
-        return '🧠 Laya Classifier (System-1 Agentic • Zero Tokens)';
+        return '🧠 Laya Classifier (System-1 • Docker / Cloud)';
       case 'groq':
         return 'Groq (Cloud LLM)';
       case 'openrouter':
@@ -1107,7 +1107,7 @@ export function MemorySettingsSection() {
                             </div>
                             <span className="inline-flex items-center gap-1 rounded-xs bg-success/15 px-1.5 py-0.5 text-2xs font-medium text-success">
                               <span className="size-1.5 rounded-full bg-success" />
-                              Local CPU Ready
+                              Docker / Cloud
                             </span>
                           </div>
                           <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-2xs text-low">
@@ -1116,12 +1116,12 @@ export function MemorySettingsSection() {
                                 Model: {d.model || 'laya-system1-v1'}
                               </span>
                               <span>•</span>
-                              <span>Cost: 0 tokens / $0.00</span>
-                              <span>•</span>
-                              <span>Speed: &lt;1ms</span>
+                              <span>
+                                Runs in mem0-vk (Docker) or AuraPunk Cloud
+                              </span>
                             </div>
                             <span className="italic text-brand">
-                              No API key required
+                              No embedded/local mode
                             </span>
                           </div>
                         </div>

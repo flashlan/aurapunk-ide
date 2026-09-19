@@ -54,7 +54,9 @@ import {
   RIGHT_MAIN_PANEL_MODES,
   useAnimateRunningOutline,
   useCompactorEngine,
+  useLayaMode,
   useLayaDockerUrl,
+  useLayaCloudUrl,
   useJevApiKey,
   useJevVercelUrl,
   useJevVercelKey,
@@ -565,7 +567,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   });
 
   const compactorEngine = useCompactorEngine();
+  const layaMode = useLayaMode();
   const layaDockerUrl = useLayaDockerUrl();
+  const layaCloudUrl = useLayaCloudUrl();
   const jevApiKey = useJevApiKey();
   const jevVercelUrl = useJevVercelUrl();
   const jevVercelKey = useJevVercelKey();
@@ -611,7 +615,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         const { markerPatch } = await executeSessionCompaction({
           entries,
           engine: compactorEngine,
+          layaMode,
           layaDockerUrl,
+          layaCloudUrl,
           jevApiKey,
           jevVercelAiUrl: jevVercelUrl,
           jevVercelAiKey: jevVercelKey,
@@ -666,7 +672,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     entries,
     setEntries,
     compactorEngine,
+    layaMode,
     layaDockerUrl,
+    layaCloudUrl,
     jevApiKey,
   ]);
 

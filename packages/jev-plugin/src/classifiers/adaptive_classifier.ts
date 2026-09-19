@@ -12,6 +12,12 @@ export interface AdaptiveClassifierOptions {
   pythonBridgePath?: string;
   fetchFn?: typeof fetch;
   preferProvider?: "auto" | "jev" | "laya";
+  /**
+   * When `false`, an unreachable Laya endpoint fails loudly instead of falling
+   * back to the embedded heuristic engine (Laya should run only via Docker or
+   * Cloud). Defaults to `true`.
+   */
+  allowEmbeddedFallback?: boolean;
 }
 
 export class AdaptiveClassifier implements DecisionClassifier {
@@ -33,6 +39,7 @@ export class AdaptiveClassifier implements DecisionClassifier {
       endpoint: options.layaEndpoint,
       pythonBridgePath: options.pythonBridgePath,
       fetchFn: options.fetchFn,
+      allowEmbeddedFallback: options.allowEmbeddedFallback,
     });
     this.preferProvider = options.preferProvider || "auto";
     this.providerName = "laya";

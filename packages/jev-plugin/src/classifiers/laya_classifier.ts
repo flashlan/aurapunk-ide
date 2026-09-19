@@ -5,21 +5,33 @@ export class LayaClassifier implements DecisionClassifier {
   readonly providerName = 'laya' as const;
   private endpoint?: string;
   private pythonBridgePath?: string;
+  private allowEmbeddedFallback: boolean;
   private fetchFn: typeof fetch;
 
   constructor(options: {
     endpoint?: string;
     pythonBridgePath?: string;
     fetchFn?: typeof fetch;
+    /**
+     * Laya runs as a managed service (Docker container or Cloud gateway). When
+     * `false`, an unreachable endpoint fails loudly instead of silently falling
+     * back to the embedded heuristic engine — that fallback is what made Laya
+     * appear to work locally while no Docker/Cloud endpoint was running.
+     * Defaults to `true` to preserve the offline/POC behavior.
+     */
+    allowEmbeddedFallback?: boolean;
   } = {}) {
     this.endpoint = options.endpoint || (typeof process !== 'undefined' ? process.env.LAYA_ENDPOINT : undefined);
     this.pythonBridgePath = options.pythonBridgePath;
+    this.allowEmbeddedFallback = options.allowEmbeddedFallback ?? true;
     this.fetchFn = options.fetchFn || fetch;
   }
 
   async isAvailable(): Promise<boolean> {
-    // Laya is always available: either via HTTP endpoint, Python bridge, or embedded calibrated engine
-    return true;
+    // A configured endpoint is assumed reachable and probed on first use.
+    if (this.endpoint) return true;
+    // Without an endpoint Laya is only usable through the embedded fallback.
+    return this.allowEmbeddedFallback || Boolean(this.pythonBridgePath);
   }
 
   async evaluateQuestions(
@@ -62,6 +74,14 @@ export class LayaClassifier implements DecisionClassifier {
       } catch {
         // Fallback to embedded engine
       }
+    }
+
+    if (!this.allowEmbeddedFallback) {
+      throw new Error(
+        this.endpoint
+          ? `Laya endpoint unreachable: ${this.endpoint}. Start the Laya Docker container or use AuraPunk Cloud.`
+          : 'Laya is not configured: set a Docker or Cloud endpoint in Settings → Laya execution mode.'
+      );
     }
 
     // 3. Embedded Calibrated ModernBERT System-1 Decision Head

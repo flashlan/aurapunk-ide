@@ -11,6 +11,8 @@ import {
   useSetLayaMode,
   useLayaDockerUrl,
   useSetLayaDockerUrl,
+  useLayaCloudUrl,
+  useSetLayaCloudUrl,
   useJevApiKey,
   useSetJevApiKey,
   useJevProviderMode,
@@ -647,6 +649,8 @@ export function UsageSettingsSection() {
   const setLayaMode = useSetLayaMode();
   const layaDockerUrl = useLayaDockerUrl();
   const setLayaDockerUrl = useSetLayaDockerUrl();
+  const layaCloudUrl = useLayaCloudUrl();
+  const setLayaCloudUrl = useSetLayaCloudUrl();
   const jevApiKey = useJevApiKey();
   const setJevApiKey = useSetJevApiKey();
   const jevProviderMode = useJevProviderMode();
@@ -667,13 +671,13 @@ export function UsageSettingsSection() {
     {
       id: 'auto',
       label: 'Auto (Jev + Laya)',
-      sublabel: 'Cloud Jev with local Laya fallback',
+      sublabel: 'Cloud Jev with Laya (Docker/Cloud) fallback',
       badge: 'Recommended',
     },
     {
       id: 'laya',
       label: 'Laya System-1',
-      sublabel: 'Local / Docker ModernBERT (Free & Private)',
+      sublabel: 'Docker container or AuraPunk Cloud (no Embedded)',
     },
     {
       id: 'jev',
@@ -1545,9 +1549,11 @@ export function UsageSettingsSection() {
               </span>
               <span className="text-[11px] text-low">
                 {compactorEngine === 'auto' &&
-                  '⚡ Cloud Jev + Local Laya fallback'}
+                  '⚡ Cloud Jev + Laya (Docker/Cloud) fallback'}
                 {compactorEngine === 'laya' &&
-                  '🔒 100% Local ModernBERT (No API key)'}
+                  (layaMode === 'cloud'
+                    ? '☁️ AuraPunk Cloud Laya'
+                    : '🐳 Laya Docker container')}
                 {compactorEngine === 'jev' && '🌐 TypeSafe Jev Cloud API'}
                 {compactorEngine === 'disabled' &&
                   '⏳ Traditional LLM summary fallback'}
@@ -1584,7 +1590,7 @@ export function UsageSettingsSection() {
               })}
             </div>
 
-            {/* Sub-configuration for Laya / Docker */}
+            {/* Sub-configuration for Laya (Docker / Cloud) */}
             {(compactorEngine === 'auto' || compactorEngine === 'laya') && (
               <div className="rounded-sm border border-border/50 bg-panel/60 p-2.5 space-y-2 text-xs">
                 <div className="flex items-center justify-between font-medium text-normal">
@@ -1597,24 +1603,21 @@ export function UsageSettingsSection() {
                       <input
                         type="radio"
                         name="layaMode"
-                        checked={layaMode === 'embedded'}
-                        onChange={() => setLayaMode('embedded')}
+                        checked={layaMode === 'docker'}
+                        onChange={() => setLayaMode('docker')}
                         className="accent-brand"
                       />
-                      <span>
-                        Embedded (
-                        <span className="text-accent">&lt;1ms CPU</span>)
-                      </span>
+                      <span>Docker Container (Local)</span>
                     </label>
                     <label className="flex items-center gap-1 cursor-pointer">
                       <input
                         type="radio"
                         name="layaMode"
-                        checked={layaMode === 'docker'}
-                        onChange={() => setLayaMode('docker')}
+                        checked={layaMode === 'cloud'}
+                        onChange={() => setLayaMode('cloud')}
                         className="accent-brand"
                       />
-                      <span>Docker Container</span>
+                      <span>Cloud</span>
                     </label>
                   </div>
                 </div>
@@ -1640,9 +1643,32 @@ export function UsageSettingsSection() {
                         &amp;&amp; docker run -d -p 8080:8080 laya-local
                       </code>
                     </p>
-                    <p className="text-[10px] text-accent">
-                      💡 Tip: Select &quot;Embedded&quot; above to run locally
-                      in-process without Docker!
+                    <p className="text-[10px] text-low">
+                      🐳 Laya runs inside the container. If Docker is not
+                      running, compaction reports the endpoint as unreachable
+                      instead of falling back to a local heuristic engine.
+                    </p>
+                  </div>
+                )}
+
+                {layaMode === 'cloud' && (
+                  <div className="space-y-1.5 pt-1 border-t border-border/40">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-low shrink-0">
+                        Cloud Gateway URL:
+                      </span>
+                      <input
+                        type="text"
+                        value={layaCloudUrl}
+                        onChange={(e) => setLayaCloudUrl(e.target.value)}
+                        placeholder="https://aurapunk.dev/api/memory/v1"
+                        className="flex-1 rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
+                      />
+                    </div>
+                    <p className="text-[10px] text-low">
+                      ☁️ Laya runs on AuraPunk Cloud. Sign in under Settings →
+                      Memory to authorize the Desktop; there is no local
+                      (embedded) execution mode.
                     </p>
                   </div>
                 )}

@@ -4,7 +4,9 @@ import type { PatchTypeWithKey } from '@/shared/hooks/useConversationHistory/typ
 import {
   useCompactorEngine,
   useCompactionThreshold,
+  useLayaMode,
   useLayaDockerUrl,
+  useLayaCloudUrl,
   useJevApiKey,
   useJevVercelUrl,
   useJevVercelKey,
@@ -45,7 +47,9 @@ export function useAutoCompaction({
 }: UseAutoCompactionOptions): void {
   const threshold = useCompactionThreshold();
   const engine = useCompactorEngine();
+  const layaMode = useLayaMode();
   const layaDockerUrl = useLayaDockerUrl();
+  const layaCloudUrl = useLayaCloudUrl();
   const jevApiKey = useJevApiKey();
   const jevVercelUrl = useJevVercelUrl();
   const jevVercelKey = useJevVercelKey();
@@ -106,7 +110,9 @@ export function useAutoCompaction({
         const { markerPatch } = await executeSessionCompaction({
           entries,
           engine,
+          layaMode,
           layaDockerUrl,
+          layaCloudUrl,
           jevApiKey,
           jevVercelAiUrl: jevVercelUrl,
           jevVercelAiKey: jevVercelKey,
@@ -134,7 +140,9 @@ export function useAutoCompaction({
     executorConfig,
     entries,
     setEntries,
+    layaMode,
     layaDockerUrl,
+    layaCloudUrl,
     jevApiKey,
   ]);
 }

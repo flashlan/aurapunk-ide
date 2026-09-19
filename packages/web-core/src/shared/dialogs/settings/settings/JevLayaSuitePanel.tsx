@@ -95,7 +95,7 @@ export const JevLayaSuitePanel: React.FC = () => {
             <div className="text-sm font-medium text-high flex items-center gap-1.5">
               <span>Fast Jev &amp; Laya AI Suite</span>
               <span className="rounded-xs bg-emerald-500/20 px-1.5 py-0.5 text-2xs font-semibold text-emerald-400">
-                0 Tokens / Local CPU
+                Docker / Cloud
               </span>
             </div>
             <div className="text-xs text-low">
@@ -107,7 +107,7 @@ export const JevLayaSuitePanel: React.FC = () => {
         <div className="flex items-center gap-2 text-xs font-mono text-low">
           <span className="flex items-center gap-1 text-emerald-400">
             <CheckCircleIcon className="size-3.5" weight="fill" />
-            Laya Engine &lt;1ms
+            Laya Engine (Docker / Cloud)
           </span>
         </div>
       </div>
@@ -168,7 +168,7 @@ export const JevLayaSuitePanel: React.FC = () => {
                         : 'text-low hover:text-normal'
                     }`}
                   >
-                    ⚡ Laya (Local CPU)
+                    🐳 Laya (Docker / Cloud)
                   </button>
                   <button
                     type="button"
@@ -216,8 +216,8 @@ export const JevLayaSuitePanel: React.FC = () => {
             </div>
 
             <p className="text-2xs text-low">
-              • <strong>Laya Local</strong> evaluates AST &amp; protected paths
-              in &lt;1ms on local CPU with 0 tokens.
+              • <strong>Laya</strong> evaluates AST &amp; protected paths via a
+              Docker container or AuraPunk Cloud — never embedded in-process.
               <br />• <strong>Fast Jev</strong> evaluates semantic architectural
               rules via Vercel AI Gateway (~300ms).
             </p>
@@ -434,7 +434,7 @@ export const JevLayaSuitePanel: React.FC = () => {
               className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal"
             >
               <option value="auto">🔄 Auto (Laya with Jev Fallback)</option>
-              <option value="laya">⚡ Laya Local (0 Tokens, &lt;1ms)</option>
+              <option value="laya">🐳 Laya (Docker / Cloud)</option>
               <option value="jev">▲ Fast Jev (Vercel AI / TypeSafe)</option>
               <option value="disabled">🚫 Disabled</option>
             </select>

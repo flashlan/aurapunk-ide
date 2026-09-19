@@ -126,10 +126,27 @@ export interface ExecuteCompactionOptions {
   entries: PatchTypeWithKey[];
   engine: CompactorEngineType;
   layaDockerUrl?: string;
+  layaCloudUrl?: string;
   jevApiKey?: string;
   jevVercelAiUrl?: string;
   jevVercelAiKey?: string;
-  layaMode?: 'embedded' | 'docker';
+  layaMode?: 'docker' | 'cloud';
+}
+
+/**
+ * Laya runs only as a managed service: the self-hosted Docker container or the
+ * hosted AuraPunk Cloud gateway. The embedded heuristic engine is never used as
+ * a user-selected execution mode, so an unreachable endpoint surfaces instead
+ * of silently "working locally" with no container running.
+ */
+export function resolveLayaEndpoint(
+  layaMode: 'docker' | 'cloud' | undefined,
+  layaDockerUrl?: string,
+  layaCloudUrl?: string
+): string | undefined {
+  const url = layaMode === 'cloud' ? layaCloudUrl : layaDockerUrl;
+  const trimmed = url?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 export interface CompactionExecutionResult {
@@ -149,17 +166,25 @@ export async function executeSessionCompaction({
   entries,
   engine,
   layaDockerUrl,
+  layaCloudUrl,
   jevApiKey,
   jevVercelAiUrl,
   jevVercelAiKey,
+  layaMode,
 }: ExecuteCompactionOptions): Promise<CompactionExecutionResult> {
   const universalMessages = convertEntriesToMessages(entries);
+  const layaEndpoint = resolveLayaEndpoint(
+    layaMode,
+    layaDockerUrl,
+    layaCloudUrl
+  );
 
   // Pick classifier based on user preferences in Settings
   let classifier;
   if (engine === 'laya') {
     classifier = new LayaClassifier({
-      endpoint: layaDockerUrl,
+      endpoint: layaEndpoint,
+      allowEmbeddedFallback: false,
     });
   } else if (engine === 'jev') {
     classifier = new JevClassifier({
@@ -173,7 +198,8 @@ export async function executeSessionCompaction({
       apiKey: jevApiKey,
       vercelAiUrl: jevVercelAiUrl,
       vercelAiKey: jevVercelAiKey,
-      layaEndpoint: layaDockerUrl,
+      layaEndpoint,
+      allowEmbeddedFallback: false,
     });
   }
 

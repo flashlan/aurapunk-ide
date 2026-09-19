@@ -233,17 +233,21 @@ const loadCompactorEngine = (): CompactorEngineType => {
   return DEFAULT_COMPACTOR_ENGINE;
 };
 
-// Persisted Laya execution mode ('embedded' | 'docker')
-export type LayaExecutionMode = 'embedded' | 'docker';
-export const DEFAULT_LAYA_MODE: LayaExecutionMode = 'embedded';
+// Persisted Laya execution mode ('docker' | 'cloud'). Laya runs only as a
+// managed service: either the self-hosted Docker container or the hosted
+// AuraPunk Cloud gateway. The old in-process 'embedded' heuristics are no
+// longer selectable.
+export type LayaExecutionMode = 'docker' | 'cloud';
+export const DEFAULT_LAYA_MODE: LayaExecutionMode = 'docker';
 const LAYA_MODE_KEY = 'vk-laya-mode';
 
 const loadLayaMode = (): LayaExecutionMode => {
   try {
     const stored = localStorage.getItem(LAYA_MODE_KEY);
-    if (stored === 'embedded' || stored === 'docker') {
+    if (stored === 'docker' || stored === 'cloud') {
       return stored;
     }
+    // Legacy 'embedded' (and anything else) migrates to the Docker default.
   } catch {}
   return DEFAULT_LAYA_MODE;
 };
@@ -258,6 +262,18 @@ const loadLayaDockerUrl = (): string => {
     if (stored) return stored;
   } catch {}
   return DEFAULT_LAYA_DOCKER_URL;
+};
+
+// Persisted Laya Cloud URL (the hosted AuraPunk Cloud gateway)
+export const DEFAULT_LAYA_CLOUD_URL = 'https://aurapunk.dev/api/memory/v1';
+const LAYA_CLOUD_URL_KEY = 'vk-laya-cloud-url';
+
+const loadLayaCloudUrl = (): string => {
+  try {
+    const stored = localStorage.getItem(LAYA_CLOUD_URL_KEY);
+    if (stored) return stored;
+  } catch {}
+  return DEFAULT_LAYA_CLOUD_URL;
 };
 
 // Persisted Jev API Key
@@ -840,11 +856,13 @@ type State = {
   compactorEngine: CompactorEngineType;
   setCompactorEngine: (engine: CompactorEngineType) => void;
 
-  // Laya Mode ('embedded' | 'docker') & URL
+  // Laya Mode ('docker' | 'cloud') & URLs
   layaMode: LayaExecutionMode;
   setLayaMode: (mode: LayaExecutionMode) => void;
   layaDockerUrl: string;
   setLayaDockerUrl: (url: string) => void;
+  layaCloudUrl: string;
+  setLayaCloudUrl: (url: string) => void;
 
   // TypeSafe Jev API Key
   jevApiKey: string;
@@ -1096,7 +1114,7 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
     set({ compactorEngine: engine });
   },
 
-  // Laya Mode & URL
+  // Laya Mode & URLs
   layaMode: loadLayaMode(),
   setLayaMode: (mode) => {
     try {
@@ -1110,6 +1128,13 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
       localStorage.setItem(LAYA_DOCKER_URL_KEY, url);
     } catch {}
     set({ layaDockerUrl: url });
+  },
+  layaCloudUrl: loadLayaCloudUrl(),
+  setLayaCloudUrl: (url) => {
+    try {
+      localStorage.setItem(LAYA_CLOUD_URL_KEY, url);
+    } catch {}
+    set({ layaCloudUrl: url });
   },
 
   // TypeSafe Jev API Key
@@ -1964,6 +1989,11 @@ export const useLayaDockerUrl = () =>
   useUiPreferencesStore((s) => s.layaDockerUrl);
 export const useSetLayaDockerUrl = () =>
   useUiPreferencesStore((s) => s.setLayaDockerUrl);
+
+export const useLayaCloudUrl = () =>
+  useUiPreferencesStore((s) => s.layaCloudUrl);
+export const useSetLayaCloudUrl = () =>
+  useUiPreferencesStore((s) => s.setLayaCloudUrl);
 
 export const useJevApiKey = () => useUiPreferencesStore((s) => s.jevApiKey);
 export const useSetJevApiKey = () =>
