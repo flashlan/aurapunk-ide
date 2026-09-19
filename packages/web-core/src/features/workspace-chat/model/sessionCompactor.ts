@@ -9,6 +9,7 @@ import {
   type Message,
 } from '@aurapunk/jev-plugin';
 import type { CompactorEngineType } from '@/shared/stores/useUiPreferencesStore';
+import { jevProxyUrl } from '@/shared/lib/jevProxy';
 
 /**
  * Normalizes UI conversation entries into universal Message[] for compaction.
@@ -186,6 +187,8 @@ export async function executeSessionCompaction({
     layaMode === 'cloud' && layaAuthToken
       ? { Authorization: `Bearer ${layaAuthToken}` }
       : undefined;
+  // Jev goes through the local backend proxy: TypeSafe blocks browser CORS.
+  const jevEndpoint = jevProxyUrl(jevTypesafeUrl);
 
   // Pick classifier based on user preferences in Settings
   let classifier;
@@ -198,13 +201,13 @@ export async function executeSessionCompaction({
   } else if (engine === 'jev') {
     classifier = new JevClassifier({
       apiKey: jevApiKey,
-      typesafeUrl: jevTypesafeUrl,
+      typesafeUrl: jevEndpoint,
     });
   } else {
     // 'auto' or default fallback
     classifier = new AdaptiveClassifier({
       apiKey: jevApiKey,
-      jevTypesafeUrl,
+      jevTypesafeUrl: jevEndpoint,
       layaEndpoint,
       layaHeaders,
       allowEmbeddedFallback: false,

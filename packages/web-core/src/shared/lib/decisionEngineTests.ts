@@ -6,6 +6,7 @@ import {
   evaluateDiffRules,
   type DecisionClassifier,
 } from '@aurapunk/jev-plugin';
+import { jevProxyUrl } from '@/shared/lib/jevProxy';
 
 export interface ConnectionTestResult {
   ok: boolean;
@@ -41,7 +42,7 @@ function buildClassifier(
   if (prefer === 'jev') {
     return new JevClassifier({
       apiKey: settings.jevApiKey,
-      typesafeUrl: settings.jevTypesafeUrl,
+      typesafeUrl: jevProxyUrl(settings.jevTypesafeUrl),
     });
   }
   if (prefer === 'laya') {
@@ -53,7 +54,7 @@ function buildClassifier(
   }
   return new AdaptiveClassifier({
     apiKey: settings.jevApiKey,
-    jevTypesafeUrl: settings.jevTypesafeUrl,
+    jevTypesafeUrl: jevProxyUrl(settings.jevTypesafeUrl),
     layaEndpoint: settings.layaEndpoint,
     layaHeaders: settings.layaHeaders,
     allowEmbeddedFallback: false,
@@ -86,7 +87,7 @@ export async function testJevConnection(options: {
   try {
     const classifier = new JevClassifier({
       apiKey: options.apiKey,
-      typesafeUrl: options.typesafeUrl,
+      typesafeUrl: jevProxyUrl(options.typesafeUrl),
     });
     if (!(await classifier.isAvailable())) {
       return { ok: false, latencyMs: 0, error: 'Missing TypeSafe Jev API key' };
@@ -192,7 +193,7 @@ export async function testAbideGuardrails(
       diff: '@@ -0,0 +1 @@\n+const x = 1;',
       engine,
       jevApiKey: settings.jevApiKey,
-      jevBaseUrl: settings.jevTypesafeUrl,
+      jevBaseUrl: jevProxyUrl(settings.jevTypesafeUrl),
     });
     return {
       ok: true,

@@ -41,6 +41,7 @@ pub mod filesystem;
 pub mod frontend;
 pub mod health;
 pub mod instance;
+pub mod jev;
 pub mod kanban;
 pub mod local_kanban;
 pub mod memory_migration;
@@ -88,6 +89,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(speckit::router(&deployment))
         .merge(terminal::router())
         .merge(usage::router())
+        .merge(jev::router())
         .merge(memory_migration::router())
         .merge(mobile_sync::router())
         .merge(mobile_sync::tailcat_router())
