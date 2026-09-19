@@ -83,7 +83,10 @@ export class JevClassifier implements DecisionClassifier {
       options.typesafeUrl || options.baseUrl || TYPESAFE_JEV_DEFAULT_URL;
     this.model = options.model || "jev-latest";
     this.timeoutMs = options.timeoutMs ?? 30000;
-    this.fetchFn = options.fetchFn || fetch;
+    // In WebKit (Tauri/Safari) `window.fetch` must be called with `window` as
+    // its receiver; a detached reference throws
+    // "Can only call Window.fetch on instances of Window". Bind it.
+    this.fetchFn = options.fetchFn || fetch.bind(globalThis);
   }
 
   async isAvailable(): Promise<boolean> {

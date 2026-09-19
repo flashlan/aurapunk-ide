@@ -32,7 +32,10 @@ export class LayaClassifier implements DecisionClassifier {
     this.pythonBridgePath = options.pythonBridgePath;
     this.allowEmbeddedFallback = options.allowEmbeddedFallback ?? true;
     this.headers = options.headers ?? {};
-    this.fetchFn = options.fetchFn || fetch;
+    // In WebKit (Tauri/Safari) `window.fetch` must be called with `window` as
+    // its receiver; a detached reference throws
+    // "Can only call Window.fetch on instances of Window". Bind it.
+    this.fetchFn = options.fetchFn || fetch.bind(globalThis);
   }
 
   async isAvailable(): Promise<boolean> {
