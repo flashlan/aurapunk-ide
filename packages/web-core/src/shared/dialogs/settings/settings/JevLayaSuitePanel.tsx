@@ -42,10 +42,19 @@ import {
   useSetJevApiKey,
   useJevTypesafeUrl,
   useSetJevTypesafeUrl,
+  useLayaMode,
+  useLayaDockerUrl,
+  useLayaCloudUrl,
+  readCloudAccessToken,
   type CompactorEngineType,
   type CompactionThreshold,
   type PrimaryEngine,
 } from '@/shared/stores/useUiPreferencesStore';
+import {
+  testJevConnection,
+  testLayaConnection,
+  type ConnectionTestResult,
+} from '@/shared/lib/decisionEngineTests';
 import { SettingsCheckbox } from './SettingsComponents';
 
 export const JevLayaSuitePanel: React.FC = () => {
@@ -83,6 +92,48 @@ export const JevLayaSuitePanel: React.FC = () => {
   const setJevApiKey = useSetJevApiKey();
   const jevTypesafeUrl = useJevTypesafeUrl();
   const setJevTypesafeUrl = useSetJevTypesafeUrl();
+
+  // Laya execution (compactor / decisions)
+  const layaMode = useLayaMode();
+  const layaDockerUrl = useLayaDockerUrl();
+  const layaCloudUrl = useLayaCloudUrl();
+
+  // Connection tests for every surface the decision engine feeds.
+  const [testBusy, setTestBusy] = useState<'jev' | 'laya' | null>(null);
+  const [jevTest, setJevTest] = useState<ConnectionTestResult | null>(null);
+  const [layaTest, setLayaTest] = useState<ConnectionTestResult | null>(null);
+
+  const runJevTest = async () => {
+    setTestBusy('jev');
+    setJevTest(null);
+    try {
+      setJevTest(
+        await testJevConnection({
+          apiKey: jevApiKey,
+          typesafeUrl: jevTypesafeUrl,
+        })
+      );
+    } finally {
+      setTestBusy(null);
+    }
+  };
+
+  const runLayaTest = async () => {
+    setTestBusy('laya');
+    setLayaTest(null);
+    try {
+      const endpoint = layaMode === 'cloud' ? layaCloudUrl : layaDockerUrl;
+      const token = layaMode === 'cloud' ? readCloudAccessToken() : null;
+      setLayaTest(
+        await testLayaConnection({
+          endpoint,
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        })
+      );
+    } finally {
+      setTestBusy(null);
+    }
+  };
 
   // Central engine selector
   const primaryEngine = usePrimaryEngine();
@@ -181,6 +232,69 @@ export const JevLayaSuitePanel: React.FC = () => {
             {primaryNotice}
           </div>
         )}
+      </div>
+
+      {/* Test decision engines */}
+      <div className="rounded-md border border-border/80 bg-panel p-4 space-y-3">
+        <div>
+          <div className="text-sm font-medium text-high">
+            Test decision engines
+          </div>
+          <div className="text-2xs text-low">
+            Runs one typed question against each configured model to confirm it
+            is reachable — the same path compaction and guardrails use.
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void runJevTest()}
+            disabled={testBusy !== null}
+            className="rounded-xs px-2.5 py-1 text-2xs font-medium bg-secondary text-normal border border-border hover:text-high transition-colors disabled:opacity-50"
+          >
+            {testBusy === 'jev' ? 'Testing Jev…' : 'Test Jev (TypeSafe)'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void runLayaTest()}
+            disabled={testBusy !== null}
+            className="rounded-xs px-2.5 py-1 text-2xs font-medium bg-secondary text-normal border border-border hover:text-high transition-colors disabled:opacity-50"
+          >
+            {testBusy === 'laya' ? 'Testing Laya…' : `Test Laya (${layaMode})`}
+          </button>
+        </div>
+        {jevTest && (
+          <div
+            className={`rounded-sm border px-2.5 py-1.5 text-2xs ${
+              jevTest.ok
+                ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-400'
+                : 'border-error/40 bg-error/5 text-error'
+            }`}
+          >
+            <strong>Jev (TypeSafe):</strong>{' '}
+            {jevTest.ok
+              ? `OK · ${jevTest.latencyMs} ms · ${jevTest.detail ?? ''}`
+              : `failed · ${jevTest.error ?? 'unknown error'}`}
+          </div>
+        )}
+        {layaTest && (
+          <div
+            className={`rounded-sm border px-2.5 py-1.5 text-2xs ${
+              layaTest.ok
+                ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-400'
+                : 'border-error/40 bg-error/5 text-error'
+            }`}
+          >
+            <strong>Laya ({layaMode}):</strong>{' '}
+            {layaTest.ok
+              ? `OK · ${layaTest.latencyMs} ms · ${layaTest.detail ?? ''}`
+              : `failed · ${layaTest.error ?? 'unknown error'}`}
+          </div>
+        )}
+        <p className="text-2xs text-low">
+          mem0 extraction runs on the server; its provider follows the Primary
+          engine choice above.
+        </p>
       </div>
 
       {/* Module 1: Abide Rule Guardrails Engine */}
