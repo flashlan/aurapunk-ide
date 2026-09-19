@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.17] - 2026-09-19
+
+### Added
+
+- **Test decision engines** (Settings → Add-ons → Fast Jev & Laya AI Suite):
+  one button per surface the decision engine feeds — **Jev model** (TypeSafe),
+  **Laya model** (Docker/Cloud), **Agent decisions** (RLCD, 9 decisions),
+  **Abide guardrails**, and **Memory extraction** (durability). Each runs through
+  the exact runtime path and reports OK + latency + answer/engine, or the
+  concrete error.
+
 ## [0.3.16] - 2026-09-19
 
 ### Fixed
