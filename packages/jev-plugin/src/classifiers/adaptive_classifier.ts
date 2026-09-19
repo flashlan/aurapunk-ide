@@ -1,11 +1,18 @@
 import type { DecisionAnswer, TypedQuestion } from "../types.js";
 import type { DecisionClassifier } from "./interface.js";
-import { JevClassifier } from "./jev_classifier.js";
+import {
+  JevClassifier,
+  type JevTransportMode,
+} from "./jev_classifier.js";
 import { LayaClassifier } from "./laya_classifier.js";
 
 export interface AdaptiveClassifierOptions {
   apiKey?: string;
   jevBaseUrl?: string;
+  /** Explicit endpoint for the official TypeSafe Jev API. */
+  jevTypesafeUrl?: string;
+  /** Explicit Jev transport ("typesafe"/"direct" vs "vercel-ai"). */
+  jevMode?: JevTransportMode;
   vercelAiUrl?: string;
   vercelAiKey?: string;
   layaEndpoint?: string;
@@ -33,6 +40,8 @@ export class AdaptiveClassifier implements DecisionClassifier {
     this.jev = new JevClassifier({
       apiKey: options.apiKey,
       baseUrl: options.jevBaseUrl,
+      typesafeUrl: options.jevTypesafeUrl,
+      mode: options.jevMode,
       vercelAiUrl: options.vercelAiUrl,
       vercelAiKey: options.vercelAiKey,
       fetchFn: options.fetchFn,

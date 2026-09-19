@@ -15,7 +15,12 @@ export {
   formatToolResultSummary,
 } from "./compactor/fitter.js";
 export type { DecisionClassifier } from "./classifiers/interface.js";
-export { JevClassifier } from "./classifiers/jev_classifier.js";
+export {
+  JevClassifier,
+  TYPESAFE_JEV_DEFAULT_URL,
+  VERCEL_JEV_DEFAULT_URL,
+  type JevTransportMode,
+} from "./classifiers/jev_classifier.js";
 export { LayaClassifier } from "./classifiers/laya_classifier.js";
 export { AdaptiveClassifier } from "./classifiers/adaptive_classifier.js";
 export {

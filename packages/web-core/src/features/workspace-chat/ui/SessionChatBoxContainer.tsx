@@ -58,6 +58,8 @@ import {
   useLayaDockerUrl,
   useLayaCloudUrl,
   useJevApiKey,
+  useJevProviderMode,
+  useJevTypesafeUrl,
   useJevVercelUrl,
   useJevVercelKey,
   readCloudAccessToken,
@@ -572,6 +574,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   const layaDockerUrl = useLayaDockerUrl();
   const layaCloudUrl = useLayaCloudUrl();
   const jevApiKey = useJevApiKey();
+  const jevProviderMode = useJevProviderMode();
+  const jevTypesafeUrl = useJevTypesafeUrl();
   const jevVercelUrl = useJevVercelUrl();
   const jevVercelKey = useJevVercelKey();
 
@@ -621,6 +625,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           layaCloudUrl,
           layaAuthToken: readCloudAccessToken() ?? undefined,
           jevApiKey,
+          jevProviderMode,
+          jevTypesafeUrl,
           jevVercelAiUrl: jevVercelUrl,
           jevVercelAiKey: jevVercelKey,
         });

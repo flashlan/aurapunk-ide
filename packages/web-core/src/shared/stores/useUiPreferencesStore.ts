@@ -308,6 +308,9 @@ export type JevProviderMode = 'embedded' | 'vercel-ai' | 'typesafe';
 const JEV_PROVIDER_MODE_KEY = 'vk-jev-provider-mode';
 const JEV_VERCEL_URL_KEY = 'vk-jev-vercel-url';
 const JEV_VERCEL_KEY_KEY = 'vk-jev-vercel-key';
+// Persisted official TypeSafe (Jev) API endpoint
+export const DEFAULT_JEV_TYPESAFE_URL = 'https://api.typesafe.ai/v1/systemone';
+const JEV_TYPESAFE_URL_KEY = 'vk-jev-typesafe-url';
 
 const loadJevProviderMode = (): JevProviderMode => {
   try {
@@ -337,6 +340,14 @@ const loadJevVercelKey = (): string => {
     if (stored) return stored;
   } catch {}
   return '';
+};
+
+const loadJevTypesafeUrl = (): string => {
+  try {
+    const stored = localStorage.getItem(JEV_TYPESAFE_URL_KEY);
+    if (stored) return stored;
+  } catch {}
+  return DEFAULT_JEV_TYPESAFE_URL;
 };
 
 // Persisted Laya Guardrails Enabled
@@ -891,6 +902,9 @@ type State = {
   setJevVercelUrl: (url: string) => void;
   jevVercelKey: string;
   setJevVercelKey: (key: string) => void;
+  // Official TypeSafe (Jev) API endpoint
+  jevTypesafeUrl: string;
+  setJevTypesafeUrl: (url: string) => void;
 
   // Laya System-1 Guardrails
   layaGuardrailsEnabled: boolean;
@@ -1183,6 +1197,13 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
       localStorage.setItem(JEV_VERCEL_KEY_KEY, key);
     } catch {}
     set({ jevVercelKey: key });
+  },
+  jevTypesafeUrl: loadJevTypesafeUrl(),
+  setJevTypesafeUrl: (url) => {
+    try {
+      localStorage.setItem(JEV_TYPESAFE_URL_KEY, url);
+    } catch {}
+    set({ jevTypesafeUrl: url });
   },
 
   // Laya Guardrails
@@ -2029,6 +2050,11 @@ export const useJevVercelKey = () =>
   useUiPreferencesStore((s) => s.jevVercelKey);
 export const useSetJevVercelKey = () =>
   useUiPreferencesStore((s) => s.setJevVercelKey);
+
+export const useJevTypesafeUrl = () =>
+  useUiPreferencesStore((s) => s.jevTypesafeUrl);
+export const useSetJevTypesafeUrl = () =>
+  useUiPreferencesStore((s) => s.setJevTypesafeUrl);
 
 export const useLayaGuardrailsEnabled = () =>
   useUiPreferencesStore((s) => s.layaGuardrailsEnabled);

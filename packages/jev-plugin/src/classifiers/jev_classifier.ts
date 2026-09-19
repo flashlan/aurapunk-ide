@@ -1,6 +1,19 @@
 import type { DecisionAnswer, TypedQuestion } from "../types.js";
 import type { DecisionClassifier } from "./interface.js";
 
+/** Default endpoint for Jev via the official TypeSafe API. */
+export const TYPESAFE_JEV_DEFAULT_URL = "https://api.typesafe.ai/v1/systemone";
+/** Default endpoint for Fast Jev via the Vercel AI Gateway (beta alternative). */
+export const VERCEL_JEV_DEFAULT_URL = "https://api.vercel.ai/v1/fast-jev";
+
+/**
+ * Transport selector for the Jev HTTP call. `"typesafe"` and the legacy
+ * `"direct"` both target the official TypeSafe API; `"vercel-ai"` targets the
+ * Vercel AI Gateway. When omitted, the mode is inferred from which key/URL is
+ * configured (Vercel wins if present).
+ */
+export type JevTransportMode = "direct" | "typesafe" | "vercel-ai";
+
 export class JevClassifier implements DecisionClassifier {
   readonly providerName = "jev" as const;
   private apiKey: string | undefined;
@@ -15,10 +28,12 @@ export class JevClassifier implements DecisionClassifier {
     options: {
       apiKey?: string;
       baseUrl?: string;
+      /** Explicit endpoint for the official TypeSafe Jev API. */
+      typesafeUrl?: string;
       model?: string;
       vercelAiUrl?: string;
       vercelAiKey?: string;
-      mode?: "direct" | "vercel-ai";
+      mode?: JevTransportMode;
       fetchFn?: typeof fetch;
     } = {},
   ) {
@@ -33,17 +48,26 @@ export class JevClassifier implements DecisionClassifier {
     this.vercelAiUrl =
       options.vercelAiUrl ||
       (typeof process !== "undefined" ? process.env.VERCEL_AI_URL : undefined);
-    this.mode =
-      options.mode ||
-      (this.vercelAiKey || this.vercelAiUrl ? "vercel-ai" : "direct");
+    this.mode = this.resolveMode(options.mode);
     this.baseUrl =
       this.mode === "vercel-ai"
-        ? this.vercelAiUrl || "https://api.vercel.ai/v1/fast-jev"
-        : options.baseUrl || "https://api.typesafe.ai/v1/systemone";
+        ? this.vercelAiUrl || VERCEL_JEV_DEFAULT_URL
+        : options.typesafeUrl || options.baseUrl || TYPESAFE_JEV_DEFAULT_URL;
     this.model =
       options.model ||
       (this.mode === "vercel-ai" ? "fast-jev-v1" : "jev-latest");
     this.fetchFn = options.fetchFn || fetch;
+  }
+
+  /**
+   * Honor an explicit user selection; only infer from configured credentials
+   * when no mode was requested, so choosing "TypeSafe Direct" is never silently
+   * overridden by a leftover Vercel key.
+   */
+  private resolveMode(requested?: JevTransportMode): "direct" | "vercel-ai" {
+    if (requested === "vercel-ai") return "vercel-ai";
+    if (requested === "typesafe" || requested === "direct") return "direct";
+    return this.vercelAiKey || this.vercelAiUrl ? "vercel-ai" : "direct";
   }
 
   async isAvailable(): Promise<boolean> {

@@ -17,6 +17,8 @@ import {
   useSetJevApiKey,
   useJevProviderMode,
   useSetJevProviderMode,
+  useJevTypesafeUrl,
+  useSetJevTypesafeUrl,
   useJevVercelUrl,
   useSetJevVercelUrl,
   useJevVercelKey,
@@ -655,6 +657,8 @@ export function UsageSettingsSection() {
   const setJevApiKey = useSetJevApiKey();
   const jevProviderMode = useJevProviderMode();
   const setJevProviderMode = useSetJevProviderMode();
+  const jevTypesafeUrl = useJevTypesafeUrl();
+  const setJevTypesafeUrl = useSetJevTypesafeUrl();
   const jevVercelUrl = useJevVercelUrl();
   const setJevVercelUrl = useSetJevVercelUrl();
   const jevVercelKey = useJevVercelKey();
@@ -1704,12 +1708,23 @@ export function UsageSettingsSection() {
                           : 'text-low hover:text-normal'
                       }`}
                     >
-                      TypeSafe Direct (Native Queue)
+                      Official Jev API (TypeSafe)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setJevProviderMode('embedded')}
+                      className={`rounded-xs px-2 py-0.5 font-medium transition-colors ${
+                        jevProviderMode === 'embedded'
+                          ? 'bg-panel text-high shadow-xs'
+                          : 'text-low hover:text-normal'
+                      }`}
+                    >
+                      ⚡ Local CPU
                     </button>
                   </div>
                 </div>
 
-                {jevProviderMode === 'vercel-ai' ? (
+                {jevProviderMode === 'vercel-ai' && (
                   <div className="space-y-1.5 pt-1 border-t border-border/40">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div>
@@ -1742,8 +1757,22 @@ export function UsageSettingsSection() {
                       TypeSafe private beta waitlist queue.
                     </p>
                   </div>
-                ) : (
+                )}
+
+                {jevProviderMode === 'typesafe' && (
                   <div className="space-y-1.5 pt-1 border-t border-border/40">
+                    <div>
+                      <span className="text-[11px] text-low block mb-0.5">
+                        Official Jev Endpoint URL:
+                      </span>
+                      <input
+                        type="text"
+                        value={jevTypesafeUrl}
+                        onChange={(e) => setJevTypesafeUrl(e.target.value)}
+                        placeholder="https://api.typesafe.ai/v1/systemone"
+                        className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
+                      />
+                    </div>
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] text-low">
                         TypeSafe Jev API Key:
@@ -1761,7 +1790,18 @@ export function UsageSettingsSection() {
                       placeholder="ts_live_..."
                       className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
                     />
+                    <p className="text-[10px] text-low">
+                      Uses the official TypeSafe Jev API (
+                      <code className="font-mono">jev-latest</code>) directly.
+                    </p>
                   </div>
+                )}
+
+                {jevProviderMode === 'embedded' && (
+                  <p className="text-[10px] text-low pt-1 border-t border-border/40">
+                    ⚡ Local CPU only is active — no remote Jev endpoint is
+                    called.
+                  </p>
                 )}
               </div>
             )}

@@ -36,6 +36,10 @@ import {
   useSetCompactionThreshold,
   useJevProviderMode,
   useSetJevProviderMode,
+  useJevApiKey,
+  useSetJevApiKey,
+  useJevTypesafeUrl,
+  useSetJevTypesafeUrl,
   useJevVercelUrl,
   useSetJevVercelUrl,
   useJevVercelKey,
@@ -78,6 +82,10 @@ export const JevLayaSuitePanel: React.FC = () => {
   // Jev / Vercel AI
   const jevMode = useJevProviderMode();
   const setJevMode = useSetJevProviderMode();
+  const jevApiKey = useJevApiKey();
+  const setJevApiKey = useSetJevApiKey();
+  const jevTypesafeUrl = useJevTypesafeUrl();
+  const setJevTypesafeUrl = useSetJevTypesafeUrl();
   const jevVercelUrl = useJevVercelUrl();
   const setJevVercelUrl = useSetJevVercelUrl();
   const jevVercelKey = useJevVercelKey();
@@ -462,75 +470,158 @@ export const JevLayaSuitePanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Module 4: Vercel AI Gateway Configuration */}
+      {/* Module 4: Jev API Connection (Official TypeSafe + Vercel AI) */}
       <div className="rounded-md border border-border/80 bg-panel p-4 space-y-3">
-        <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
+        <div className="border-b border-border/60 pb-2.5">
           <div className="flex items-center gap-2">
             <CloudIcon className="size-5 text-brand" weight="bold" />
             <div>
               <div className="text-sm font-medium text-high">
-                Fast Jev Cloud Connection (Vercel AI Alternative)
+                Fast Jev API Connection
               </div>
               <div className="text-2xs text-low">
-                Bypasses the TypeSafe private beta waitlist queue via Vercel AI
-                Gateway.
+                Configure the official TypeSafe Jev API and the Vercel AI
+                Gateway (beta) side by side. The provider marked as{' '}
+                <strong>default</strong> is the one compaction uses.
               </div>
             </div>
-          </div>
-          <div className="flex items-center rounded-sm bg-secondary p-0.5 text-2xs border border-border/60">
-            <button
-              type="button"
-              onClick={() => setJevMode('vercel-ai')}
-              className={`rounded-xs px-2 py-0.5 font-medium transition-colors ${
-                jevMode === 'vercel-ai'
-                  ? 'bg-panel text-high shadow-xs'
-                  : 'text-low hover:text-normal'
-              }`}
-            >
-              ▲ Vercel AI
-            </button>
-            <button
-              type="button"
-              onClick={() => setJevMode('embedded')}
-              className={`rounded-xs px-2 py-0.5 font-medium transition-colors ${
-                jevMode === 'embedded'
-                  ? 'bg-panel text-high shadow-xs'
-                  : 'text-low hover:text-normal'
-              }`}
-            >
-              ⚡ Local CPU Only
-            </button>
           </div>
         </div>
 
-        {jevMode === 'vercel-ai' && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-1">
-            <div>
-              <span className="text-2xs text-low block mb-1">
-                Vercel AI Gateway URL:
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {/* Official TypeSafe Jev API */}
+          <div
+            className={`rounded-sm border p-3 space-y-2 ${
+              jevMode === 'typesafe'
+                ? 'border-brand/60 bg-brand/5'
+                : 'border-border/60'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-high flex items-center gap-1.5">
+                <LightningIcon className="size-3.5 text-brand" weight="fill" />
+                Official Jev API (TypeSafe)
               </span>
-              <input
-                type="text"
-                value={jevVercelUrl}
-                onChange={(e) => setJevVercelUrl(e.target.value)}
-                placeholder="https://api.vercel.ai/v1/fast-jev"
-                className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
-              />
+              <button
+                type="button"
+                onClick={() => setJevMode('typesafe')}
+                className={`rounded-xs px-2 py-0.5 text-2xs font-medium transition-colors ${
+                  jevMode === 'typesafe'
+                    ? 'bg-brand text-white shadow-xs'
+                    : 'bg-secondary text-low hover:text-normal'
+                }`}
+              >
+                {jevMode === 'typesafe' ? '★ Default' : 'Use as default'}
+              </button>
             </div>
-            <div>
-              <span className="text-2xs text-low block mb-1">
-                Vercel AI Key:
-              </span>
-              <input
-                type="password"
-                value={jevVercelKey}
-                onChange={(e) => setJevVercelKey(e.target.value)}
-                placeholder="••••••••••••••••"
-                className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
-              />
+            <div className="space-y-1.5">
+              <div>
+                <span className="text-2xs text-low block mb-0.5">
+                  Jev Endpoint URL:
+                </span>
+                <input
+                  type="text"
+                  value={jevTypesafeUrl}
+                  onChange={(e) => setJevTypesafeUrl(e.target.value)}
+                  placeholder="https://api.typesafe.ai/v1/systemone"
+                  className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
+                />
+              </div>
+              <div>
+                <span className="text-2xs text-low block mb-0.5">
+                  TypeSafe API Key:
+                </span>
+                <input
+                  type="password"
+                  value={jevApiKey}
+                  onChange={(e) => setJevApiKey(e.target.value)}
+                  placeholder="ts_live_..."
+                  className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
+                />
+              </div>
             </div>
+            <p className="text-[10px] text-low">
+              Direct calls to the official TypeSafe Jev API. Requires a{' '}
+              <code className="font-mono">TYPESAFE_API_KEY</code>.
+            </p>
           </div>
-        )}
+
+          {/* Vercel AI Gateway */}
+          <div
+            className={`rounded-sm border p-3 space-y-2 ${
+              jevMode === 'vercel-ai'
+                ? 'border-brand/60 bg-brand/5'
+                : 'border-border/60'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-high flex items-center gap-1.5">
+                <CloudIcon className="size-3.5 text-brand" weight="bold" />
+                Vercel AI Gateway (Beta)
+              </span>
+              <button
+                type="button"
+                onClick={() => setJevMode('vercel-ai')}
+                className={`rounded-xs px-2 py-0.5 text-2xs font-medium transition-colors ${
+                  jevMode === 'vercel-ai'
+                    ? 'bg-brand text-white shadow-xs'
+                    : 'bg-secondary text-low hover:text-normal'
+                }`}
+              >
+                {jevMode === 'vercel-ai' ? '★ Default' : 'Use as default'}
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              <div>
+                <span className="text-2xs text-low block mb-0.5">
+                  Vercel AI Gateway URL:
+                </span>
+                <input
+                  type="text"
+                  value={jevVercelUrl}
+                  onChange={(e) => setJevVercelUrl(e.target.value)}
+                  placeholder="https://api.vercel.ai/v1/fast-jev"
+                  className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
+                />
+              </div>
+              <div>
+                <span className="text-2xs text-low block mb-0.5">
+                  Vercel AI Key:
+                </span>
+                <input
+                  type="password"
+                  value={jevVercelKey}
+                  onChange={(e) => setJevVercelKey(e.target.value)}
+                  placeholder="••••••••••••••••"
+                  className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
+                />
+              </div>
+            </div>
+            <p className="text-[10px] text-low">
+              Routes Fast Jev through Vercel AI Gateway, bypassing the TypeSafe
+              private beta waitlist queue.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-2">
+          <span className="text-2xs text-low">
+            {jevMode === 'embedded'
+              ? '⚡ Local CPU only is active — no remote Jev endpoint is called.'
+              : `Active provider: ${jevMode === 'typesafe' ? 'Official Jev API (TypeSafe)' : 'Vercel AI Gateway'}`}
+          </span>
+          <button
+            type="button"
+            onClick={() => setJevMode('embedded')}
+            className={`rounded-xs px-2 py-0.5 text-2xs font-medium transition-colors ${
+              jevMode === 'embedded'
+                ? 'bg-panel text-high border border-border'
+                : 'text-low hover:text-normal'
+            }`}
+          >
+            ⚡ Use Local CPU Only
+          </button>
+        </div>
       </div>
 
       {/* Module 5: Cloud Laya & Quotas */}
