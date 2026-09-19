@@ -1284,6 +1284,7 @@ pub(super) async fn spawn_event_listener(
     } = config;
 
     let mut seen_permissions: HashSet<String> = HashSet::new();
+    let mut background_tasks = BackgroundTasks::default();
     let mut last_event_id: Option<String> = None;
     let mut base_retry_delay = Duration::from_millis(3000);
     let mut attempt: u32 = 0;
@@ -1324,6 +1325,7 @@ pub(super) async fn spawn_event_listener(
         let outcome = process_event_stream(
             EventStreamContext {
                 seen_permissions: &mut seen_permissions,
+                background_tasks: &mut background_tasks,
                 client: &client,
                 base_url: &base_url,
                 directory: &directory,
@@ -1379,8 +1381,104 @@ enum EventStreamOutcome {
     Disconnected,
 }
 
+/// Tracks background subagent sessions spawned by the main OpenCode session so
+/// a transient `session.idle` — the parent turning idle while a `task` tool
+/// (`background: true` / `manage_task`) subagent is still running — is not
+/// mistaken for the end of the turn. OpenCode re-prompts the parent once the
+/// background task completes, so the turn only truly finishes when the parent
+/// idles with no busy children left.
+#[derive(Default)]
+struct BackgroundTasks {
+    /// Child session IDs whose `parentID` is the main session.
+    children: HashSet<String>,
+    /// Subset of `children` that has not yet reported an idle/terminal status.
+    busy: HashSet<String>,
+}
+
+impl BackgroundTasks {
+    fn note_child_created(&mut self, id: &str) {
+        if self.children.insert(id.to_string()) {
+            self.busy.insert(id.to_string());
+        }
+    }
+
+    fn note_status(&mut self, id: &str, is_busy: bool) {
+        if !self.children.contains(id) {
+            return;
+        }
+        if is_busy {
+            self.busy.insert(id.to_string());
+        } else {
+            self.busy.remove(id);
+        }
+    }
+
+    fn remove_child(&mut self, id: &str) {
+        self.children.remove(id);
+        self.busy.remove(id);
+    }
+
+    fn has_busy(&self) -> bool {
+        !self.busy.is_empty()
+    }
+}
+
+/// Observe child-session lifecycle events (subagents spawned via the `task`
+/// tool) so the parent session's idle can be distinguished from a true
+/// turn-completion. Called for every raw event *before* `event_matches_session`
+/// filters out events that don't belong to the main session.
+fn track_background_tasks(
+    event_type: &str,
+    data: &Value,
+    main_session_id: &str,
+    tracker: &mut BackgroundTasks,
+) {
+    match event_type {
+        "session.created" | "session.updated" => {
+            let info = data.pointer("/properties/info");
+            let id = info.and_then(|i| i.get("id")).and_then(Value::as_str);
+            let parent_id = info.and_then(|i| i.get("parentID")).and_then(Value::as_str);
+            if let (Some(id), Some(parent_id)) = (id, parent_id)
+                && parent_id == main_session_id
+            {
+                tracker.note_child_created(id);
+            }
+        }
+        "session.status" => {
+            let id = data
+                .pointer("/properties/sessionID")
+                .and_then(Value::as_str);
+            let status_type = data
+                .pointer("/properties/status/type")
+                .and_then(Value::as_str);
+            if let Some(id) = id {
+                let is_busy = status_type
+                    .map(|s| !s.eq_ignore_ascii_case("idle"))
+                    .unwrap_or(false);
+                tracker.note_status(id, is_busy);
+            }
+        }
+        "session.idle" | "session.error" => {
+            let id = data
+                .pointer("/properties/sessionID")
+                .and_then(Value::as_str);
+            if let Some(id) = id {
+                tracker.note_status(id, false);
+            }
+        }
+        "session.deleted" => {
+            let id = data.pointer("/properties/info/id").and_then(Value::as_str);
+            if let Some(id) = id {
+                tracker.remove_child(id);
+            }
+        }
+        _ => {}
+    }
+}
+
 pub(super) struct EventStreamContext<'a> {
     seen_permissions: &'a mut HashSet<String>,
+    background_tasks: &'a mut BackgroundTasks,
     pub client: &'a reqwest::Client,
     pub base_url: &'a str,
     pub directory: &'a str,
@@ -1443,6 +1541,8 @@ async fn process_event_stream(
             continue;
         };
 
+        track_background_tasks(event_type, &data, ctx.session_id, ctx.background_tasks);
+
         if !event_matches_session(event_type, &data, ctx.session_id) {
             continue;
         }
@@ -1464,11 +1564,20 @@ async fn process_event_stream(
                     .and_then(Value::as_str)
                     && status.eq_ignore_ascii_case("idle")
                 {
+                    if ctx.background_tasks.has_busy() {
+                        // The parent went idle but a background subagent is still
+                        // running. Keep listening: OpenCode will re-prompt the
+                        // parent when the task completes, ending the turn again.
+                        continue;
+                    }
                     let _ = ctx.control_tx.send(ControlEvent::Idle);
                     return Ok(EventStreamOutcome::Idle);
                 }
             }
             "session.idle" => {
+                if ctx.background_tasks.has_busy() {
+                    continue;
+                }
                 let _ = ctx.control_tx.send(ControlEvent::Idle);
                 return Ok(EventStreamOutcome::Idle);
             }
@@ -1998,5 +2107,143 @@ pub async fn mirror_opencode_events_to_store(
                 store.push_stdout(format!("{serialized}\n"));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event(event_type: &str, body: serde_json::Value) -> Value {
+        serde_json::json!({ "type": event_type, "properties": body })
+    }
+
+    #[test]
+    fn tracks_child_session_lifecycle() {
+        let mut tracker = BackgroundTasks::default();
+
+        // A child subagent is created whose parentID is the main session.
+        track_background_tasks(
+            "session.created",
+            &event(
+                "session.created",
+                serde_json::json!({ "info": { "id": "child-1", "parentID": "main" } }),
+            ),
+            "main",
+            &mut tracker,
+        );
+        assert!(tracker.has_busy());
+
+        // An unrelated session's status event must be ignored.
+        track_background_tasks(
+            "session.status",
+            &event(
+                "session.status",
+                serde_json::json!({ "sessionID": "other", "status": { "type": "idle" } }),
+            ),
+            "main",
+            &mut tracker,
+        );
+        assert!(tracker.has_busy());
+
+        // The child goes busy, then idle.
+        track_background_tasks(
+            "session.status",
+            &event(
+                "session.status",
+                serde_json::json!({ "sessionID": "child-1", "status": { "type": "busy" } }),
+            ),
+            "main",
+            &mut tracker,
+        );
+        assert!(tracker.has_busy());
+
+        track_background_tasks(
+            "session.status",
+            &event(
+                "session.status",
+                serde_json::json!({ "sessionID": "child-1", "status": { "type": "idle" } }),
+            ),
+            "main",
+            &mut tracker,
+        );
+        assert!(!tracker.has_busy());
+    }
+
+    #[test]
+    fn child_error_and_deletion_clear_busy() {
+        let mut tracker = BackgroundTasks::default();
+        track_background_tasks(
+            "session.created",
+            &event(
+                "session.created",
+                serde_json::json!({ "info": { "id": "child-1", "parentID": "main" } }),
+            ),
+            "main",
+            &mut tracker,
+        );
+        assert!(tracker.has_busy());
+
+        track_background_tasks(
+            "session.error",
+            &event(
+                "session.error",
+                serde_json::json!({ "sessionID": "child-1", "error": { "name": "boom" } }),
+            ),
+            "main",
+            &mut tracker,
+        );
+        assert!(!tracker.has_busy());
+
+        track_background_tasks(
+            "session.created",
+            &event(
+                "session.created",
+                serde_json::json!({ "info": { "id": "child-2", "parentID": "main" } }),
+            ),
+            "main",
+            &mut tracker,
+        );
+        assert!(tracker.has_busy());
+
+        track_background_tasks(
+            "session.deleted",
+            &event(
+                "session.deleted",
+                serde_json::json!({ "info": { "id": "child-2", "parentID": "main" } }),
+            ),
+            "main",
+            &mut tracker,
+        );
+        assert!(!tracker.has_busy());
+    }
+
+    #[test]
+    fn only_direct_children_are_tracked() {
+        let mut tracker = BackgroundTasks::default();
+
+        // parentID differs from the main session -> not our child.
+        track_background_tasks(
+            "session.created",
+            &event(
+                "session.created",
+                serde_json::json!({ "info": { "id": "child-1", "parentID": "other-parent" } }),
+            ),
+            "main",
+            &mut tracker,
+        );
+        assert!(!tracker.has_busy());
+
+        // A session with no parentID is not tracked either.
+        track_background_tasks(
+            "session.created",
+            &event(
+                "session.created",
+                serde_json::json!({ "info": { "id": "child-2" } }),
+            ),
+            "main",
+            &mut tracker,
+        );
+        assert!(!tracker.has_busy());
     }
 }
