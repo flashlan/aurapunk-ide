@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.14] - 2026-09-19
+
+### Changed
+
+- **Fast Jev is now TypeSafe-only.** The Vercel AI Gateway transport was
+  removed end to end (classifier, guardrails, compactor transport, Settings and
+  the Memory panel): Jev is reached exclusively through the official TypeSafe
+  API (`https://api.typesafe.ai/v1/systemone`, Bearer `TYPESAFE_API_KEY`, model
+  `jev-latest`), which is validated live. The Fast Jev API Connection UI now
+  shows just the TypeSafe endpoint and API key.
+
 ## [0.3.13] - 2026-09-19
 
 ### Fixed
