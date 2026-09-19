@@ -112,6 +112,7 @@ in [release `v0.3.2`](https://github.com/flashlan/aurapunk-ide/releases/tag/v0.3
 - [Overview](#overview)
 - [What This Fork Adds](#what-this-fork-adds)
 - [Project Memory (mem0)](#project-memory-mem0)
+- [Fast Jev and Laya: zero-token context compression](#fast-jev-and-laya-zero-token-context-compression)
 - [Supported Coding Agents](#supported-coding-agents)
 - [Chat and Terminal Interaction](#chat-and-terminal-interaction)
 - [Usage and Observability](#usage-and-observability)
@@ -147,6 +148,7 @@ Software engineering increasingly means directing coding agents — planning wor
 - **Server infrastructure** — upstream sunsetting, Indie runs locally → **fully offline, self-hosted runtime**
 - **Cross-session memory** — ephemeral, or none → **native `mem0` with Qdrant and a NetworkX graph**
 - **Prompt cache-hit architecture** — not present → **deterministic memory-prefix injection preserves cache hits**
+- **Context compression & decisions** — lossy LLM summaries, or none → **zero-token Fast Jev compaction (`/compress`) with the Laya System-1 decision engine and Abide rule guardrails**
 - **Telemetry and observability** — none, or minimal → **`Settings → Usage` dashboard: tokens, activity heatmaps, per-agent breakdown**
 - **Coding agent support** — legacy CLI subset → **11+ agents, including CommandCode, Claude Code, Antigravity, Codex, Gemini CLI**
 - **Antigravity (AGY) agent** — not supported, or basic text mode → **full `stream-json` parsing, tool-use cards, reasoning-effort control**
@@ -232,6 +234,41 @@ docker compose up -d --build
 ```
 
 It can also be configured from the app: open **Settings → Memory** to manage the graph at runtime, configure extraction providers (Groq, OpenRouter, local llama), and view token usage.
+
+## Fast Jev and Laya: zero-token context compression
+
+Long agent sessions rot in two ways: the context window fills with stale tool output, and the usual fix — asking a model to summarize the history — is itself lossy and expensive. AuraPunk takes a different route, wired straight into the memory layer: **compress the transcript with structured decisions instead of a generative summary, and make the routine decisions without spending a token.**
+
+The engine ships as [`@aurapunk/jev-plugin`](packages/jev-plugin) (also usable from Claude Code) and is driven from **Settings → Add-ons → Fast Jev & Laya AI Suite**.
+
+### Fast Jev Compaction (`/compress`, `/autocompact`)
+
+- **Nothing is rewritten.** User and assistant text stays 100% verbatim — exact file paths, literal compiler errors, and constraints survive.
+- Tool calls and results are scored in batch with typed `noul` questions; only stale or oversized tool output (old listings, already-changed file dumps) is truncated or dropped.
+- The initial prompt and the recent window are kept intact as a **prompt-cache anchor**, with older history isolated behind a milestone marker.
+- The project's own benchmarks report **~88.5% fewer tokens** with verbatim fidelity preserved.
+
+### Laya System-1 decision engine
+
+A non-autoregressive **ModernBERT** model (`convaiinnovations/laya`) answers typed questions (`choice`, `score`, `noul`) in a single forward pass and produces those keep/drop decisions — plus 9 autonomous agent decisions: does this need a tool, which tool, respond directly, is information missing, is confirmation required, what is the risk level, should it escalate, does the proposed call match the request, and which agent should take the task. It runs as a **self-hosted Docker container** or through the **AuraPunk Cloud gateway** (device-token authenticated) — never as a silent in-process heuristic. When Fast Jev (System-2, the semantic evaluator) is configured, it escalates architectural rules and falls back to Laya automatically.
+
+### Abide rule guardrails
+
+Every edit and diff is checked against the repository's `AGENTS.md` before it lands — deterministic checks are **sub-millisecond and use zero tokens**, with optional semantic escalation. Guardrails block manual edits to generated files (`shared/types.ts`), strip AI co-authorship trailers, refuse exposed credentials, and stop manual git completion outside the official Integration Guard — self-healing in the same turn by asking the agent to repair.
+
+### Memory extraction at zero token cost
+
+The same engine replaces the extraction LLM in the memory service (`MEM0_LLM_PROVIDER=laya`): structured extraction runs **in-container in <1 ms and consumes 0 tokens**, while embedding vectors still come from your own host. Facts are still written to the mem0 graph and Qdrant, and searched semantically as usual.
+
+```mermaid
+flowchart LR
+    Chat["Long agent session"] --> FJ["Fast Jev Compaction"]
+    FJ -->|typed questions| Laya["Laya System-1<br/>ModernBERT / Docker / Cloud"]
+    Laya -->|keep or drop| FJ
+    FJ --> Compact["Milestone marker<br/>verbatim prompt + recent window"]
+    Laya --> Abide["Abide guardrails<br/>AGENTS.md rules"]
+    Compact --> Mem0["mem0 graph + Qdrant"]
+```
 
 ## Supported Coding Agents
 
