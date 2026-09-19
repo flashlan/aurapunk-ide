@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.15] - 2026-09-19
+
+### Added
+
+- **Central Jev/Laya engine selector.** One control in Settings → Add-ons
+  (Primary Jev/Laya engine: Auto | Jev | Laya) fans a single choice out to the
+  context compactor, the Abide guardrails, and the mem0 extraction provider;
+  individual settings can still be overridden afterwards.
+- **Real Laya extraction model.** `MEM0_LLM_PROVIDER=laya` with a
+  `MEM0_LAYA_URL` (Docker/Cloud `/predict`) now judges the deterministic
+  candidates and keeps only durable facts — mirroring the Jev path — with the
+  0-token deterministic extractor as fallback.
+
+### Changed
+
+- **Naming: RLCD is the engine, Laya and Jev are the models.** Provider-agnostic
+  engine/router references were renamed from "Laya System-1" to RLCD across the
+  README, Settings labels and plugin docs/metadata. Model-specific labels keep
+  Laya/Jev.
+
 ## [0.3.14] - 2026-09-19
 
 ### Changed
