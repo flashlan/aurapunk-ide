@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.13] - 2026-09-19
+
+### Fixed
+
+- **Fast Jev now reaches the real backends.** The Vercel transport posted to a
+  URL that never existed (`api.vercel.ai/v1/fast-jev`), so no gateway key could
+  make it work — and a default gateway URL forced the Vercel transport even in
+  TypeSafe-only setups.
+  - Vercel mode now calls the AI Gateway evaluation-model route
+    (`https://ai-gateway.vercel.sh/v4/ai/evaluation-model`) with the required
+    protocol headers and the gateway question vocabulary (`noul` → `boolean`),
+    normalizing boolean answers back to `probability`/`verdict`.
+  - Transport inference now keys off the presence of a Vercel key, not the URL.
+  - TypeSafe direct keeps `https://api.typesafe.ai/v1/systemone` (validated
+    against the live API) and normalizes `noul`/`choice`/`score`.
+  - Settings placeholders and the persisted default URL now point at the real
+    gateway route.
+- New `jev_classifier` tests lock both transports.
+
 ## [0.3.12] - 2026-09-19
 
 ### Changed
