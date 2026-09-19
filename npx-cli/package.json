@@ -1,7 +1,7 @@
 {
   "name": "aurapunk-ide",
   "private": false,
-  "version": "0.3.19",
+  "version": "0.3.20",
   "main": "index.js",
   "bin": {
     "aurapunk-ide": "bin/cli.js",

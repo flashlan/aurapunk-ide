@@ -279,8 +279,13 @@ impl ServerHandle {
     }
 }
 
-/// Initialize the deployment, bind listeners on `localhost` with OS-assigned
-/// ports, and return a handle that is ready to serve.
+/// Initialize the deployment, bind listeners on `localhost`, and return a
+/// handle that is ready to serve.
+///
+/// Reuses the last persisted UI port when it is still free so the webview
+/// origin stays stable across launches (an ephemeral port would move
+/// `localStorage` into a fresh store every time); otherwise it falls back to
+/// an OS-assigned port and remembers it.
 ///
 /// Uses `localhost` rather than `127.0.0.1` so the bind address matches
 /// the hostname the frontend connects to. On modern macOS, `localhost`
@@ -292,12 +297,33 @@ pub async fn start() -> anyhow::Result<ServerHandle> {
     } else {
         "localhost"
     };
-    start_with_bind(
+
+    // Reuse the last UI port when it is still free. The packaged app's webview
+    // origin is `http://localhost:<port>` and `localStorage` is keyed by origin,
+    // so a fresh OS-assigned port each launch silently discards every
+    // browser-side preference (Jev API key, engine selection, …).
+    if let Some(port) = utils::port_file::read_preferred_ui_port() {
+        let main_addr = format!("{host}:{port}");
+        match start_with_bind(&main_addr, &format!("{host}:0"), CancellationToken::new()).await {
+            Ok(handle) => return Ok(handle),
+            Err(error) => tracing::warn!(
+                "Preferred UI port {port} unavailable ({error}); falling back to an ephemeral port"
+            ),
+        }
+    }
+
+    let handle = start_with_bind(
         &format!("{host}:0"),
         &format!("{host}:0"),
         CancellationToken::new(),
     )
-    .await
+    .await?;
+
+    if let Err(error) = utils::port_file::write_preferred_ui_port(handle.port) {
+        tracing::warn!("Failed to persist preferred UI port: {error}");
+    }
+
+    Ok(handle)
 }
 
 /// Like [`start`], but lets the caller specify the bind addresses for the main
@@ -307,13 +333,16 @@ pub async fn start_with_bind(
     proxy_addr: &str,
     shutdown_token: CancellationToken,
 ) -> anyhow::Result<ServerHandle> {
-    let deployment = initialize_deployment(shutdown_token.clone()).await?;
-
+    // Bind before initializing the deployment: a caller that retries with a
+    // different address (e.g. a preferred UI port that is already taken) then
+    // only pays for a failed bind, not for a second full deployment init.
     let listener = tokio::net::TcpListener::bind(main_addr).await?;
     let port = listener.local_addr()?.port();
 
     let proxy_listener = tokio::net::TcpListener::bind(proxy_addr).await?;
     let proxy_port = proxy_listener.local_addr()?.port();
+
+    let deployment = initialize_deployment(shutdown_token.clone()).await?;
 
     // Write the port file here too, not just in the standalone `server`
     // binary's `main()` — this is also the path the packaged Tauri app uses

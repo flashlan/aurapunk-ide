@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.20] - 2026-09-19
+
+### Fixed
+
+- **Settings stopped losing the Jev API key (and every other saved
+  preference) on restart.** The packaged app served its UI from
+  `http://localhost:<port>` with an OS-assigned port picked fresh on every
+  launch; because `localStorage` is keyed by origin, each launch got a brand
+  new, empty store — so the Jev key, the engine selection and other
+  browser-side settings appeared "not saved" (125 launches were found to have
+  created 125 separate origins). The server now persists the UI port next to
+  the database (`ui-port.txt`), reuses it when it is still free, and only
+  falls back to an ephemeral port when it is taken. The origin is stable from
+  the second launch on, so preferences survive restarts. Existing keys saved
+  under a previous random port cannot be recovered — re-enter the Jev key once.
+
 ## [0.3.19] - 2026-09-19
 
 ### Fixed

@@ -36,6 +36,36 @@ fn backend_url_for_port(port: u16) -> String {
     format!("http://localhost:{port}")
 }
 
+/// Path of the persisted "preferred UI port" file, kept next to the database.
+///
+/// The packaged app's webview origin is `http://localhost:<port>`, and
+/// `localStorage` is keyed by origin. With a fresh OS-assigned port every
+/// launch the origin changes each time, so every browser-side preference (Jev
+/// API key, engine selection, layered theme choices, …) lands in a per-launch
+/// store and is silently lost on the next start. Persisting the port lets the
+/// server reuse it whenever it is still free.
+pub fn preferred_ui_port_path() -> PathBuf {
+    crate::assets::asset_dir().join("ui-port.txt")
+}
+
+/// The last UI port this machine bound to, if it was recorded.
+pub fn read_preferred_ui_port() -> Option<u16> {
+    let content = std::fs::read_to_string(preferred_ui_port_path()).ok()?;
+    parse_preferred_ui_port(&content)
+}
+
+/// Parse the persisted port, rejecting blanks, junk, and port 0 (which would
+/// mean "let the OS choose").
+fn parse_preferred_ui_port(content: &str) -> Option<u16> {
+    content.trim().parse::<u16>().ok().filter(|port| *port != 0)
+}
+
+/// Remember the port the UI/webview was served from, so the next launch can
+/// reuse it and keep the origin (and its `localStorage`) stable.
+pub fn write_preferred_ui_port(port: u16) -> std::io::Result<()> {
+    std::fs::write(preferred_ui_port_path(), port.to_string())
+}
+
 /// Canonical application name used for the runtime port file, and its
 /// pre-rename (Vibe Kanban) counterpart. The rename from Vibe Kanban to
 /// AuraPunk must not orphan the port file: writers keep both files up to date
@@ -131,11 +161,25 @@ async fn read_port_info_for(app_name: &str) -> std::io::Result<PortInfo> {
 
 #[cfg(test)]
 mod tests {
-    use super::backend_url_for_port;
+    use super::{backend_url_for_port, parse_preferred_ui_port};
 
     #[test]
     fn backend_url_uses_localhost_and_the_given_port() {
         assert_eq!(backend_url_for_port(3002), "http://localhost:3002");
         assert_eq!(backend_url_for_port(51182), "http://localhost:51182");
+    }
+
+    #[test]
+    fn preferred_ui_port_parses_trimmed_numbers() {
+        assert_eq!(parse_preferred_ui_port("51182"), Some(51182));
+        assert_eq!(parse_preferred_ui_port("  50412\n"), Some(50412));
+    }
+
+    #[test]
+    fn preferred_ui_port_rejects_junk_and_zero() {
+        assert_eq!(parse_preferred_ui_port(""), None);
+        assert_eq!(parse_preferred_ui_port("0"), None);
+        assert_eq!(parse_preferred_ui_port("not-a-port"), None);
+        assert_eq!(parse_preferred_ui_port("70000"), None);
     }
 }
