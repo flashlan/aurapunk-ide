@@ -11,10 +11,8 @@ export interface AdaptiveClassifierOptions {
   jevBaseUrl?: string;
   /** Explicit endpoint for the official TypeSafe Jev API. */
   jevTypesafeUrl?: string;
-  /** Explicit Jev transport ("typesafe"/"direct" vs "vercel-ai"). */
+  /** Retained for call-site compatibility; Jev is TypeSafe-only. */
   jevMode?: JevTransportMode;
-  vercelAiUrl?: string;
-  vercelAiKey?: string;
   layaEndpoint?: string;
   pythonBridgePath?: string;
   fetchFn?: typeof fetch;
@@ -42,8 +40,6 @@ export class AdaptiveClassifier implements DecisionClassifier {
       baseUrl: options.jevBaseUrl,
       typesafeUrl: options.jevTypesafeUrl,
       mode: options.jevMode,
-      vercelAiUrl: options.vercelAiUrl,
-      vercelAiKey: options.vercelAiKey,
       fetchFn: options.fetchFn,
     });
     this.laya = new LayaClassifier({

@@ -303,45 +303,9 @@ const loadJevApiKey = (): string => {
   return '';
 };
 
-// Persisted Jev Vercel AI Gateway settings
-export type JevProviderMode = 'embedded' | 'vercel-ai' | 'typesafe';
-const JEV_PROVIDER_MODE_KEY = 'vk-jev-provider-mode';
-const JEV_VERCEL_URL_KEY = 'vk-jev-vercel-url';
-const JEV_VERCEL_KEY_KEY = 'vk-jev-vercel-key';
-// Persisted official TypeSafe (Jev) API endpoint
+// Persisted official TypeSafe (Jev) API endpoint. Jev is TypeSafe-only.
 export const DEFAULT_JEV_TYPESAFE_URL = 'https://api.typesafe.ai/v1/systemone';
 const JEV_TYPESAFE_URL_KEY = 'vk-jev-typesafe-url';
-
-const loadJevProviderMode = (): JevProviderMode => {
-  try {
-    const stored = localStorage.getItem(JEV_PROVIDER_MODE_KEY);
-    if (
-      stored === 'embedded' ||
-      stored === 'vercel-ai' ||
-      stored === 'typesafe'
-    ) {
-      return stored;
-    }
-  } catch {}
-  return 'embedded';
-};
-
-const loadJevVercelUrl = (): string => {
-  try {
-    const stored = localStorage.getItem(JEV_VERCEL_URL_KEY);
-    // Migrate the legacy placeholder URL (it never existed on Vercel).
-    if (stored && !stored.includes('api.vercel.ai')) return stored;
-  } catch {}
-  return 'https://ai-gateway.vercel.sh/v4/ai/evaluation-model';
-};
-
-const loadJevVercelKey = (): string => {
-  try {
-    const stored = localStorage.getItem(JEV_VERCEL_KEY_KEY);
-    if (stored) return stored;
-  } catch {}
-  return '';
-};
 
 const loadJevTypesafeUrl = (): string => {
   try {
@@ -896,13 +860,6 @@ type State = {
   jevApiKey: string;
   setJevApiKey: (key: string) => void;
 
-  // Jev Vercel AI Gateway settings
-  jevProviderMode: JevProviderMode;
-  setJevProviderMode: (mode: JevProviderMode) => void;
-  jevVercelUrl: string;
-  setJevVercelUrl: (url: string) => void;
-  jevVercelKey: string;
-  setJevVercelKey: (key: string) => void;
   // Official TypeSafe (Jev) API endpoint
   jevTypesafeUrl: string;
   setJevTypesafeUrl: (url: string) => void;
@@ -1177,28 +1134,7 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
     set({ jevApiKey: key });
   },
 
-  // Jev Vercel AI Gateway
-  jevProviderMode: loadJevProviderMode(),
-  setJevProviderMode: (mode) => {
-    try {
-      localStorage.setItem(JEV_PROVIDER_MODE_KEY, mode);
-    } catch {}
-    set({ jevProviderMode: mode });
-  },
-  jevVercelUrl: loadJevVercelUrl(),
-  setJevVercelUrl: (url) => {
-    try {
-      localStorage.setItem(JEV_VERCEL_URL_KEY, url);
-    } catch {}
-    set({ jevVercelUrl: url });
-  },
-  jevVercelKey: loadJevVercelKey(),
-  setJevVercelKey: (key) => {
-    try {
-      localStorage.setItem(JEV_VERCEL_KEY_KEY, key);
-    } catch {}
-    set({ jevVercelKey: key });
-  },
+  // Official TypeSafe (Jev) API endpoint
   jevTypesafeUrl: loadJevTypesafeUrl(),
   setJevTypesafeUrl: (url) => {
     try {
@@ -2036,21 +1972,6 @@ export const useSetLayaCloudUrl = () =>
 export const useJevApiKey = () => useUiPreferencesStore((s) => s.jevApiKey);
 export const useSetJevApiKey = () =>
   useUiPreferencesStore((s) => s.setJevApiKey);
-
-export const useJevProviderMode = () =>
-  useUiPreferencesStore((s) => s.jevProviderMode);
-export const useSetJevProviderMode = () =>
-  useUiPreferencesStore((s) => s.setJevProviderMode);
-
-export const useJevVercelUrl = () =>
-  useUiPreferencesStore((s) => s.jevVercelUrl);
-export const useSetJevVercelUrl = () =>
-  useUiPreferencesStore((s) => s.setJevVercelUrl);
-
-export const useJevVercelKey = () =>
-  useUiPreferencesStore((s) => s.jevVercelKey);
-export const useSetJevVercelKey = () =>
-  useUiPreferencesStore((s) => s.setJevVercelKey);
 
 export const useJevTypesafeUrl = () =>
   useUiPreferencesStore((s) => s.jevTypesafeUrl);

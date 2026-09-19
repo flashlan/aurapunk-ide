@@ -2,8 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   JevClassifier,
   TYPESAFE_JEV_DEFAULT_URL,
-  VERCEL_JEV_DEFAULT_URL,
-  type JevTransportMode,
 } from "../src/classifiers/jev_classifier.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -39,8 +37,8 @@ const QUESTIONS = {
   },
 };
 
-describe("JevClassifier transports", () => {
-  it("uses the TypeSafe direct endpoint by default and normalizes noul/choice/score", async () => {
+describe("JevClassifier (TypeSafe)", () => {
+  it("posts to the TypeSafe endpoint and normalizes noul/choice/score", async () => {
     const { fn, calls } = mockFetch(() =>
       jsonResponse({
         model: "jev-1.13.0",
@@ -55,13 +53,15 @@ describe("JevClassifier transports", () => {
     const { answers } = await classifier.evaluateQuestions("state", QUESTIONS);
 
     expect(calls[0].url).toBe(TYPESAFE_JEV_DEFAULT_URL);
+    const headers = calls[0].init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Bearer ts_key");
     const body = JSON.parse(String(calls[0].init.body));
     expect(body.model).toBe("jev-latest");
     expect(body.questions.refunded.type).toBe("noul");
     expect(answers.refunded).toMatchObject({ type: "noul", verdict: true });
-    expect((answers.refunded as { probability: number }).probability).toBeCloseTo(
-      0.96
-    );
+    expect(
+      (answers.refunded as { probability: number }).probability
+    ).toBeCloseTo(0.96);
     expect(answers.team).toMatchObject({ type: "choice", choice: "billing" });
     expect(answers.risk).toMatchObject({
       type: "score",
@@ -70,60 +70,33 @@ describe("JevClassifier transports", () => {
     });
   });
 
-  it("uses the Vercel AI Gateway evaluation route when a gateway key is set", async () => {
-    const { fn, calls } = mockFetch(() =>
-      jsonResponse({
-        answers: {
-          refunded: { type: "boolean", probability: 0.9 },
-          team: { type: "choice", choice: "support", probabilities: {} },
-          risk: { type: "score", score: 1 },
-        },
-        usage: { inputTokens: 10 },
-      })
+  it("also normalizes a bare numeric noul answer", async () => {
+    const { fn } = mockFetch(() =>
+      jsonResponse({ answers: { refunded: 0.2 } })
     );
-    const classifier = new JevClassifier({ vercelAiKey: "gw_key", fetchFn: fn });
-    const { answers } = await classifier.evaluateQuestions("state", QUESTIONS);
-
-    expect(calls[0].url).toBe(VERCEL_JEV_DEFAULT_URL);
-    const headers = calls[0].init.headers as Record<string, string>;
-    expect(headers.Authorization).toBe("Bearer gw_key");
-    expect(headers["ai-model-id"]).toBe("typesafe-ai/jev");
-    expect(headers["ai-evaluation-model-specification-version"]).toBe("4");
-    const body = JSON.parse(String(calls[0].init.body));
-    expect(body.model).toBeUndefined();
-    expect(body.questions.refunded).toEqual({
-      type: "boolean",
-      instructions: "Was a refund issued?",
+    const classifier = new JevClassifier({ apiKey: "ts_key", fetchFn: fn });
+    const { answers } = await classifier.evaluateQuestions("state", {
+      refunded: QUESTIONS.refunded,
     });
-    expect(answers.refunded).toMatchObject({ type: "noul", verdict: true });
-    expect((answers.refunded as { probability: number }).probability).toBeCloseTo(
-      0.9
-    );
-    expect(answers.team).toMatchObject({ type: "choice", choice: "support" });
-    expect(answers.risk).toMatchObject({
-      type: "score",
-      levelIndex: 1,
-      levelLabel: "medium",
-    });
+    expect(answers.refunded).toMatchObject({ type: "noul", verdict: false });
   });
 
-  it("honors an explicit typesafe mode even with a leftover Vercel key", async () => {
+  it("respects a custom endpoint", async () => {
     const { fn, calls } = mockFetch(() => jsonResponse({ answers: {} }));
     const classifier = new JevClassifier({
-      apiKey: "ts",
-      vercelAiKey: "gw",
-      mode: "typesafe" as JevTransportMode,
+      apiKey: "ts_key",
+      typesafeUrl: "https://api.typesafe.ai/v1/other",
       fetchFn: fn,
     });
     await classifier.evaluateQuestions("state", {});
-    expect(calls[0].url).toBe(TYPESAFE_JEV_DEFAULT_URL);
+    expect(calls[0].url).toBe("https://api.typesafe.ai/v1/other");
   });
 
-  it("throws a clear error when the selected transport has no key", async () => {
+  it("throws a clear error when no TypeSafe key is configured", async () => {
     const { fn } = mockFetch(() => jsonResponse({ answers: {} }));
-    const classifier = new JevClassifier({ mode: "vercel-ai", fetchFn: fn });
+    const classifier = new JevClassifier({ fetchFn: fn });
     await expect(
       classifier.evaluateQuestions("state", QUESTIONS)
-    ).rejects.toThrow(/AI_GATEWAY_API_KEY/);
+    ).rejects.toThrow(/TYPESAFE_API_KEY/);
   });
 });

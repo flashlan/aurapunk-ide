@@ -8,10 +8,7 @@ import {
   useLayaDockerUrl,
   useLayaCloudUrl,
   useJevApiKey,
-  useJevProviderMode,
   useJevTypesafeUrl,
-  useJevVercelUrl,
-  useJevVercelKey,
   readCloudAccessToken,
 } from '@/shared/stores/useUiPreferencesStore';
 import { executeSessionCompaction } from '../sessionCompactor';
@@ -54,10 +51,7 @@ export function useAutoCompaction({
   const layaDockerUrl = useLayaDockerUrl();
   const layaCloudUrl = useLayaCloudUrl();
   const jevApiKey = useJevApiKey();
-  const jevProviderMode = useJevProviderMode();
   const jevTypesafeUrl = useJevTypesafeUrl();
-  const jevVercelUrl = useJevVercelUrl();
-  const jevVercelKey = useJevVercelKey();
 
   const lastCompactAtRef = useRef<Map<string, number>>(new Map());
   const armedRef = useRef<Map<string, boolean>>(new Map());
@@ -120,10 +114,7 @@ export function useAutoCompaction({
           layaCloudUrl,
           layaAuthToken: readCloudAccessToken() ?? undefined,
           jevApiKey,
-          jevProviderMode,
           jevTypesafeUrl,
-          jevVercelAiUrl: jevVercelUrl,
-          jevVercelAiKey: jevVercelKey,
         });
 
         // Inject marker into chat
@@ -152,7 +143,6 @@ export function useAutoCompaction({
     layaDockerUrl,
     layaCloudUrl,
     jevApiKey,
-    jevProviderMode,
     jevTypesafeUrl,
   ]);
 }

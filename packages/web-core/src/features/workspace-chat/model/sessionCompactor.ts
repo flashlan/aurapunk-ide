@@ -6,13 +6,9 @@ import {
   AdaptiveClassifier,
   JevClassifier,
   LayaClassifier,
-  type JevTransportMode,
   type Message,
 } from '@aurapunk/jev-plugin';
-import type {
-  CompactorEngineType,
-  JevProviderMode,
-} from '@/shared/stores/useUiPreferencesStore';
+import type { CompactorEngineType } from '@/shared/stores/useUiPreferencesStore';
 
 /**
  * Normalizes UI conversation entries into universal Message[] for compaction.
@@ -134,26 +130,9 @@ export interface ExecuteCompactionOptions {
   /** Device bearer token for the hosted Cloud gateway (cloud mode only). */
   layaAuthToken?: string;
   jevApiKey?: string;
-  /** User-selected default Jev transport (Settings → Fast Jev API Connection). */
-  jevProviderMode?: JevProviderMode;
   /** Endpoint for the official TypeSafe Jev API. */
   jevTypesafeUrl?: string;
-  jevVercelAiUrl?: string;
-  jevVercelAiKey?: string;
   layaMode?: 'docker' | 'cloud';
-}
-
-/**
- * Maps the persisted UI provider preference to an explicit Jev transport.
- * `embedded` and `undefined` return `undefined` so the classifier keeps its
- * legacy behavior of inferring the transport from configured credentials.
- */
-export function resolveJevTransportMode(
-  providerMode: JevProviderMode | undefined
-): JevTransportMode | undefined {
-  if (providerMode === 'vercel-ai') return 'vercel-ai';
-  if (providerMode === 'typesafe') return 'typesafe';
-  return undefined;
 }
 
 /**
@@ -192,10 +171,7 @@ export async function executeSessionCompaction({
   layaCloudUrl,
   layaAuthToken,
   jevApiKey,
-  jevProviderMode,
   jevTypesafeUrl,
-  jevVercelAiUrl,
-  jevVercelAiKey,
   layaMode,
 }: ExecuteCompactionOptions): Promise<CompactionExecutionResult> {
   const universalMessages = convertEntriesToMessages(entries);
@@ -204,7 +180,6 @@ export async function executeSessionCompaction({
     layaDockerUrl,
     layaCloudUrl
   );
-  const jevMode = resolveJevTransportMode(jevProviderMode);
   // The hosted Cloud gateway authenticates every call with the device token;
   // the self-hosted Docker container needs no auth header.
   const layaHeaders =
@@ -223,19 +198,13 @@ export async function executeSessionCompaction({
   } else if (engine === 'jev') {
     classifier = new JevClassifier({
       apiKey: jevApiKey,
-      mode: jevMode,
       typesafeUrl: jevTypesafeUrl,
-      vercelAiUrl: jevVercelAiUrl,
-      vercelAiKey: jevVercelAiKey,
     });
   } else {
     // 'auto' or default fallback
     classifier = new AdaptiveClassifier({
       apiKey: jevApiKey,
-      jevMode,
       jevTypesafeUrl,
-      vercelAiUrl: jevVercelAiUrl,
-      vercelAiKey: jevVercelAiKey,
       layaEndpoint,
       layaHeaders,
       allowEmbeddedFallback: false,

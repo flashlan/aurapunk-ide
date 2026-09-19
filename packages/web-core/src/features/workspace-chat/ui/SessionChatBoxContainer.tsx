@@ -58,10 +58,7 @@ import {
   useLayaDockerUrl,
   useLayaCloudUrl,
   useJevApiKey,
-  useJevProviderMode,
   useJevTypesafeUrl,
-  useJevVercelUrl,
-  useJevVercelKey,
   readCloudAccessToken,
 } from '@/shared/stores/useUiPreferencesStore';
 import { useAutoCompaction } from '../model/hooks/useAutoCompaction';
@@ -574,10 +571,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
   const layaDockerUrl = useLayaDockerUrl();
   const layaCloudUrl = useLayaCloudUrl();
   const jevApiKey = useJevApiKey();
-  const jevProviderMode = useJevProviderMode();
   const jevTypesafeUrl = useJevTypesafeUrl();
-  const jevVercelUrl = useJevVercelUrl();
-  const jevVercelKey = useJevVercelKey();
 
   // Auto-compaction when context usage crosses the user threshold
   useAutoCompaction({
@@ -625,10 +619,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           layaCloudUrl,
           layaAuthToken: readCloudAccessToken() ?? undefined,
           jevApiKey,
-          jevProviderMode,
           jevTypesafeUrl,
-          jevVercelAiUrl: jevVercelUrl,
-          jevVercelAiKey: jevVercelKey,
         });
         setEntries([...entries, markerPatch]);
       } catch (err) {

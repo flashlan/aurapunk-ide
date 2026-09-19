@@ -3,7 +3,7 @@
  *
  * Enforces AGENTS.md and repository rules on every edit/diff using:
  * 1. Laya System-1 Local Classifier (<1ms, local CPU, 0 tokens, deterministic AST/regex)
- * 2. Fast Jev System-2 Decision Classifier (~300ms, calibrated probability via TypeSafe or Vercel AI)
+ * 2. Fast Jev System-2 Decision Classifier (~300ms, calibrated probability via the TypeSafe API)
  * 3. Adaptive Router with Graceful Fallback (Laya -> Jev -> Laya)
  */
 
@@ -112,8 +112,6 @@ export interface EvaluateDiffOptions {
   enabledRuleIds?: string[];
   engine?: "laya" | "jev" | "adaptive";
   jevApiKey?: string;
-  vercelAiUrl?: string;
-  vercelAiKey?: string;
   jevBaseUrl?: string;
   classifierOverride?: DecisionClassifier;
 }
@@ -129,8 +127,6 @@ export async function evaluateDiffRules({
   enabledRuleIds,
   engine = "adaptive",
   jevApiKey,
-  vercelAiUrl,
-  vercelAiKey,
   jevBaseUrl,
   classifierOverride,
 }: EvaluateDiffOptions): Promise<RuleEvaluationResult> {
@@ -211,16 +207,13 @@ export async function evaluateDiffRules({
     let jevClassifier: DecisionClassifier | undefined = classifierOverride;
 
     if (!jevClassifier) {
-      const hasVercel = Boolean(vercelAiKey || vercelAiUrl);
       const hasTypeSafe = Boolean(jevApiKey);
 
-      if (hasVercel || hasTypeSafe) {
+      if (hasTypeSafe) {
         jevClassifier = new JevClassifier({
           apiKey: jevApiKey,
-          vercelAiKey,
-          vercelAiUrl,
           baseUrl: jevBaseUrl,
-          mode: hasVercel ? "vercel-ai" : "direct",
+          mode: "direct",
         });
       }
     }
