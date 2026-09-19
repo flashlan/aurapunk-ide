@@ -1080,17 +1080,17 @@ function extractStructureFastJevLaya(text: string, provider: "jev" | "laya"): Ex
   return { facts, entities, relations: relations.slice(0, 10) };
 }
 
-// ── TypeSafe Jev extraction (real model, with deterministic fallback) ────────
+// ── RLCD extraction models: real Jev (TypeSafe) / Laya, with fallback ────────
 //
-// Jev is a System-1 *classifier*: it answers typed questions, it does not write
-// free text. So the real model is used to *judge* the deterministic candidates
-// — keeping only durable, self-contained facts — instead of inventing facts.
+// Jev and Laya are System-1 *classifiers*: they answer typed questions, they do
+// not write free text. So a real model *judges* the deterministic candidates —
+// keeping only durable, self-contained facts — instead of inventing facts.
 // Entities/relations still come from the deterministic pass. A missing key,
 // transport error, timeout or empty answer falls back to the deterministic
-// extractor, so `MEM0_LLM_PROVIDER=jev` never breaks.
+// extractor, so extraction never breaks.
 const TYPESAFE_JEV_DEFAULT_URL = "https://api.typesafe.ai/v1/systemone";
-const JEV_KEEP_THRESHOLD = 0.6;
-const JEV_MAX_CANDIDATES = 20;
+const KEEP_THRESHOLD = 0.6;
+const MAX_CANDIDATES = 20;
 
 function jevHttpConfig(): { url: string; key: string; model: string } | null {
   const provider = runtimeConfig.providers?.jev ?? config.llm.jev;
@@ -1114,6 +1114,19 @@ function jevHttpConfig(): { url: string; key: string; model: string } | null {
   return { url, key, model };
 }
 
+/** Real Laya endpoint (Docker container or AuraPunk Cloud gateway). */
+function layaHttpConfig(): { url: string; key: string; model: string } | null {
+  const provider = runtimeConfig.providers?.laya ?? config.llm.laya;
+  const configuredUrl = (provider?.url || "").trim();
+  if (!/^https?:\/\//i.test(configuredUrl)) return null;
+  const configuredKey = (provider?.key || "").trim();
+  return {
+    url: configuredUrl.replace(/\/$/, ""),
+    key: configuredKey && configuredKey !== "local" ? configuredKey : "",
+    model: provider?.model || "laya-system1-v1",
+  };
+}
+
 function noulProbability(answer: unknown): number | null {
   if (answer == null) return null;
   if (typeof answer === "number") return answer;
@@ -1127,25 +1140,47 @@ function noulProbability(answer: unknown): number | null {
   return value;
 }
 
+function durabilityQuestion(candidate: string): {
+  type: "noul";
+  instructions: string;
+} {
+  return {
+    type: "noul",
+    instructions:
+      `Is this a durable, self-contained fact worth remembering long-term ` +
+      `(architecture, decision, root cause, convention or dependency)? ` +
+      `Ignore transient logs, command output and one-off status. Fact: "${candidate}"`,
+  };
+}
+
+function buildDurabilityQuestions(
+  candidates: string[]
+): Record<string, { type: "noul"; instructions: string }> {
+  const questions: Record<string, { type: "noul"; instructions: string }> = {};
+  candidates.forEach((candidate, i) => {
+    questions[`keep_${i}`] = durabilityQuestion(candidate);
+  });
+  return questions;
+}
+
+function keepDurableFacts(
+  answers: Record<string, unknown>,
+  candidates: string[]
+): string[] {
+  return candidates.filter((_, i) => {
+    const probability = noulProbability(answers[`keep_${i}`]);
+    return probability === null ? true : probability >= KEEP_THRESHOLD;
+  });
+}
+
 async function extractWithJevModel(
   text: string,
   base: Extracted
 ): Promise<Extracted | null> {
   const cfg = jevHttpConfig();
   if (!cfg) return null;
-  const candidates = base.facts.slice(0, JEV_MAX_CANDIDATES);
+  const candidates = base.facts.slice(0, MAX_CANDIDATES);
   if (candidates.length === 0) return null;
-
-  const questions: Record<string, { type: "noul"; instructions: string }> = {};
-  candidates.forEach((candidate, i) => {
-    questions[`keep_${i}`] = {
-      type: "noul",
-      instructions:
-        `Is this a durable, self-contained fact worth remembering long-term ` +
-        `(architecture, decision, root cause, convention or dependency)? ` +
-        `Ignore transient logs, command output and one-off status. Fact: "${candidate}"`,
-    };
-  });
 
   const resp = await fetch(cfg.url, {
     method: "POST",
@@ -1153,18 +1188,21 @@ async function extractWithJevModel(
       "Content-Type": "application/json",
       Authorization: `Bearer ${cfg.key}`,
     },
-    body: JSON.stringify({ model: cfg.model, state: text, questions }),
+    body: JSON.stringify({
+      model: cfg.model,
+      state: text,
+      questions: buildDurabilityQuestions(candidates),
+    }),
     signal: AbortSignal.timeout(20_000),
   });
   if (!resp.ok) {
     throw new Error(`TypeSafe HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
   }
   const data = await resp.json();
-  const answers = (data?.answers ?? {}) as Record<string, unknown>;
-  const kept = candidates.filter((_, i) => {
-    const probability = noulProbability(answers[`keep_${i}`]);
-    return probability === null ? true : probability >= JEV_KEEP_THRESHOLD;
-  });
+  const kept = keepDurableFacts(
+    (data?.answers ?? {}) as Record<string, unknown>,
+    candidates
+  );
   const usage = (data?.usage ?? {}) as {
     input_tokens?: number;
     output_tokens?: number;
@@ -1175,6 +1213,40 @@ async function extractWithJevModel(
     prompt_tokens: usage.input_tokens ?? usage.prompt_tokens ?? 0,
     completion_tokens: usage.output_tokens ?? usage.completion_tokens ?? 0,
   });
+  return { ...base, facts: kept.length ? kept : base.facts };
+}
+
+async function extractWithLayaModel(
+  text: string,
+  base: Extracted
+): Promise<Extracted | null> {
+  const cfg = layaHttpConfig();
+  if (!cfg) return null;
+  const candidates = base.facts.slice(0, MAX_CANDIDATES);
+  if (candidates.length === 0) return null;
+
+  const resp = await fetch(`${cfg.url}/predict`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(cfg.key ? { Authorization: `Bearer ${cfg.key}` } : {}),
+    },
+    body: JSON.stringify({
+      state: text,
+      questions: buildDurabilityQuestions(candidates),
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!resp.ok) {
+    throw new Error(`Laya HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+  }
+  const data = await resp.json();
+  const kept = keepDurableFacts(
+    (data?.answers ?? {}) as Record<string, unknown>,
+    candidates
+  );
+  // The self-hosted Laya model is free; keep the 0-token ledger explicit.
+  recordTokens("laya", cfg.model, { prompt_tokens: 0, completion_tokens: 0 });
   return { ...base, facts: kept.length ? kept : base.facts };
 }
 
@@ -1201,19 +1273,23 @@ async function extractStructure(text: string): Promise<Extracted> {
     return base;
   }
 
-  // Laya: deterministic in-container extraction (<1ms, 0 tokens).
+  // Laya: refine the deterministic candidates with the real Laya model when a
+  // Docker/Cloud endpoint is configured; otherwise stay deterministic at 0 tokens.
   if (provider === "laya") {
+    const base = extractStructureFastJevLaya(text, "laya");
     try {
-      const extracted = extractStructureFastJevLaya(text, "laya");
-      recordTokens("laya", runtimeConfig.providers["laya"]?.model || "laya-system1-v1", {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-      });
-      return extracted;
+      const viaModel = await extractWithLayaModel(text, base);
+      if (viaModel) return viaModel;
     } catch (err) {
-      console.error(`[extract] Laya deterministic extraction failed: ${(err as Error).message}`);
-      return fallback;
+      console.error(
+        `[extract] Laya model extraction failed, using deterministic fallback: ${(err as Error).message}`
+      );
     }
+    recordTokens("laya", runtimeConfig.providers["laya"]?.model || "laya-system1-v1", {
+      prompt_tokens: 0,
+      completion_tokens: 0,
+    });
+    return base;
   }
 
   const llm = activeLlm();
