@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.16] - 2026-09-19
+
+### Fixed
+
+- **`/compact` no longer fails silently.** When the configured Laya/Jev backend
+  is unreachable, the command now retries once through the AuraPunk Cloud Laya
+  gateway (when this Desktop is signed in) and otherwise posts a visible chat
+  notice explaining the failure and how to fix it. Auto-compaction gets the same
+  Cloud fallback.
+
 ## [0.3.15] - 2026-09-19
 
 ### Added
