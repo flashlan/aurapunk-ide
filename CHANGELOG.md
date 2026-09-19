@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.11] - 2026-09-19
+
+### Added
+
+- **Laya execution modes — Docker or Cloud**: the context compactor's
+  `Laya Execution Mode` now offers a self-hosted Docker container or the hosted
+  AuraPunk Cloud gateway. The previous in-process "embedded" heuristic mode is
+  gone, so an unreachable endpoint is reported instead of silently "working
+  locally" while no container is running; Cloud calls authenticate with the
+  signed-in device token.
+- **Hosted Laya inference behind the memory gateway**: a new `services/laya`
+  service hosts the `convaiinnovations/laya` model on the GPU host, and the
+  memory gateway forwards `POST /predict` and `/evaluate` to it after
+  device-token authentication (the gateway stays the only public API).
+
+### Changed
+
+- **Desktop compactor → Cloud Laya**: sends the AuraPunk Cloud device bearer
+  token and allows 15s for remote inference (CPU model hosts exceed the old 2s
+  probe budget).
+
+### Fixed
+
+- **Local Laya Docker server**: now serves `POST /predict` (the path the
+  compactor actually calls), normalizes answers to the decision contract
+  (`noul → probability/verdict`, `score → levelIndex/levelLabel`), and reports
+  `laya-unavailable` instead of fabricating probabilities when the model fails
+  to load.
+- **Memory graph transport errors**: `memory_graph_overview` now surfaces the
+  underlying `reqwest` cause, allows a 30s timeout, and retries a transient
+  transport failure once before failing.
+
 ## [0.3.10] - 2026-09-18
 
 ### Fixed
