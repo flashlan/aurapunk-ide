@@ -39,9 +39,12 @@ const tokenUsageInfo = {
   model_context_window: 1000,
 } as unknown as TokenUsageInfo;
 
-function baseProps(setEntries: (e: PatchTypeWithKey[]) => void) {
+function baseProps(
+  setEntries: (e: PatchTypeWithKey[]) => void,
+  sessionId = 'session-1'
+) {
   return {
-    sessionId: 'session-1',
+    sessionId,
     tokenUsageInfo,
     executorConfig: {} as unknown as ExecutorConfig,
     isRunning: false,
@@ -98,7 +101,10 @@ describe('useAutoCompaction', () => {
   it('does not compact while the agent is running', async () => {
     const setEntries = vi.fn();
     renderHook(() =>
-      useAutoCompaction({ ...baseProps(setEntries), isRunning: true })
+      useAutoCompaction({
+        ...baseProps(setEntries, 'session-running'),
+        isRunning: true,
+      })
     );
 
     await act(async () => {
@@ -112,7 +118,7 @@ describe('useAutoCompaction', () => {
     const setEntries = vi.fn();
     renderHook(() =>
       useAutoCompaction({
-        ...baseProps(setEntries),
+        ...baseProps(setEntries, 'session-low'),
         tokenUsageInfo: {
           total_tokens: 300,
           model_context_window: 1000,
@@ -125,5 +131,26 @@ describe('useAutoCompaction', () => {
     });
 
     expect(executeSessionCompaction).not.toHaveBeenCalled();
+  });
+
+  it('keeps the cooldown across a re-mount instead of compacting again', async () => {
+    const setEntries = vi.fn();
+    const props = baseProps(setEntries, 'session-remount');
+
+    const first = renderHook(() => useAutoCompaction(props));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(executeSessionCompaction).toHaveBeenCalledTimes(1);
+
+    // Leaving the chat and coming back used to reset the per-mount cooldown and
+    // inject another "context compacted" marker on arrival.
+    first.unmount();
+    renderHook(() => useAutoCompaction(props));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    expect(executeSessionCompaction).toHaveBeenCalledTimes(1);
   });
 });

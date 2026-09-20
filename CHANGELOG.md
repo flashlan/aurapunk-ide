@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Auto-compaction ran again on every visit to a chat.** Its cooldown and
+  re-arm state lived in `useRef`, so leaving the chat and coming back (or
+  switching workspace and returning) reset them — with usage still above the
+  threshold the next visit compacted immediately and injected another "context
+  compacted" marker even though nothing had changed. That state is now
+  module-scoped and keyed by session, so the 5-minute cooldown and the
+  hysteresis survive re-mounts. Covered by a re-mount case in
+  `useAutoCompaction.test.tsx` that fails against the previous implementation.
+
 - **Auto-compaction stopped firing (and could appear to hang) after the chat
   re-rendered.** `useAutoCompaction` set its in-flight latch *before* scheduling
   the 1.5 s timer and then cleared that timer in the effect's cleanup. Because

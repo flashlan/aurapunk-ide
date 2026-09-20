@@ -48,6 +48,18 @@ function withTimeout<T>(
   });
 }
 
+/**
+ * Cooldown/arming state deliberately lives at module scope, keyed by session.
+ *
+ * As `useRef` state it died with the component, so simply leaving the chat and
+ * coming back (or switching workspace and returning) reset the cooldown — the
+ * next visit compacted again immediately and injected a fresh "context
+ * compacted" marker even though nothing had changed. Keeping it here means the
+ * 5-minute cooldown and the re-arm hysteresis survive re-mounts.
+ */
+const lastCompactAtBySession = new Map<string, number>();
+const armedBySession = new Map<string, boolean>();
+
 export interface UseAutoCompactionOptions {
   sessionId?: string;
   tokenUsageInfo?: TokenUsageInfo | null;
@@ -85,8 +97,9 @@ export function useAutoCompaction({
   const jevApiKey = useJevApiKey();
   const jevTypesafeUrl = useJevTypesafeUrl();
 
-  const lastCompactAtRef = useRef<Map<string, number>>(new Map());
-  const armedRef = useRef<Map<string, boolean>>(new Map());
+  // Backed by the module-scoped maps so the cooldown/arming survive re-mounts.
+  const lastCompactAtRef = useRef(lastCompactAtBySession);
+  const armedRef = useRef(armedBySession);
   const prevThresholdRef = useRef<string>(threshold);
   const inFlightRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
