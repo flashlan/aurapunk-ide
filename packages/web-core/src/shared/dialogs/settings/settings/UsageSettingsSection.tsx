@@ -1629,10 +1629,9 @@ export function UsageSettingsSection() {
                       />
                     </div>
                     <p className="text-[10px] text-low">
-                      Build &amp; Run Docker:{' '}
+                      Run Docker image:{' '}
                       <code className="text-normal bg-secondary px-1 py-0.5 rounded font-mono">
-                        docker build -t laya-local packages/jev-plugin/docker
-                        &amp;&amp; docker run -d -p 8080:8080 laya-local
+                        docker run -d -p 8080:8080 datyapoint/vk-laya:latest
                       </code>
                     </p>
                     <p className="text-[10px] text-low">

@@ -37,10 +37,10 @@ A tela **Settings → Memory** continua funcionando com esta imagem: ela lê e g
 
 ### Laya (motor de decisão)
 
-A Laya **não** vem nesta imagem — é uma imagem separada (`packages/jev-plugin/docker`, `laya-local`) que roda o modelo `convaiinnovations/laya` (System-1 ModernBERT) e serve `POST /predict` (ver a seção 7 do README do plugin). A extração de memória pode usá-la no lugar de um LLM em nuvem:
+A Laya **não** vem nesta imagem — ela é publicada separadamente como `datyapoint/vk-laya` (o Dockerfile fica em `packages/jev-plugin/docker`), roda o modelo `convaiinnovations/laya` (System-1 ModernBERT) e serve `POST /predict` (ver a seção 7 do README do plugin). A extração de memória pode usá-la no lugar de um LLM em nuvem:
 
 ```bash
-docker run -d --name laya-local --restart unless-stopped -p 8080:8080 laya-local
+docker run -d --name laya-local --restart unless-stopped -p 8080:8080 datyapoint/vk-laya:latest
 
 docker run -d --name vk-mem0 --restart unless-stopped -p 8000:8000 \
   -e MEM0_LLM_PROVIDER=laya \

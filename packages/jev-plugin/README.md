@@ -141,19 +141,16 @@ compactor chama — `POST /predict {state, questions}` → `{answers}` (alias
 `/evaluate`) e `GET /health`.
 
 ```bash
-# 1. Build (CPU-only; funciona em arm64/Apple Silicon via OrbStack)
-docker build -t laya-local packages/jev-plugin/docker
-
-# 2. Volume para o cache do Hugging Face (~2.4 GB), para não rebaixar o
+# 1. Volume para o cache do Hugging Face (~2.4 GB), para não rebaixar o
 #    modelo a cada recriação do container
 docker volume create laya-hf-cache
 
-# 3. Run — 8080 é o default do app (Settings → Laya execution mode: docker)
+# 2. Run — 8080 é o default do app (Settings → Laya execution mode: docker)
 docker run -d --name aurapunk-laya --restart unless-stopped \
   -p 8080:8080 \
   -v laya-hf-cache:/root/.cache/huggingface \
   -e LAYA_MODEL=convaiinnovations/laya \
-  laya-local
+  datyapoint/vk-laya:latest
 
 # 4. Verificar
 curl -s http://localhost:8080/health   # {"status":"ok","loaded":true,...}

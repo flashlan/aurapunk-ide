@@ -237,21 +237,18 @@ It can also be configured from the app: open **Settings → Memory** to manage t
 
 ### Laya decision engine (second image)
 
-The memory layer and the Laya decision engine ship as **two separate images**. The all-in-one above stays lean (API, Qdrant, Redis, embeddings, graph); Laya is its own container, built from [`packages/jev-plugin/docker`](packages/jev-plugin/docker):
+The memory layer and the Laya decision engine ship as **two separate images**. The all-in-one above stays lean (API, Qdrant, Redis, embeddings, graph); Laya is published as `datyapoint/vk-laya` (the Dockerfile remains in [`packages/jev-plugin/docker`](packages/jev-plugin/docker)):
 
 ```bash
-# 1. Build the image (CPU-only; works on arm64 via OrbStack / Docker Desktop)
-docker build -t laya-local packages/jev-plugin/docker
-
-# 2. Cache the ~2.4 GB of weights so recreating the container does not re-download them
+# 1. Cache the ~2.4 GB of weights so recreating the container does not re-download them
 docker volume create laya-hf-cache
 
-# 3. Run it on 8080 — already the app default
+# 2. Run it on 8080 — already the app default
 docker run -d --name laya-local --restart unless-stopped \
   -p 8080:8080 \
   -v laya-hf-cache:/root/.cache/huggingface \
   -e LAYA_MODEL=convaiinnovations/laya \
-  laya-local
+  datyapoint/vk-laya:latest
 
 curl http://localhost:8080/health   # {"status":"ok","loaded":true,...}
 ```
