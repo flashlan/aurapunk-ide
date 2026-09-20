@@ -599,7 +599,15 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       return;
     }
 
-    // Direct /compress, /autocompress, /compact, /autocompact command:
+    // Direct /compress, /autocompress, /compact, /autocompact command.
+    //
+    // This used to be swallowed client-side, which is why the command looked
+    // like it did nothing: Fast Jev only reshapes the NEXT prompt, it never
+    // touches the agent's own context window (so the context meter stayed
+    // full). The agent is asked to compact too — OpenCode implements /compact
+    // natively and accepts every alias (opencode/slash_commands.rs), and that
+    // is the compaction that actually shrinks the context and emits the
+    // persisted CompactionMarker.
     if (
       /^\/(?:compress|autocompress|compact|autocompact)(?:\s.*)?$/i.test(
         trimmed
@@ -611,6 +619,15 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       await clearDraft();
       onScrollToBottom('auto');
 
+      // 1) Ask the agent to compact its session. Only an existing session has
+      //    context to compact (the executor requires one).
+      const forwardedToAgent =
+        !isNewSessionMode && Boolean(sessionId)
+          ? await send('/compact')
+          : false;
+
+      // 2) Also run Fast Jev: it produces the visible summary and the local
+      //    isolation marker used when building later prompts.
       const runCompaction = (mode: 'docker' | 'cloud', token?: string) =>
         executeSessionCompaction({
           entries,
@@ -640,15 +657,24 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         setEntries([...entries, result.markerPatch]);
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
-        setEntries([
-          ...entries,
-          buildCompactionNotice(
-            `**Context compaction could not run.** ${detail}\n\n` +
-              'Fix it in **Settings → Usage → Laya Execution Mode**: choose **Cloud** ' +
-              '(sign in to AuraPunk Cloud), start the Laya Docker container, or add a ' +
-              '**Jev (TypeSafe)** API key. The context was left unchanged.'
-          ),
-        ]);
+        if (forwardedToAgent) {
+          // The agent-side compaction already ran; don't alarm the user with a
+          // client-side isolation failure on top of it.
+          console.warn(
+            '[compact] Fast Jev isolation failed; the agent still compacted:',
+            detail
+          );
+        } else {
+          setEntries([
+            ...entries,
+            buildCompactionNotice(
+              `**Context compaction could not run.** ${detail}\n\n` +
+                'Fix it in **Settings → Usage → Laya Execution Mode**: choose **Cloud** ' +
+                '(sign in to AuraPunk Cloud), start the Laya Docker container, or add a ' +
+                '**Jev (TypeSafe)** API key. The context was left unchanged.'
+            ),
+          ]);
+        }
       }
       return;
     }
@@ -700,6 +726,9 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     layaDockerUrl,
     layaCloudUrl,
     jevApiKey,
+    jevTypesafeUrl,
+    isNewSessionMode,
+    sessionId,
   ]);
 
   // --- Headed (interactive tmux) live status ---------------------------------

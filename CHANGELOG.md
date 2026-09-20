@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/compact` now actually compacts.** The command was swallowed entirely by
+  the client (`SessionChatBoxContainer.handleSend` returned early), so it never
+  reached the agent. The client-side Fast Jev pass only reshapes the prompt sent
+  on the *next* turn — it does not touch the agent's own context window, which
+  is what the context meter reports (usage comes from the executor's
+  `token_usage_info`). So the meter stayed full and the command looked like it
+  did nothing. `/compact` (and the `/compress`, `/autocompress`,
+  `/autocompact` aliases) is now also forwarded to the agent, which implements
+  it natively (`opencode/slash_commands.rs` maps all four to `Compact`) and
+  emits the persisted `CompactionMarker`; Fast Jev still runs afterwards to
+  build the local isolation summary. A Fast Jev failure no longer shows the
+  "could not run" notice when the agent-side compaction succeeded.
+
 ## [0.3.21] - 2026-09-19
 
 ### Fixed
