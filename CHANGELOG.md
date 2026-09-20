@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.21] - 2026-09-19
+
 ### Fixed
 
 - **Auto-compaction ran again on every visit to a chat.** Its cooldown and
