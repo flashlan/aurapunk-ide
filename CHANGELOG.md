@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.22] - 2026-09-20
 
+### Changed
+
+- **Releases ship one bundle per platform instead of dozens of zips.** Each
+  platform now gets a single `aurapunk-<platform>.zip` containing every binary
+  (`aurapunk`, `aurapunk-mcp`, `aurapunk-review`, `aurapunk-tui`,
+  `aurapunk-telegram-bridge`) plus the Fast Jev Compaction plugin under
+  `plugins/fast-jev-compaction/`. `manifest.json` has one entry per platform and
+  the CLI (`npx aurapunk-ide`, plus `mcp` / `review` / `tui` subcommands)
+  downloads that one bundle and runs the binary it needs. The standalone
+  `fast-jev-compaction-plugin.zip` release asset and the per-binary zips are
+  gone; `scripts/local-build.sh` writes the same bundle layout for local dev.
+
 ### Fixed
 
 - **Release assets: the CLI binary zips and `manifest.json` are back.** The

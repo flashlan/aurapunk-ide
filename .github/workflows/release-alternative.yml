@@ -115,48 +115,47 @@ jobs:
         if: ${{ !matrix.zig }}
         run: cargo build --release --target ${{ matrix.target }} --bin server --bin aurapunk-mcp --bin review --bin aurapunk-tui --bin aurapunk-telegram-bridge
 
-      # Package each binary as <base>-<platform>.zip, where the entry inside the
-      # zip is the bare binary name the CLI extracts and runs.
-      - name: Package (unix)
+      # ONE bundle per platform. The zip carries every binary (server, mcp,
+      # review, tui, telegram-bridge) plus the bundled plugin, all at the root
+      # (or under plugins/). The CLI extracts the whole thing into one cache
+      # dir and runs whichever binary was asked for, so a release ships one
+      # asset per platform instead of a zip per binary per platform.
+      - name: Package bundle (unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           T="${{ matrix.target }}"; P="${{ matrix.platform }}"
-          mkdir -p dist-assets
-          cp "target/$T/release/server" aurapunk
-          zip -q "dist-assets/aurapunk-$P.zip" aurapunk && rm aurapunk
-          cp "target/$T/release/aurapunk-mcp" aurapunk-mcp
-          zip -q "dist-assets/aurapunk-mcp-$P.zip" aurapunk-mcp && rm aurapunk-mcp
-          cp "target/$T/release/review" aurapunk-review
-          zip -q "dist-assets/aurapunk-review-$P.zip" aurapunk-review && rm aurapunk-review
-          cp "target/$T/release/aurapunk-tui" aurapunk-tui
-          zip -q "dist-assets/aurapunk-tui-$P.zip" aurapunk-tui && rm aurapunk-tui
-          cp "target/$T/release/aurapunk-telegram-bridge" aurapunk-telegram-bridge
-          zip -q "dist-assets/aurapunk-telegram-bridge-$P.zip" aurapunk-telegram-bridge && rm aurapunk-telegram-bridge
+          mkdir -p dist-assets pkg
+          cp "target/$T/release/server" pkg/aurapunk
+          cp "target/$T/release/aurapunk-mcp" pkg/aurapunk-mcp
+          cp "target/$T/release/review" pkg/aurapunk-review
+          cp "target/$T/release/aurapunk-tui" pkg/aurapunk-tui
+          cp "target/$T/release/aurapunk-telegram-bridge" pkg/aurapunk-telegram-bridge
+          mkdir -p pkg/plugins
+          rsync -a --exclude='node_modules' --exclude='.git' --exclude='docker' \
+            packages/jev-plugin/ pkg/plugins/fast-jev-compaction/
+          (cd pkg && zip -qr "../dist-assets/aurapunk-$P.zip" *)
           ls -la dist-assets
 
-      - name: Package (windows)
+      - name: Package bundle (windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $T = "${{ matrix.target }}"; $P = "${{ matrix.platform }}"
-          New-Item -ItemType Directory -Force -Path dist-assets | Out-Null
-          Copy-Item "target/$T/release/server.exe" "aurapunk.exe"
-          Compress-Archive -Force -Path "aurapunk.exe" -DestinationPath "dist-assets/aurapunk-$P.zip"
-          Remove-Item "aurapunk.exe"
-          Copy-Item "target/$T/release/aurapunk-mcp.exe" "aurapunk-mcp.exe"
-          Compress-Archive -Force -Path "aurapunk-mcp.exe" -DestinationPath "dist-assets/aurapunk-mcp-$P.zip"
-          Remove-Item "aurapunk-mcp.exe"
-          Copy-Item "target/$T/release/review.exe" "aurapunk-review.exe"
-          Compress-Archive -Force -Path "aurapunk-review.exe" -DestinationPath "dist-assets/aurapunk-review-$P.zip"
-          Remove-Item "aurapunk-review.exe"
-          Copy-Item "target/$T/release/aurapunk-tui.exe" "aurapunk-tui.exe"
-          Compress-Archive -Force -Path "aurapunk-tui.exe" -DestinationPath "dist-assets/aurapunk-tui-$P.zip"
-          Remove-Item "aurapunk-tui.exe"
-          Copy-Item "target/$T/release/aurapunk-telegram-bridge.exe" "aurapunk-telegram-bridge.exe"
-          Compress-Archive -Force -Path "aurapunk-telegram-bridge.exe" -DestinationPath "dist-assets/aurapunk-telegram-bridge-$P.zip"
-          Remove-Item "aurapunk-telegram-bridge.exe"
+          New-Item -ItemType Directory -Force -Path dist-assets, pkg | Out-Null
+          Copy-Item "target/$T/release/server.exe" "pkg/aurapunk.exe"
+          Copy-Item "target/$T/release/aurapunk-mcp.exe" "pkg/aurapunk-mcp.exe"
+          Copy-Item "target/$T/release/review.exe" "pkg/aurapunk-review.exe"
+          Copy-Item "target/$T/release/aurapunk-tui.exe" "pkg/aurapunk-tui.exe"
+          Copy-Item "target/$T/release/aurapunk-telegram-bridge.exe" "pkg/aurapunk-telegram-bridge.exe"
+          New-Item -ItemType Directory -Force -Path "pkg/plugins/fast-jev-compaction" | Out-Null
+          robocopy packages/jev-plugin "pkg/plugins/fast-jev-compaction" /E /XD node_modules .git docker /NFL /NDL /NJH /NJS /NP | Out-Null
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with exit code $LASTEXITCODE" }
+          # robocopy's 0-7 exit codes all mean success but still fail a pwsh
+          # step; reset so the step's result reflects Compress-Archive.
+          $global:LASTEXITCODE = 0
+          Compress-Archive -Force -Path "pkg/*" -DestinationPath "dist-assets/aurapunk-$P.zip"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -181,13 +180,9 @@ jobs:
           pattern: assets-*
           path: assets
           merge-multiple: true
-      - name: Package Fast Jev Compaction Plugin
-        run: |
-          mkdir -p staging/fast-jev-compaction
-          rsync -a --exclude='docker' --exclude='node_modules' --exclude='.git' packages/jev-plugin/ staging/fast-jev-compaction/
-          (cd staging && zip -rq ../assets/fast-jev-compaction-plugin.zip fast-jev-compaction)
-          rm -rf staging
 
+      # The Fast Jev Compaction plugin is no longer a standalone asset: it is
+      # bundled inside every per-platform zip (pkg/plugins/fast-jev-compaction).
       - name: Generate manifest.json
         run: |
           node -e '

@@ -121,13 +121,22 @@ function buildMcpArgs(args: string[]): string[] {
   return args.length > 0 ? args : ["--mode", "global"];
 }
 
+/**
+ * Every release ships ONE bundle per platform (`aurapunk-<platform>.zip`)
+ * containing all binaries — server, mcp, review, tui, telegram-bridge — plus
+ * the bundled plugin. Each subcommand downloads that same bundle and then runs
+ * the binary it needs from the extracted set, so the release carries a handful
+ * of assets instead of a zip per binary per platform.
+ */
+const BUNDLE_BASE = "aurapunk";
+
 async function extractAndRun(
   baseName: string,
   launch: (binPath: string) => void,
 ): Promise<void> {
   const binName = getBinaryName(baseName);
   const binPath = path.join(versionCacheDir, binName);
-  const zipPath = path.join(versionCacheDir, `${baseName}.zip`);
+  const zipPath = path.join(versionCacheDir, `${BUNDLE_BASE}.zip`);
 
   // Clean old binary if exists
   try {
@@ -135,7 +144,7 @@ async function extractAndRun(
       fs.unlinkSync(binPath);
     }
   } catch (err: unknown) {
-    if (envCompat('DEBUG', 'VIBE_KANBAN_DEBUG')) {
+    if (envCompat("DEBUG", "VIBE_KANBAN_DEBUG")) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`Warning: Could not delete existing binary: ${msg}`);
     }
@@ -143,9 +152,9 @@ async function extractAndRun(
 
   // Download if not cached
   if (!fs.existsSync(zipPath)) {
-    console.error(`Downloading ${baseName}...`);
+    console.error(`Downloading ${BUNDLE_BASE}...`);
     try {
-      await ensureBinary(platformDir, baseName, showProgress);
+      await ensureBinary(platformDir, BUNDLE_BASE, showProgress);
       console.error(""); // newline after progress
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -255,14 +264,14 @@ async function runTui(args: string[]): Promise<void> {
 
 async function runMain(
   desktopMode: boolean,
-  cloudMode: boolean
+  cloudMode: boolean,
 ): Promise<void> {
   checkForUpdates();
 
   const launchEnv = {
     ...process.env,
     // Set both names so the backend and any older component agree.
-    ...(cloudMode ? { AURAPUNK_MODE: 'cloud', VIBE_KANBAN_MODE: 'cloud' } : {}),
+    ...(cloudMode ? { AURAPUNK_MODE: "cloud", VIBE_KANBAN_MODE: "cloud" } : {}),
   };
 
   const modeLabel = LOCAL_DEV_MODE ? " (local dev)" : "";
@@ -290,7 +299,7 @@ async function runMain(
         const exitCode = await installAndLaunch(
           bundleInfo,
           platform,
-          cloudMode ? ['--cloud'] : []
+          cloudMode ? ["--cloud"] : [],
         );
         process.exit(exitCode);
       } catch (err: unknown) {
@@ -328,7 +337,7 @@ function runOrExit(task: Promise<void>): void {
   void task.catch((err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("Fatal error:", msg);
-    if (envCompat('DEBUG', 'VIBE_KANBAN_DEBUG') && err instanceof Error) {
+    if (envCompat("DEBUG", "VIBE_KANBAN_DEBUG") && err instanceof Error) {
       console.error(err.stack);
     }
     process.exit(1);
@@ -342,15 +351,18 @@ async function main(): Promise<void> {
   cli
     .command("[...args]", "Launch the local AuraPunk IDE")
     .option("--desktop", "Launch the desktop app instead of browser mode")
-    .option("--window, -w", "Launch in desktop window mode (alias for --desktop)")
+    .option(
+      "--window, -w",
+      "Launch in desktop window mode (alias for --desktop)",
+    )
     .option("--cloud", "Launch with cloud-mode authentication controls")
     .allowUnknownOptions()
     .action((_args: string[], options: RootOptions) => {
       runOrExit(
         runMain(
           Boolean(options.desktop || options.window || options.w),
-          Boolean(options.cloud)
-        )
+          Boolean(options.cloud),
+        ),
       );
     });
 
@@ -383,7 +395,7 @@ async function main(): Promise<void> {
 main().catch((err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err);
   console.error("Fatal error:", msg);
-  if (envCompat('DEBUG', 'VIBE_KANBAN_DEBUG') && err instanceof Error) {
+  if (envCompat("DEBUG", "VIBE_KANBAN_DEBUG") && err instanceof Error) {
     console.error(err.stack);
   }
   process.exit(1);
