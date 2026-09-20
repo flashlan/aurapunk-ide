@@ -170,12 +170,17 @@ jobs:
     needs: build-binaries
     runs-on: ubuntu-latest
     steps:
+      # Checkout FIRST: it runs `git clean -ffdx` by default, which deletes
+      # untracked paths — including a previously downloaded `assets/`. With the
+      # old order (download then checkout) every CLI zip was wiped before the
+      # manifest was generated, so releases shipped an empty manifest.json
+      # ("platforms": {}) and no aurapunk-*.zip assets.
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: assets-*
           path: assets
           merge-multiple: true
-      - uses: actions/checkout@v4
       - name: Package Fast Jev Compaction Plugin
         run: |
           mkdir -p staging/fast-jev-compaction

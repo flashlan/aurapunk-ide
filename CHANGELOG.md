@@ -9,7 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.22] - 2026-09-20
+
 ### Fixed
+
+- **Release assets: the CLI binary zips and `manifest.json` are back.** The
+  `release` job in `.github/workflows/release-alternative.yml` downloaded the
+  `assets-*` artifacts and *then* ran `actions/checkout`, whose default
+  `clean: true` performs `git clean -ffdx` — deleting the freshly downloaded
+  `assets/` directory before the manifest was generated. The plugin-packaging
+  step then recreated `assets/` with only its own zip, so from v0.3.18 on every
+  release carried an empty manifest (`"platforms": {}`) and no
+  `aurapunk-*.zip` assets, breaking `npx aurapunk-ide` binary downloads. The
+  checkout now runs before the artifact download.
 
 - **`/compact` now actually compacts.** The command was swallowed entirely by
   the client (`SessionChatBoxContainer.handleSend` returned early), so it never
