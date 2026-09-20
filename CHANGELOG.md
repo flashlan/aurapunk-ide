@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Auto-compaction stopped firing (and could appear to hang) after the chat
+  re-rendered.** `useAutoCompaction` set its in-flight latch *before* scheduling
+  the 1.5 s timer and then cleared that timer in the effect's cleanup. Because
+  the effect re-runs on every streamed patch (`entries`/`tokenUsageInfo` change
+  constantly), the timer was almost always cancelled before it fired — the
+  scheduled compaction never ran, so the latch stayed `true` and auto-compaction
+  was disabled for the rest of the session. The timer now lives in a ref that
+  only unmount clears, the pending run reads the latest inputs instead of a
+  stale closure, it re-arms (instead of compacting) if the agent resumed while
+  waiting, and a 120 s backstop guarantees the latch is always released. Covered
+  by `useAutoCompaction.test.tsx`, which fails on the previous implementation.
+
 - **Abide no longer reports a plain "OK" when the semantic rules never ran.**
   `evaluateDiffRules` deliberately never blocks the agent on a Jev outage, but
   it also returned `allowed: true, evaluatorUsed: 'jev'` when Jev threw, timed
