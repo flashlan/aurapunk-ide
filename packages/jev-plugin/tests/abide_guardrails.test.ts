@@ -183,5 +183,69 @@ describe("Abide Rule Guardrails - RLCD (Laya or Jev)", () => {
     // Clean diff should still be allowed, failure did not wedge the agent
     expect(result.allowed).toBe(true);
     expect(result.violations.length).toBe(0);
+    // ...but it must not masquerade as a clean semantic pass.
+    expect(result.degraded).toBe(true);
+    expect(result.degradationReason).toContain("Connection timeout");
+    expect(result.unevaluatedRuleIds?.length).toBeGreaterThan(0);
+    expect(result.evaluatorUsed).toBe("laya");
+  });
+
+  it("reports degraded (not OK) when Jev returns no usable answers", async () => {
+    const muteJev: DecisionClassifier = {
+      isAvailable: async () => true,
+      evaluateQuestions: async () => ({ answers: {}, latencyMs: 5 }),
+    };
+
+    const result = await evaluateDiffRules({
+      filePath: "src/index.ts",
+      diff: "@@ -0,0 +1 @@\n+const ok = true;",
+      engine: "jev",
+      classifierOverride: muteJev,
+    });
+
+    expect(result.allowed).toBe(true);
+    expect(result.degraded).toBe(true);
+    expect(result.degradationReason).toContain("no usable answer");
+    expect(result.unevaluatedRuleIds?.length).toBeGreaterThan(0);
+  });
+
+  it("reports degraded when no Jev API key is configured", async () => {
+    const result = await evaluateDiffRules({
+      filePath: "src/index.ts",
+      diff: "@@ -0,0 +1 @@\n+const ok = true;",
+      engine: "jev",
+    });
+
+    expect(result.allowed).toBe(true);
+    expect(result.degraded).toBe(true);
+    expect(result.degradationReason).toContain("No Jev API key");
+    expect(result.evaluatorUsed).toBe("laya");
+  });
+
+  it("is not degraded when Jev answers every semantic rule", async () => {
+    const okJev: DecisionClassifier = {
+      isAvailable: async () => true,
+      evaluateQuestions: async (
+        _state: string,
+        questions: Record<string, TypedQuestion>,
+      ) => {
+        const answers: Record<string, DecisionAnswer> = {};
+        for (const key of Object.keys(questions)) {
+          answers[key] = { type: "noul", probability: 0.01, verdict: false };
+        }
+        return { answers, latencyMs: 120 };
+      },
+    };
+
+    const result = await evaluateDiffRules({
+      filePath: "src/index.ts",
+      diff: "@@ -0,0 +1 @@\n+const ok = true;",
+      engine: "jev",
+      classifierOverride: okJev,
+    });
+
+    expect(result.allowed).toBe(true);
+    expect(result.degraded).toBeFalsy();
+    expect(result.evaluatorUsed).toBe("jev");
   });
 });

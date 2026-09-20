@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Abide no longer reports a plain "OK" when the semantic rules never ran.**
+  `evaluateDiffRules` deliberately never blocks the agent on a Jev outage, but
+  it also returned `allowed: true, evaluatorUsed: 'jev'` when Jev threw, timed
+  out, had no API key, or answered nothing — so **Settings → Fast Jev & Laya →
+  Test decision engines** showed `OK · jev/adaptive` even with Jev completely
+  unreachable. `RuleEvaluationResult` now carries `degraded`,
+  `degradationReason` and `unevaluatedRuleIds`, and the test renders a degraded
+  run as a failure with that reason. When Jev could not run at all the result
+  reports `evaluatorUsed: 'laya'` (deterministic checks only); when it ran but
+  skipped some rules it stays `'jev'` and lists the unevaluated ids. Guardrail
+  behaviour is unchanged: a Jev failure still never blocks an edit.
+
 ## [0.3.20] - 2026-09-19
 
 ### Fixed

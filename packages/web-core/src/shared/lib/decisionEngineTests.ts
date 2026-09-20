@@ -195,6 +195,22 @@ export async function testAbideGuardrails(
       jevApiKey: settings.jevApiKey,
       jevBaseUrl: jevProxyUrl(settings.jevTypesafeUrl),
     });
+    // A Jev outage or an unanswered rule is NOT a pass — the deterministic
+    // checks ran, but the semantic rules were never verified. Report it as a
+    // failure instead of a misleading OK.
+    if (result.degraded) {
+      const unevaluated = result.unevaluatedRuleIds?.length
+        ? ` (unevaluated: ${result.unevaluatedRuleIds.join(', ')})`
+        : '';
+      return {
+        ok: false,
+        latencyMs: result.latencyMs ?? Date.now() - started,
+        provider: result.evaluatorUsed,
+        error: `Semantic rules were not evaluated: ${
+          result.degradationReason ?? 'unknown reason'
+        }${unevaluated}`,
+      };
+    }
     return {
       ok: true,
       latencyMs: result.latencyMs ?? Date.now() - started,

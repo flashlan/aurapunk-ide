@@ -41,6 +41,20 @@ export interface RuleEvaluationResult {
   violations: RuleViolation[];
   latencyMs: number;
   evaluatorUsed: "laya" | "jev" | "adaptive";
+  /**
+   * True when the semantic (Jev) pass was requested but could not run or could
+   * not answer every rule — a missing key, a timeout, a network/API error, or
+   * unusable answers. `allowed` then reflects the DETERMINISTIC checks only, so
+   * a caller must report it as "not fully verified" instead of a clean pass.
+   *
+   * Guardrail semantics are unchanged: a Jev outage still never blocks the
+   * agent. Only the reporting changes.
+   */
+  degraded?: boolean;
+  /** Why the semantic pass was incomplete, when `degraded` is set. */
+  degradationReason?: string;
+  /** Semantic rules that were requested but produced no usable answer. */
+  unevaluatedRuleIds?: string[];
 }
 
 /**
@@ -218,61 +232,112 @@ export async function evaluateDiffRules({
       }
     }
 
-    if (jevClassifier) {
-      try {
-        const available = await jevClassifier.isAvailable();
-        if (available) {
-          const questions: Record<string, TypedQuestion> = {};
-          for (const rule of semanticRules) {
-            questions[`rule_${rule.id}`] = {
-              type: "noul",
-              instructions: `Does the following git diff violate this rule? Rule: "${rule.instruction}"`,
-            };
-          }
+    const semanticRuleIds = semanticRules.map((rule) => rule.id);
 
-          const statePayload = `File: ${filePath}\nDiff:\n${diff}`;
-          const evalResult = await jevClassifier.evaluateQuestions(
-            statePayload,
-            questions,
-          );
+    // No client at all (no API key and no override): the semantic rules cannot
+    // run. Deterministic checks passed, but that is not a clean semantic verdict.
+    if (!jevClassifier) {
+      return {
+        allowed: violations.length === 0,
+        violations,
+        latencyMs: Date.now() - startTime,
+        evaluatorUsed: "laya",
+        degraded: true,
+        degradationReason:
+          "No Jev API key configured, so the semantic rules were not evaluated.",
+        unevaluatedRuleIds: semanticRuleIds,
+      };
+    }
 
-          for (const rule of semanticRules) {
-            const answer = evalResult.answers[`rule_${rule.id}`];
-            if (answer && answer.type === "noul") {
-              if (answer.probability >= rule.threshold) {
-                violations.push({
-                  ruleId: rule.id,
-                  ruleName: rule.name,
-                  source: rule.source,
-                  probability: answer.probability,
-                  message: `Jev detected violation with probability ${answer.probability.toFixed(2)}`,
-                  repairInstruction: `Abide: This edit appears to break a rule from this repository's instructions.\n- Rule "${rule.id}" from ${rule.source}: "${rule.instruction}". (${answer.probability.toFixed(2)})\nRepair ${filePath} now, then continue with the task.`,
-                  evaluator: "jev",
-                });
-              }
-            }
-          }
-
-          return {
-            allowed: violations.length === 0,
-            violations,
-            latencyMs: Date.now() - startTime,
-            evaluatorUsed: "jev",
-          };
-        }
-      } catch (error) {
-        // Fallback gracefully: if Jev times out or network fails, do not block the agent!
-        console.warn(
-          `[Abide] Jev evaluation failed or timed out: ${(error as Error).message}. Falling back to Laya safe verdict.`,
-        );
+    try {
+      const available = await jevClassifier.isAvailable();
+      if (!available) {
+        return {
+          allowed: violations.length === 0,
+          violations,
+          latencyMs: Date.now() - startTime,
+          evaluatorUsed: "laya",
+          degraded: true,
+          degradationReason:
+            "Jev client reports unavailable (empty API key); semantic rules were not evaluated.",
+          unevaluatedRuleIds: semanticRuleIds,
+        };
       }
+
+      const questions: Record<string, TypedQuestion> = {};
+      for (const rule of semanticRules) {
+        questions[`rule_${rule.id}`] = {
+          type: "noul",
+          instructions: `Does the following git diff violate this rule? Rule: "${rule.instruction}"`,
+        };
+      }
+
+      const statePayload = `File: ${filePath}\nDiff:\n${diff}`;
+      const evalResult = await jevClassifier.evaluateQuestions(
+        statePayload,
+        questions,
+      );
+
+      for (const rule of semanticRules) {
+        const answer = evalResult.answers[`rule_${rule.id}`];
+        if (answer && answer.type === "noul") {
+          if (answer.probability >= rule.threshold) {
+            violations.push({
+              ruleId: rule.id,
+              ruleName: rule.name,
+              source: rule.source,
+              probability: answer.probability,
+              message: `Jev detected violation with probability ${answer.probability.toFixed(2)}`,
+              repairInstruction: `Abide: This edit appears to break a rule from this repository's instructions.\n- Rule "${rule.id}" from ${rule.source}: "${rule.instruction}". (${answer.probability.toFixed(2)})\nRepair ${filePath} now, then continue with the task.`,
+              evaluator: "jev",
+            });
+          }
+        }
+      }
+
+      // A successful HTTP call with unusable or absent answers is not a pass:
+      // report it as partially evaluated instead of a clean semantic verdict.
+      const unevaluatedRuleIds = semanticRules
+        .filter((rule) => !evalResult.answers[`rule_${rule.id}`])
+        .map((rule) => rule.id);
+
+      return {
+        allowed: violations.length === 0,
+        violations,
+        latencyMs: Date.now() - startTime,
+        evaluatorUsed: "jev",
+        degraded: unevaluatedRuleIds.length > 0,
+        degradationReason:
+          unevaluatedRuleIds.length > 0
+            ? `Jev returned no usable answer for ${unevaluatedRuleIds.length} of ${semanticRules.length} semantic rules.`
+            : undefined,
+        unevaluatedRuleIds:
+          unevaluatedRuleIds.length > 0 ? unevaluatedRuleIds : undefined,
+      };
+    } catch (error) {
+      // Never block the agent on a Jev outage — but never report a clean
+      // semantic verdict either. `degraded` lets callers tell them apart.
+      console.warn(
+        `[Abide] Jev evaluation failed or timed out: ${(error as Error).message}. Falling back to the Laya deterministic verdict.`,
+      );
+      return {
+        allowed: violations.length === 0,
+        violations,
+        latencyMs: Date.now() - startTime,
+        evaluatorUsed: "laya",
+        degraded: true,
+        degradationReason: (error as Error).message,
+        unevaluatedRuleIds: semanticRuleIds,
+      };
     }
   }
 
+  // Nothing semantic was requested (or everything was already decided above):
+  // only the deterministic checks ran.
   return {
     allowed: violations.length === 0,
     violations,
     latencyMs: Date.now() - startTime,
-    evaluatorUsed: engine === "jev" ? "jev" : "adaptive",
+    evaluatorUsed: "laya",
   };
 }
