@@ -62,7 +62,7 @@ jobs:
       # Tauri 2.11 accepts only msi or nsis for --bundles. The Store packager
       # below owns the final MSIX, so build the desktop executable directly.
       - name: Build Tauri executable
-        run: cargo build --release --package aurapunk-tauri --features packaged
+        run: cargo build --release --target x86_64-pc-windows-msvc --package aurapunk-tauri --features packaged
       - name: Build unsigned Store upload package
         shell: pwsh
         run: |
