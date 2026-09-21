@@ -59,9 +59,10 @@ jobs:
           Copy-Item target\release\aurapunk-tui.exe "$bin\aurapunk-tui.exe" -Force
           Copy-Item target\release\aurapunk-telegram-bridge.exe "$bin\aurapunk-telegram-bridge.exe" -Force
           Copy-Item packages\jev-plugin crates\tauri-app\resources\plugins\fast-jev-compaction -Recurse -Force -Exclude node_modules,.git,docker
+      # Tauri 2.11 accepts only msi or nsis for --bundles. The Store packager
+      # below owns the final MSIX, so build the desktop executable directly.
       - name: Build Tauri executable
-        working-directory: crates/tauri-app
-        run: npx --yes @tauri-apps/cli@2.11.4 build --config tauri.build.conf.json --bundles none
+        run: cargo build --release --package aurapunk-tauri --features packaged
       - name: Build unsigned Store upload package
         shell: pwsh
         run: |
