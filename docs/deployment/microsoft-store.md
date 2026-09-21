@@ -26,8 +26,10 @@ for the Partner Center Entra application:
 
 ## Build and submit
 
-Run **Microsoft Store package** from the Actions page, selecting the release
-tag (for example `v0.3.22`). With `publish` disabled, it produces an unsigned
+Run **Microsoft Store package** from the Actions page. For the first `0.3.22`
+submission, select `main`: the release tag predates this packaging workflow
+while `main` still carries version `0.3.22`. Future releases can select their
+matching tag. With `publish` disabled, it produces an unsigned
 `Aurapunk-IDE.msixupload` artifact for review. With `publish` enabled, it sends
 that same artifact to Partner Center using the configured credentials.
 
