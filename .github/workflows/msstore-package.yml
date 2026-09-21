@@ -1,0 +1,92 @@
+name: Microsoft Store package
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag or commit to package (for example v0.3.22)'
+        required: true
+        default: 'main'
+      publish:
+        description: 'Publish to Partner Center (requires all MS_STORE_* secrets)'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    env:
+      MS_STORE_IDENTITY_NAME: ${{ vars.MS_STORE_IDENTITY_NAME }}
+      MS_STORE_PUBLISHER: ${{ vars.MS_STORE_PUBLISHER }}
+      MS_STORE_PUBLISHER_DISPLAY_NAME: ${{ vars.MS_STORE_PUBLISHER_DISPLAY_NAME }}
+      MS_STORE_APPLICATION_ID: ${{ vars.MS_STORE_APPLICATION_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msstore-x64
+      - name: Validate Partner Center identity
+        shell: pwsh
+        run: |
+          $missing = @('MS_STORE_IDENTITY_NAME', 'MS_STORE_PUBLISHER', 'MS_STORE_PUBLISHER_DISPLAY_NAME') | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }
+          if ($missing) { throw "Set GitHub Actions Variables before packaging: $($missing -join ', ')" }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @vibe/local-web run build
+      - name: Stage embedded tools and plugin
+        shell: pwsh
+        run: |
+          cargo build --release --bin aurapunk-mcp --bin review --bin aurapunk-tui --bin aurapunk-telegram-bridge
+          $bin = 'crates\tauri-app\resources\bin'
+          New-Item -ItemType Directory -Force -Path $bin | Out-Null
+          Copy-Item target\release\aurapunk-mcp.exe "$bin\aurapunk-mcp.exe" -Force
+          Copy-Item target\release\review.exe "$bin\aurapunk-review.exe" -Force
+          Copy-Item target\release\aurapunk-tui.exe "$bin\aurapunk-tui.exe" -Force
+          Copy-Item target\release\aurapunk-telegram-bridge.exe "$bin\aurapunk-telegram-bridge.exe" -Force
+          Copy-Item packages\jev-plugin crates\tauri-app\resources\plugins\fast-jev-compaction -Recurse -Force -Exclude node_modules,.git,docker
+      - name: Build Tauri executable
+        working-directory: crates/tauri-app
+        run: npx --yes @tauri-apps/cli@2.11.4 build --config tauri.build.conf.json --bundles none
+      - name: Build unsigned Store upload package
+        shell: pwsh
+        run: |
+          $applicationId = if ($env:MS_STORE_APPLICATION_ID) { $env:MS_STORE_APPLICATION_ID } else { 'App' }
+          ./scripts/build-msstore-package.ps1 -Target x86_64-pc-windows-msvc -IdentityName $env:MS_STORE_IDENTITY_NAME -Publisher $env:MS_STORE_PUBLISHER -PublisherDisplayName $env:MS_STORE_PUBLISHER_DISPLAY_NAME -ApplicationId $applicationId
+          Compress-Archive -Path msstore-output\*.msix -DestinationPath msstore-output\Aurapunk-IDE.msixupload -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aurapunk-msstore-upload
+          path: msstore-output/*
+          if-no-files-found: error
+      - name: Configure Microsoft Store Publisher
+        if: ${{ inputs.publish }}
+        uses: microsoft/microsoft-store-apppublisher@v1.1
+      - name: Publish to Partner Center
+        if: ${{ inputs.publish }}
+        shell: pwsh
+        env:
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+          SELLER_ID: ${{ secrets.SELLER_ID }}
+          MS_STORE_PRODUCT_ID: ${{ vars.MS_STORE_PRODUCT_ID }}
+        run: |
+          $missing = @('AZURE_AD_TENANT_ID', 'AZURE_AD_APPLICATION_CLIENT_ID', 'AZURE_AD_APPLICATION_SECRET', 'SELLER_ID', 'MS_STORE_PRODUCT_ID') | Where-Object { [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($_)) }
+          if ($missing) { throw "Set GitHub secrets/variables before publishing: $($missing -join ', ')" }
+          msstore reconfigure --tenantId $env:AZURE_AD_TENANT_ID --sellerId $env:SELLER_ID --clientId $env:AZURE_AD_APPLICATION_CLIENT_ID --clientSecret $env:AZURE_AD_APPLICATION_SECRET
+          msstore publish "$env:GITHUB_WORKSPACE\msstore-output\Aurapunk-IDE.msixupload" -id $env:MS_STORE_PRODUCT_ID
