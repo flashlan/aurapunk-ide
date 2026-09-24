@@ -32,6 +32,7 @@ Rules:
 - [x] **Done** — Settings: Appearance & Typography, custom theme editor, backgrounds, gradients, fonts, and theme export/import (`vk/8381-settings-fonts-s`)
 - [~] **In Progress** — Gate hosted Mem0 behind Cloud login and plan quotas (`vk/cloud-mem0-login-gate`)
 - [x] **Done** — aurapunk get_pipeline/get_rules MCP tools red: shared port-file misroutes MCP to the wrong backend; fixed via env-pinned backend URL + mem0 account-id fallback + memory settings correspondence; merged to main (`vk/be93-toosl-aurapunk-g`)
+- [~] **In Progress** — Indicador de status do Laya (cloud × Docker) no canto inferior esquerdo da sidebar (`vk/e67c-status-do-laya-n`)
 - [~] **In Progress** — Tooltips da barra flutuante (ContextBar) + botão show/hide thinking (`vk/1633-renderizar-toolt`)
 - [~] **In Progress** — Merge account+logout and login+signup into single sidebar entries with auth modal (`vk/e59a-mesclar-account`)
 - [~] **In Progress** — AskUserQuestion opções não renderizam: harden resolveApprovalQuestions (kind ausente/placeholder) (`vk/d6af-quesiojn-da-llm`)
