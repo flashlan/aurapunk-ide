@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.23] - 2026-09-25
+
+### Added
+
+- **Microsoft Store packaging.** Added the MSIX packaging workflow and
+  documentation, including Windows x64 targeting and the required manifest
+  dependency declaration.
+- **Laya status indicator.** The sidebar now shows the Laya cloud/Docker
+  status, with shared status logic and test coverage.
+
+### Fixed
+
+- **Chat history and scrolling.** Improved history loading and session
+  switching, fixed races that could leave the chat stuck while restoring
+  messages, and kept the conversation anchored correctly while scrolling
+  during streaming.
+
+### Changed
+
+- **Developer workflow documentation.** Documented safe root-relative stash
+  pathspecs and the prohibition on chaining stash operations, and refreshed
+  the shared board-status checklist.
+
 ## [0.3.22] - 2026-09-20
 
 ### Changed

@@ -26,7 +26,7 @@ members = [
 # / `edition.workspace = true`. Bumping the release version is a one-line change
 # here.
 [workspace.package]
-version = "0.3.22"
+version = "0.3.23"
 edition = "2024"
 
 [workspace.dependencies]
@@ -151,4 +151,3 @@ xdg = "3.0"
 debug = 1
 split-debuginfo = "packed"
 strip = false
-
