@@ -136,6 +136,19 @@ Do not manually edit shared/types.ts, instead edit crates/server/src/bin/generat
 - Use `.env` for local overrides; never commit secrets. Key envs: `FRONTEND_PORT`, `BACKEND_PORT`, `HOST`
 - Dev ports are fixed: frontend `3001`, backend `3002`, preview proxy `3003`. Dev assets live in `dev_assets/` (seeded from `dev_assets_seed/`).
 
+## Git Worktree & Stash Hygiene
+- This repo has many linked worktrees sharing one object database and one
+  **repo-global stash list**. Only pass root-relative paths to git when the
+  command's working directory IS the worktree root: run
+  `git stash push -- packages/web-core/src/...` from inside
+  `packages/web-core` and git rewrites the pathspec to `:(prefix:N)...`,
+  which matches nothing and the push fails (observed 2026-09-25).
+- Never chain stash operations with `;` — after a *failed* `stash push`, a
+  `git stash pop` in the same line silently drops an UNRELATED stash (that
+  mistake applied another card's WIP into the wrong worktree). Use `&&`,
+  and after any failed push run `git stash list` before touching the stack
+  again.
+
 ## Session Log
 
 Dated notes on what changed and why, so repeat regressions (especially
