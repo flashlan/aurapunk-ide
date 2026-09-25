@@ -633,7 +633,16 @@ export function SharedAppLayout() {
             [
               {
                 id: outcome.issueId,
-                changes: { status_id: outcome.targetStatusId },
+                changes: {
+                  status_id: outcome.targetStatusId,
+                  // Dragging onto a tree status row is the operator's own
+                  // completion gesture (that surface has no completion
+                  // dialog), so it carries the same unmerged-Done override as
+                  // the board's drop handler — otherwise the backend's
+                  // integration guard refuses the drop with no surface to
+                  // explain it.
+                  allow_unmerged_done: true,
+                },
               },
             ],
             outcome.projectId,

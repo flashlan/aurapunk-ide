@@ -550,7 +550,14 @@ export function CloudAuthActions() {
               {
                 method: 'PATCH',
                 headers,
-                body: JSON.stringify({ status_id: payload.status_id }),
+                // A mirrored remote move is the operator acting on another
+                // device: it carries the same unmerged-Done override as every
+                // interactive surface, so a reflected Done is never refused by
+                // the integration guard (agents never set it).
+                body: JSON.stringify({
+                  status_id: payload.status_id,
+                  allow_unmerged_done: true,
+                }),
                 signal,
               }
             );

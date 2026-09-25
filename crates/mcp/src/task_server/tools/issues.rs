@@ -532,7 +532,7 @@ impl McpServer {
     }
 
     #[tool(
-        description = "Update an existing issue's title, description, status, priority, or parent. `issue_id` is required; every other field is optional. Returns a minimal acknowledgement - `id`, `simple_id`, `status`, `status_id`, `updated_at`, a `changed` list of the fields you supplied, and echoes of just those fields - NOT the issue. The description body is never returned (only `description_chars`); call `get_issue` if you need the card's body."
+        description = "Update an existing issue's title, description, status, priority, or parent. `issue_id` is required; every other field is optional. Returns a minimal acknowledgement - `id`, `simple_id`, `status`, `status_id`, `updated_at`, a `changed` list of the fields you supplied, and echoes of just those fields - NOT the issue. The description body is never returned (only `description_chars`); call `get_issue` if you need the card's body. Moving a card into a terminal (Done) column is REFUSED by the backend while its workspace has no merge recorded: finish cards through `complete_workspace_card`, never through this tool."
     )]
     async fn update_issue(
         &self,
@@ -608,7 +608,13 @@ impl McpServer {
         };
 
         let payload = UpdateIssueRequest {
-            allow_unmerged_done: Some(true),
+            // No unmerged-Done escape hatch for agents. The backend refuses a
+            // terminal transition while the issue's workspace has no merge
+            // recorded, so a merge the Integration Guard blocked can never be
+            // papered over by flipping the card to Done. The operator's own
+            // override is the board's completion dialog, which sets this flag
+            // itself.
+            allow_unmerged_done: None,
             status_id,
             title,
             description: expanded_description,

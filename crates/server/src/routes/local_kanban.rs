@@ -29,6 +29,7 @@ use db::models::{
     issue_relationship::IssueRelationship as DbIssueRelationship,
     issue_workspace::{IssueWorkspace, LinkedWorkspaceRow},
     kanban_tag::{IssueTag as DbIssueTag, KanbanTag},
+    merge::Merge,
     project::{self, NewProject, Project as DbProject, ProjectUpdate},
     project_repo::ProjectRepo,
     project_status::ProjectStatus as DbProjectStatus,
@@ -947,6 +948,27 @@ pub(crate) async fn merge_and_update_issue(
     };
     let status_id = req.status_id.unwrap_or(existing.status_id);
 
+    // A terminal transition is a completion claim. It requires an integrated
+    // workspace unless the caller explicitly opts in with
+    // `allow_unmerged_done` — the flag the board sets after the operator
+    // picks "Move without merging" in the completion dialog. Automated
+    // writers (MCP agents above all) never set it, so a blocked merge can no
+    // longer be papered over by moving the card to Done anyway. Cards with no
+    // linked workspace have nothing to integrate and move freely.
+    if status_id != existing.status_id
+        && is_terminal_status(pool, existing.project_id, status_id).await?
+        && !req.allow_unmerged_done.unwrap_or(false)
+        && Merge::issue_has_unintegrated_workspace(pool, id).await?
+    {
+        return Err(ApiError::Conflict(
+            "Cannot move this card to Done before it is integrated: its workspace has no merge \
+             recorded. The card was left unchanged. Complete it through complete_workspace_card \
+             once the Integration Guard merge succeeds, or have the operator choose 'Move and \
+             merge' / 'Move without merging' on the board."
+                .into(),
+        ));
+    }
+
     let title = req.title.unwrap_or(existing.title);
     let description = match req.description {
         Some(v) => v,
@@ -1035,6 +1057,18 @@ pub(crate) async fn merge_and_update_issue(
     )
     .await?;
     Ok(updated)
+}
+
+/// True when `status_id` is the project's terminal (Done) column.
+async fn is_terminal_status(
+    pool: &sqlx::SqlitePool,
+    project_id: Uuid,
+    status_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    Ok(DbProjectStatus::list_by_project(pool, project_id)
+        .await?
+        .into_iter()
+        .any(|status| status.id == status_id && status.is_terminal))
 }
 
 async fn update_issue(
@@ -1381,6 +1415,8 @@ pub fn router() -> Router<DeploymentImpl> {
 mod tests {
     use api_types::UpdateProjectRequest;
     use db::models::issue::{Issue as DbIssue, IssueUpdate, NewIssue};
+    use db::models::issue_workspace::IssueWorkspace;
+    use db::models::merge::Merge;
     use db::models::project::{NewProject, Project as DbProject};
     use db::models::project_status::ProjectStatus as DbProjectStatus;
     use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
@@ -1896,15 +1932,17 @@ mod tests {
         assert!(updated.extension_metadata.get("intake").is_some());
     }
 
-    #[tokio::test]
-    async fn terminal_issue_transition_requires_integration_even_with_legacy_override() {
-        clear_key_chain_cache();
-        let pool = pool().await;
-        let project = create_project_record(&pool, Uuid::new_v4(), "Completion", "#6366f1", None)
+    /// Board used by the terminal-transition tests: In Progress (pos 0) and
+    /// a terminal Done (pos 1).
+    async fn seed_terminal_board(
+        pool: &SqlitePool,
+        name: &str,
+    ) -> (DbProject, DbProjectStatus, DbProjectStatus) {
+        let project = create_project_record(pool, Uuid::new_v4(), name, "#6366f1", None)
             .await
             .unwrap();
-        let todo = DbProjectStatus::create(
-            &pool,
+        let in_progress = DbProjectStatus::create(
+            pool,
             Uuid::new_v4(),
             project.id,
             "In Progress",
@@ -1916,7 +1954,7 @@ mod tests {
         .await
         .unwrap();
         let done = DbProjectStatus::create(
-            &pool,
+            pool,
             Uuid::new_v4(),
             project.id,
             "Done",
@@ -1927,13 +1965,16 @@ mod tests {
         )
         .await
         .unwrap();
-        let issue = create_issue_for(&pool, &project, &todo, "Protected completion")
-            .await
-            .unwrap();
+        (project, in_progress, done)
+    }
 
-        let request = api_types::UpdateIssueRequest {
-            allow_unmerged_done: None,
-            status_id: Some(done.id),
+    fn terminal_patch(
+        status_id: Uuid,
+        allow_unmerged_done: Option<bool>,
+    ) -> api_types::UpdateIssueRequest {
+        api_types::UpdateIssueRequest {
+            allow_unmerged_done,
+            status_id: Some(status_id),
             title: None,
             description: None,
             priority: None,
@@ -1944,8 +1985,118 @@ mod tests {
             parent_issue_id: None,
             parent_issue_sort_order: None,
             extension_metadata: None,
-        };
-        let updated = super::merge_and_update_issue(&pool, issue.id, request)
+        }
+    }
+
+    /// Attach a workspace to `issue_id` with NO merge recorded — the state
+    /// an agent reaches when the Integration Guard refused the merge.
+    async fn link_unmerged_workspace(pool: &SqlitePool, issue_id: Uuid) -> Uuid {
+        let workspace_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO workspaces (id, branch) VALUES (?, ?)")
+            .bind(workspace_id)
+            .bind(format!("vk/unmerged-{workspace_id}"))
+            .execute(pool)
+            .await
+            .unwrap();
+        IssueWorkspace::link(pool, issue_id, workspace_id)
+            .await
+            .unwrap();
+        workspace_id
+    }
+
+    /// Record a direct squash merge for `workspace_id` — integration done.
+    async fn record_direct_merge(pool: &SqlitePool, workspace_id: Uuid) {
+        let repo_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO repos (id, path, name, display_name) VALUES (?, '/tmp/guard-repo', 'guard-repo', 'guard-repo')",
+        )
+        .bind(repo_id)
+        .execute(pool)
+        .await
+        .unwrap();
+        Merge::create_direct(pool, workspace_id, repo_id, "main", "0000000")
+            .await
+            .unwrap();
+    }
+
+    /// A linked-but-unintegrated workspace blocks the terminal move: this is
+    /// the "the merge was refused, so the card must stay open" invariant.
+    #[tokio::test]
+    async fn terminal_move_is_refused_while_workspace_is_unintegrated() {
+        clear_key_chain_cache();
+        let pool = pool().await;
+        let (project, in_progress, done) = seed_terminal_board(&pool, "Unintegrated").await;
+        let issue = create_issue_for(&pool, &project, &in_progress, "Blocked completion")
+            .await
+            .unwrap();
+        link_unmerged_workspace(&pool, issue.id).await;
+
+        let error = super::merge_and_update_issue(&pool, issue.id, terminal_patch(done.id, None))
+            .await
+            .expect_err("unmerged terminal transition must be rejected");
+        assert!(
+            error.to_string().contains("integrated"),
+            "error must say why: {error}"
+        );
+        let unchanged = DbIssue::find_by_id(&pool, issue.id).await.unwrap().unwrap();
+        assert_eq!(
+            unchanged.status_id, in_progress.id,
+            "the refused move must leave the card untouched"
+        );
+    }
+
+    /// The operator's "Move without merging" choice (board dialog) is the one
+    /// explicit escape hatch and must keep working.
+    #[tokio::test]
+    async fn explicit_unmerged_done_flag_still_moves_the_card() {
+        clear_key_chain_cache();
+        let pool = pool().await;
+        let (project, in_progress, done) = seed_terminal_board(&pool, "Override").await;
+        let issue = create_issue_for(&pool, &project, &in_progress, "Operator override")
+            .await
+            .unwrap();
+        link_unmerged_workspace(&pool, issue.id).await;
+
+        let updated =
+            super::merge_and_update_issue(&pool, issue.id, terminal_patch(done.id, Some(true)))
+                .await
+                .unwrap()
+                .expect("issue exists");
+        assert_eq!(updated.status_id, done.id);
+    }
+
+    /// Once the Integration Guard recorded a merge, the terminal move needs no
+    /// override — this is the `complete_workspace_card` path.
+    #[tokio::test]
+    async fn terminal_move_allowed_once_the_workspace_is_integrated() {
+        clear_key_chain_cache();
+        let pool = pool().await;
+        let (project, in_progress, done) = seed_terminal_board(&pool, "Integrated").await;
+        let issue = create_issue_for(&pool, &project, &in_progress, "Merged completion")
+            .await
+            .unwrap();
+        let workspace_id = link_unmerged_workspace(&pool, issue.id).await;
+        record_direct_merge(&pool, workspace_id).await;
+
+        let updated = super::merge_and_update_issue(&pool, issue.id, terminal_patch(done.id, None))
+            .await
+            .unwrap()
+            .expect("issue exists");
+        assert_eq!(updated.status_id, done.id);
+    }
+
+    /// Nothing to integrate (no linked workspace) must never be blocked —
+    /// planning cards and workspace-less tickets move freely.
+    #[tokio::test]
+    async fn terminal_move_allowed_for_issue_without_workspace() {
+        clear_key_chain_cache();
+        let pool = pool().await;
+        let (project, in_progress, done) = seed_terminal_board(&pool, "NoWorkspace").await;
+        let issue = create_issue_for(&pool, &project, &in_progress, "Planning card")
+            .await
+            .unwrap();
+
+        let updated = super::merge_and_update_issue(&pool, issue.id, terminal_patch(done.id, None))
             .await
             .unwrap()
             .expect("issue exists");

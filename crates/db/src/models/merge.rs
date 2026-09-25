@@ -71,6 +71,82 @@ impl Merge {
         }
     }
 
+    /// True for a record that actually integrated the work: a direct squash
+    /// merge, or a pull request that reached `merged`. An open/closed PR is a
+    /// record of an attempt, not of an integration.
+    pub fn is_integrated(&self) -> bool {
+        matches!(
+            self,
+            Merge::Direct(_)
+                | Merge::Pr(PrMerge {
+                    pr_info: PullRequestInfo {
+                        status: MergeStatus::Merged,
+                        ..
+                    },
+                    ..
+                })
+        )
+    }
+
+    /// True when `issue_id` has at least one linked workspace and NONE of
+    /// them is integrated yet. That is the state in which a terminal (Done)
+    /// move must be refused: there is something to merge and it has not been
+    /// merged. Issues with no linked workspace have nothing to integrate and
+    /// report `false`.
+    pub async fn issue_has_unintegrated_workspace(
+        pool: &SqlitePool,
+        issue_id: Uuid,
+    ) -> Result<bool, sqlx::Error> {
+        let workspace_ids = Self::linked_workspace_ids(pool, issue_id).await?;
+        if workspace_ids.is_empty() {
+            return Ok(false);
+        }
+        for workspace_id in workspace_ids {
+            if Self::find_by_workspace_id(pool, workspace_id)
+                .await?
+                .iter()
+                .any(Self::is_integrated)
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// True when at least one workspace linked to `issue_id` has an
+    /// integrated merge. Distinct from the negation of
+    /// [`Self::issue_has_unintegrated_workspace`]: an issue with NO linked
+    /// workspace is not integrated either.
+    pub async fn issue_is_integrated(
+        pool: &SqlitePool,
+        issue_id: Uuid,
+    ) -> Result<bool, sqlx::Error> {
+        for workspace_id in Self::linked_workspace_ids(pool, issue_id).await? {
+            if Self::find_by_workspace_id(pool, workspace_id)
+                .await?
+                .iter()
+                .any(Self::is_integrated)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    async fn linked_workspace_ids(
+        pool: &SqlitePool,
+        issue_id: Uuid,
+    ) -> Result<Vec<Uuid>, sqlx::Error> {
+        Ok(
+            super::issue_workspace::IssueWorkspace::list_linked_all(pool)
+                .await?
+                .into_iter()
+                .filter(|link| link.issue_id == issue_id)
+                .map(|link| link.workspace_id)
+                .collect(),
+        )
+    }
+
     /// Create a direct merge record
     pub async fn create_direct(
         pool: &SqlitePool,

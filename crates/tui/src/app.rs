@@ -2075,6 +2075,11 @@ impl App {
             let body = serde_json::json!({
                 "title": title,
                 "status_id": status_id,
+                // The cockpit's card editor is an operator surface: it claims
+                // the unmerged-Done override the board's completion dialog
+                // uses, so moving a card to Done here is never refused by the
+                // integration guard (automation has no such override).
+                "allow_unmerged_done": true,
                 "description": description,
                 "priority": priority,
             });
@@ -2167,7 +2172,13 @@ impl App {
             k.col_idx = target;
             k.card_idx = 0;
         }
-        let body = serde_json::json!({ "status_id": target_status, "sort_order": sort_order });
+        let body = serde_json::json!({
+            "status_id": target_status,
+            "sort_order": sort_order,
+            // Column drag in the cockpit = the operator moving the card,
+            // including into Done (see the card editor above).
+            "allow_unmerged_done": true,
+        });
         let client = self.client.clone();
         let tx = self.tx.clone();
         tokio::spawn(async move {

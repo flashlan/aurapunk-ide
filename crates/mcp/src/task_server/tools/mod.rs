@@ -8,7 +8,7 @@ use rmcp::{
     ErrorData,
     model::{CallToolResult, Content},
 };
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -172,67 +172,90 @@ impl McpServer {
         )])
     }
 
+    /// Reads any VK API response as an `ApiResponseEnvelope`, whatever the
+    /// HTTP status. Blocking refusals travel as 2xx or 4xx/5xx bodies with
+    /// `success: false` plus `message`/`error_data`; folding them into one
+    /// shape here is what keeps a refused merge from degrading into a bare
+    /// "error status: 409" — the agent must always see WHY it was blocked.
+    async fn send_envelope(
+        &self,
+        rb: reqwest::RequestBuilder,
+    ) -> Result<ApiResponseEnvelope<serde_json::Value>, ToolError> {
+        let resp = rb.send().await.map_err(|error| {
+            ToolError::new("Failed to connect to VK API", Some(error.to_string()))
+        })?;
+
+        let status = resp.status();
+        let body = resp.text().await.map_err(|error| {
+            ToolError::new("Failed to read VK API response", Some(error.to_string()))
+        })?;
+
+        match serde_json::from_str::<ApiResponseEnvelope<serde_json::Value>>(&body) {
+            Ok(envelope) => Ok(envelope),
+            Err(parse_error) if status.is_success() => Err(ToolError::new(
+                "Failed to parse VK API response",
+                Some(format!("{status}: {parse_error}")),
+            )),
+            // Not an API envelope at all (proxy page, truncated body): keep
+            // whatever text came back so the reason isn't lost.
+            Err(_) => Err(ToolError::new(
+                format!("VK API returned error status: {status}"),
+                Some(Self::error_body_snippet(&body)),
+            )),
+        }
+    }
+
+    /// Response text kept for an unparsable error body, capped so a giant
+    /// HTML page can't flood the tool result.
+    fn error_body_snippet(body: &str) -> String {
+        const MAX_CHARS: usize = 600;
+        let trimmed = body.trim();
+        let mut chars = trimmed.chars();
+        let snippet: String = chars.by_ref().take(MAX_CHARS).collect();
+        if chars.next().is_some() {
+            format!("{snippet}…")
+        } else {
+            snippet
+        }
+    }
+
+    /// The agent-facing reason for a refused call: the backend's own message
+    /// (`error`) plus the structured `error_data` payload (`details`) so file
+    /// lists, dirty branches and conflicting agents survive the round trip.
+    fn api_failure(message: Option<String>, error_data: Option<serde_json::Value>) -> ToolError {
+        let message = message
+            .filter(|message| !message.trim().is_empty())
+            .unwrap_or_else(|| "VK API returned error".to_string());
+        ToolError::new(
+            message,
+            error_data.map(|data| {
+                serde_json::to_string_pretty(&data).unwrap_or_else(|_| data.to_string())
+            }),
+        )
+    }
+
     async fn send_json<T: DeserializeOwned>(
         &self,
         rb: reqwest::RequestBuilder,
     ) -> Result<T, ToolError> {
-        let resp = rb.send().await.map_err(|error| {
-            ToolError::new("Failed to connect to VK API", Some(error.to_string()))
-        })?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            return Err(ToolError::message(format!(
-                "VK API returned error status: {}",
-                status
-            )));
+        let envelope = self.send_envelope(rb).await?;
+        if !envelope.success {
+            return Err(Self::api_failure(envelope.message, envelope.error_data));
         }
 
-        let api_response = resp
-            .json::<ApiResponseEnvelope<T>>()
-            .await
-            .map_err(|error| {
-                ToolError::new("Failed to parse VK API response", Some(error.to_string()))
-            })?;
-
-        if !api_response.success {
-            let msg = api_response.message.as_deref().unwrap_or("Unknown error");
-            return Err(ToolError::new("VK API returned error", Some(msg)));
-        }
-
-        api_response
+        let data = envelope
             .data
-            .ok_or_else(|| ToolError::message("VK API response missing data field"))
+            .ok_or_else(|| ToolError::message("VK API response missing data field"))?;
+        serde_json::from_value::<T>(data).map_err(|error| {
+            ToolError::new("Failed to parse VK API response", Some(error.to_string()))
+        })
     }
 
     async fn send_empty_json(&self, rb: reqwest::RequestBuilder) -> Result<(), ToolError> {
-        let resp = rb.send().await.map_err(|error| {
-            ToolError::new("Failed to connect to VK API", Some(error.to_string()))
-        })?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            return Err(ToolError::message(format!(
-                "VK API returned error status: {}",
-                status
-            )));
+        let envelope = self.send_envelope(rb).await?;
+        if !envelope.success {
+            return Err(Self::api_failure(envelope.message, envelope.error_data));
         }
-
-        #[derive(Deserialize)]
-        struct EmptyApiResponse {
-            success: bool,
-            message: Option<String>,
-        }
-
-        let api_response = resp.json::<EmptyApiResponse>().await.map_err(|error| {
-            ToolError::new("Failed to parse VK API response", Some(error.to_string()))
-        })?;
-
-        if !api_response.success {
-            let msg = api_response.message.as_deref().unwrap_or("Unknown error");
-            return Err(ToolError::new("VK API returned error", Some(msg)));
-        }
-
         Ok(())
     }
 

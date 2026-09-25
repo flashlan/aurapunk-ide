@@ -41,6 +41,7 @@ Rules:
 - [x] **Done** — Fast Jev Compaction plugin com fallback Laya como classificador e POC (`vk/cae6-jev-plugin`)
 - [x] **Done** — Chat travado ao subir mensagens anteriores: race do cache que estrangula isLoadingHistory e aborta o walk de histórico (`vk/3a4e-caht-da-uam-tr`)
 - [x] **Done** — Chat volta pro final ao rolar para cima durante streaming: bottom-lock libera em todo scroll do usuário e follow pausa até descer ao fim; seleção de sessão sticky (refresh/reorder/não-dados não remontam o chat) (`vk/3a4e-caht-da-uam-tr`)
+- [~] **In Progress** — Guardião do merge: explica o bloqueio, espera e recusa Done sem merge (`vk/2b51-agent-activity-n`)
 
 ## Card Pipeline Protocol (MCP)
 
@@ -338,3 +339,27 @@ fixed them. Newest last.
 - **Diagnóstico:** o DOM foi inspecionado com Chrome headless via CDP contra o
   app real (`--remote-debugging-port`), capturando `document.querySelectorAll('button')`
   e o fim do `document.body.innerText` enquanto a pergunta estava pendente.
+
+### 2026-09-25 — Guardião do merge falhava aberto (VKAL-57)
+- **Sintoma:** merge recusado (outra atividade de agente / integração em
+  andamento) → o agente desistia e movia o card para Done. O MCP `update_issue`
+  enviava `allow_unmerged_done: true` em TODA chamada e o backend não checava
+  nada: a checagem de terminal sem integração tinha sido removida junto com o
+  resto do guard em `13e33dfd` (2026-09-17). Resultado: board "tudo ok" sem
+  merge nenhum — pior do que não ter guardião. Somado a isso, o motivo do
+  bloqueio não chegava ao agente: o transporte MCP descartava corpos não-2xx e o
+  payload `error_data` (arquivos conflitantes, agentes sobrepostos).
+- **Correção:** guard restaurado em `merge_and_update_issue` (recusa transição
+  para coluna terminal quando há workspace vinculado sem merge, salvo
+  `allow_unmerged_done`), com a definição de "integrado" centralizada em
+  `db::models::merge`; override explícito declarado por cada superfície
+  interativa (diálogo do board, command bar, edit dialog, tree, TUI, `/close`,
+  mirror remoto) — automação nunca o declara. Envelope MCP (`send_envelope`)
+  repassa `message` + `error_data` em qualquer status HTTP;
+  `complete_workspace_card`/`merge_workspace` esperam até 45s por
+  `integration_in_progress`/`agent_work_conflict` e toda recusa declara "card
+  NÃO mesclado, NÃO movido" + próximo passo; `auto_move` só honra `done_intent`
+  se o card estiver integrado. Detalhe: ADR-046 (Proposed).
+- **Verificação:** `cargo check`/`clippy` limpos (db, server, services, mcp,
+  tui); `cargo test -p server local_kanban` 27, `-p services auto_move` 8,
+  `-p mcp` 58; web-core `tsc` + vitest 236, local-web `tsc`.

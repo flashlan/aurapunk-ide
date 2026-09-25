@@ -196,6 +196,9 @@ function ProjectMutationsRegistration({ children }: { children: ReactNode }) {
             title: changes.title,
             description: changes.description,
             status_id: changes.statusId,
+            // The issue edit dialog is an operator surface (same override as
+            // the board's completion dialog); agents cannot reach this path.
+            allow_unmerged_done: true,
             priority: changes.priority,
             extension_metadata: changes.extensionMetadata,
           });

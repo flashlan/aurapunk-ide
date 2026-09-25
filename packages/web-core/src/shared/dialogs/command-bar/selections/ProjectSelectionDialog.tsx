@@ -205,7 +205,14 @@ function ProjectSelectionContent({ selection }: { selection: SelectionMode }) {
         const result = data as StatusSelectionResult;
         if (selection.isCreateMode) return; // Create mode: caller handles URL update
         for (const issueId of selection.issueIds) {
-          updateIssue(issueId, { status_id: result.statusId });
+          updateIssue(issueId, {
+            status_id: result.statusId,
+            // Operator's explicit status pick (command bar). Interactive
+            // surfaces claim the unmerged-Done override; automation — the
+            // MCP `update_issue` above all — never does, so the backend's
+            // integration guard only refuses agents and scripts.
+            allow_unmerged_done: true,
+          });
         }
       } else if (selection.type === 'priority') {
         const result = data as PrioritySelectionResult;

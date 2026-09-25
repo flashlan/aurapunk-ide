@@ -6,7 +6,7 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::McpServer;
+use super::{McpServer, ToolError};
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct McpCompleteWorkspaceCardRequest {
@@ -58,8 +58,119 @@ struct McpCompleteWorkspaceCardResponse {
     memory_queued: bool,
 }
 
+/// Integration Guard refusals that clear by themselves once the other actor
+/// finishes: another merge running for this repository, or another
+/// workspace's active `declare_agent_work` declarations overlapping the
+/// branch. These are waited out inside the tool call instead of failing on
+/// the first attempt — the agent must WAIT until it can merge, not give up
+/// and move the card some other way.
+const TRANSIENT_GUARD_BLOCKERS: [&str; 2] = ["integration_in_progress", "agent_work_conflict"];
+/// Total time a single tool call may spend waiting for a transient blocker.
+const GUARD_WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(45);
+const GUARD_RETRY_GAP: std::time::Duration = std::time::Duration::from_secs(5);
+
 #[tool_router(router = completion_tools_router, vis = "pub")]
 impl McpServer {
+    /// POST `/api/workspaces/{id}/git/merge` through the Integration Guard.
+    ///
+    /// Transient blockers are retried until [`GUARD_WAIT_BUDGET`] elapses.
+    /// Every refusal comes back through [`Self::merge_blocked_error`] with the
+    /// blocker's type, the backend's reason, and an explicit statement that
+    /// neither the merge nor the card move happened.
+    async fn post_merge(
+        &self,
+        workspace_id: Uuid,
+        repo_id: Uuid,
+        suppress_auto_move: bool,
+        keep_workspace_open: bool,
+    ) -> Result<(), ToolError> {
+        let url = self.url(&format!("/api/workspaces/{workspace_id}/git/merge"));
+        let body = serde_json::json!({
+            "repo_id": repo_id,
+            "suppress_auto_move": suppress_auto_move,
+            "keep_workspace_open": keep_workspace_open,
+        });
+        let deadline = tokio::time::Instant::now() + GUARD_WAIT_BUDGET;
+        loop {
+            let envelope = self
+                .send_envelope(self.client.post(&url).json(&body))
+                .await?;
+            if envelope.success {
+                return Ok(());
+            }
+
+            let blocker = envelope
+                .error_data
+                .as_ref()
+                .and_then(|data| data.get("type"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            if TRANSIENT_GUARD_BLOCKERS.contains(&blocker.as_str())
+                && tokio::time::Instant::now() < deadline
+            {
+                tokio::time::sleep(GUARD_RETRY_GAP).await;
+                continue;
+            }
+
+            return Err(Self::merge_blocked_error(
+                &blocker,
+                envelope.message,
+                envelope.error_data,
+            ));
+        }
+    }
+
+    /// A merge refusal that must leave the card exactly as it was. The
+    /// message carries the backend's own reason (WHAT blocked it); the
+    /// details carry the blocker type, the "nothing moved" guarantee and the
+    /// wait-and-retry next step, so an agent can never mistake a blocked
+    /// merge for a completed card.
+    fn merge_blocked_error(
+        blocker: &str,
+        message: Option<String>,
+        error_data: Option<serde_json::Value>,
+    ) -> ToolError {
+        let message =
+            message.unwrap_or_else(|| "The Integration Guard refused the merge.".to_string());
+        let next_step = match blocker {
+            "integration_in_progress" => {
+                "Another integration for this repository is still running. Wait for it to \
+                 finish, then call this tool again."
+            }
+            "agent_work_conflict" => {
+                "Another workspace's active agent work overlaps this branch. Wait for that \
+                 agent to release its declarations (or review the overlap), then call this \
+                 tool again."
+            }
+            "dirty_worktree" => {
+                "Stash, commit or delegate the listed files, then call this tool again."
+            }
+            "merge_conflicts" => {
+                "Resolve (or delegate) the listed files, then call this tool again."
+            }
+            _ => "Resolve the blocker reported above, then call this tool again.",
+        };
+        let details = format!(
+            "blocker: {blocker}. The card was NOT merged and NOT moved to Done — it is still \
+             open. {next_step} Do not use update_issue to set Done: the backend refuses a \
+             terminal move for a card that is not integrated, and completing without the merge \
+             would make the board claim finished work that never landed."
+        );
+        let details = match error_data {
+            // The structured refusal (conflicted files, dirty branch, the
+            // agents whose declarations overlap) rides along so "resolve the
+            // files below" actually has files below.
+            Some(data) => format!(
+                "{details}\nBlocker detail: {}",
+                serde_json::to_string_pretty(&data).unwrap_or_else(|_| data.to_string())
+            ),
+            None => details,
+        };
+        ToolError::new(message, Some(details))
+    }
+
     #[tool(
         description = "Integrate the current workspace branch into its target branch through Integration Guard without closing the card or moving it to Done. Use this when the user asks to merge into main but does not ask to finish or close the card. Commit verified work first. Do not ask for confirmation unless the tool reports a merge conflict, dirty target, concurrent integration, or another explicit blocker."
     )]
@@ -86,15 +197,7 @@ impl McpServer {
             )));
         };
 
-        let url = self.url(&format!("/api/workspaces/{workspace_id}/git/merge"));
-        if let Err(error) = self
-            .send_empty_json(self.client.post(url).json(&serde_json::json!({
-                "repo_id": repo_id,
-                "suppress_auto_move": true,
-                "keep_workspace_open": true,
-            })))
-            .await
-        {
+        if let Err(error) = self.post_merge(workspace_id, repo_id, true, true).await {
             return Ok(Self::tool_error(error));
         }
 
@@ -211,14 +314,9 @@ impl McpServer {
 
         // Defer the merge route's normal auto-move. The card must not reach
         // Done until the required Mem0 write has been acknowledged below.
-        let merge_url = self.url(&format!("/api/workspaces/{workspace_id}/git/merge"));
-        if let Err(error) = self
-            .send_empty_json(self.client.post(merge_url).json(&serde_json::json!({
-                "repo_id": repo_id,
-                "suppress_auto_move": true,
-            })))
-            .await
-        {
+        // A refused merge waits out transient blockers and, if it still can't
+        // proceed, reports exactly why with the card left untouched.
+        if let Err(error) = self.post_merge(workspace_id, repo_id, true, false).await {
             return Ok(Self::tool_error(error));
         }
 

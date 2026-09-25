@@ -320,7 +320,27 @@ pub async fn on_pipeline_completed(pool: &SqlitePool, workspace_id: Uuid) {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let target = if has_done_intent {
+    // The board writes `done_intent` BEFORE attempting the merge (the
+    // "Move and merge" dialog routes the card through In Progress first), so
+    // a refused merge leaves the flag behind. Honouring it unconditionally
+    // would then jump the card to Done on the next pipeline finish without
+    // any integration — a card that looks complete and isn't. Only a card
+    // whose work actually landed may take the terminal shortcut; otherwise
+    // fall through to the normal In Review path.
+    let done_intent_integrated = has_done_intent
+        && match db::models::merge::Merge::issue_is_integrated(pool, issue_id).await {
+            Ok(integrated) => integrated,
+            Err(error) => {
+                tracing::warn!(
+                    issue_id = %issue_id,
+                    %error,
+                    "auto-move could not verify integration for done_intent; staying on the normal path"
+                );
+                false
+            }
+        };
+
+    let target = if done_intent_integrated {
         resolve_target_for_trigger(pool, issue.project_id, Trigger::Merged).await
     } else {
         if let Some(pos) = statuses.iter().position(|s| s.id == issue.status_id) {
@@ -583,8 +603,64 @@ mod tests {
         );
     }
 
+    /// Record a direct squash merge for `workspace_id` so the workspace counts
+    /// as integrated.
+    async fn record_direct_merge(pool: &SqlitePool, workspace_id: Uuid) {
+        let repo_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO repos (id, path, name, display_name) VALUES (?, '/tmp/auto-move-repo', 'auto-move-repo', 'auto-move-repo')",
+        )
+        .bind(repo_id)
+        .execute(pool)
+        .await
+        .unwrap();
+        db::models::merge::Merge::create_direct(pool, workspace_id, repo_id, "main", "0000000")
+            .await
+            .unwrap();
+    }
+
+    /// `done_intent` + an actual merge = the card may finish as Done.
     #[tokio::test]
     async fn pipeline_completed_with_done_intent_moves_to_done() {
+        let pool = pool().await;
+        let (pid, statuses) = seed_project_with_statuses(&pool).await;
+        let iid = create_issue(&pool, pid, statuses[1].id).await;
+        sqlx::query("UPDATE issues SET extension_metadata = '{\"done_intent\":true}' WHERE id = ?")
+            .bind(iid)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let ws_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO workspaces (id, branch) VALUES (?, 'b')")
+            .bind(ws_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        db::models::issue_workspace::IssueWorkspace::link(&pool, iid, ws_id)
+            .await
+            .unwrap();
+        record_direct_merge(&pool, ws_id).await;
+
+        on_pipeline_completed(&pool, ws_id).await;
+        let issue = Issue::find_by_id(&pool, iid).await.unwrap().unwrap();
+        assert_eq!(
+            issue.status_id, statuses[3].id,
+            "should move to Done (pos 3)"
+        );
+        assert_eq!(
+            issue.extension_metadata.get("done_intent"),
+            None,
+            "done_intent flag should be cleaned up"
+        );
+    }
+
+    /// `done_intent` written by the board BEFORE a merge that the Integration
+    /// Guard then refused: the pipeline finishing must NOT paper over the
+    /// missing integration by jumping the card to Done. It goes to In Review
+    /// instead, exactly like any other integrated-or-not completion.
+    #[tokio::test]
+    async fn pipeline_completed_with_unmerged_done_intent_stays_out_of_done() {
         let pool = pool().await;
         let (pid, statuses) = seed_project_with_statuses(&pool).await;
         let iid = create_issue(&pool, pid, statuses[1].id).await;
@@ -607,13 +683,8 @@ mod tests {
         on_pipeline_completed(&pool, ws_id).await;
         let issue = Issue::find_by_id(&pool, iid).await.unwrap().unwrap();
         assert_eq!(
-            issue.status_id, statuses[3].id,
-            "should move to Done (pos 3)"
-        );
-        assert_eq!(
-            issue.extension_metadata.get("done_intent"),
-            None,
-            "done_intent flag should be cleaned up"
+            issue.status_id, statuses[2].id,
+            "unmerged done_intent must land in In Review, never Done"
         );
     }
 }

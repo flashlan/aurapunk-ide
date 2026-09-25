@@ -1638,7 +1638,10 @@ pub async fn post_chat_command(
                 pool,
                 issue_id,
                 UpdateIssueRequest {
-                    allow_unmerged_done: None,
+                    // `/close` is the operator typing a completion command,
+                    // same standing as the board's "Move without merging":
+                    // interactive surfaces carry the override, agents never do.
+                    allow_unmerged_done: Some(true),
                     status_id: Some(target.id),
                     title: None,
                     description: None,
