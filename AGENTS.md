@@ -39,6 +39,7 @@ Rules:
 - [x] **Done** — Claude Code erro: surfaced 401 revoked-login recovery guidance for headed (transcript) sessions + ignore `<synthetic>` model (`vk/5cb6-claiude-code-err`)
 - [x] **Done** — Send now no chat mantendo Queue e Stop (`vk/340d-send-now`)
 - [x] **Done** — Fast Jev Compaction plugin com fallback Laya como classificador e POC (`vk/cae6-jev-plugin`)
+- [x] **Done** — Chat travado ao subir mensagens anteriores: race do cache que estrangula isLoadingHistory e aborta o walk de histórico (`vk/3a4e-caht-da-uam-tr`)
 
 ## Card Pipeline Protocol (MCP)
 

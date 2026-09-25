@@ -110,6 +110,12 @@ export const useConversationHistory = ({
     new Set()
   );
   const [isLoadingHistoryState, setIsLoadingHistory] = useState(false);
+  // Distinguishes "this walk's scope is gone" from "the effect re-ran because
+  // a volatile dependency (isLoading) changed". Only a scope change or
+  // unmount bumps the token; a same-scope dependency flip must let the walk
+  // finish, or isLoadingHistory strands at true, the remaining older batches
+  // never load, and the chat looks frozen when scrolling up.
+  const historyLoadTokenRef = useRef(0);
 
   const closeConversationStreams = useCallback(() => {
     for (const controller of activeStreamControllersRef.current) {
@@ -528,6 +534,8 @@ export const useConversationHistory = ({
   ]);
 
   useEffect(() => {
+    historyLoadTokenRef.current += 1;
+    setIsLoadingHistory(false);
     displayedExecutionProcesses.current = {};
     loadedInitialEntries.current = false;
     initialHistoryLoadInFlightRef.current = false;
@@ -537,8 +545,17 @@ export const useConversationHistory = ({
     emitEntries(displayedExecutionProcesses.current, 'initial', true);
   }, [scopeKey, emitEntries]);
 
+  // Abort any in-flight history walk after unmount so it neither emits into a
+  // dead component nor keeps opening streams.
   useEffect(() => {
-    let cancelled = false;
+    return () => {
+      historyLoadTokenRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
+    const token = historyLoadTokenRef.current;
+    const isStale = () => historyLoadTokenRef.current !== token;
     (async () => {
       if (loadedInitialEntries.current || initialHistoryLoadInFlightRef.current)
         return;
@@ -562,7 +579,7 @@ export const useConversationHistory = ({
           MIN_INITIAL_ENTRIES,
           INITIAL_HISTORY_LOAD_BUDGET_MS
         );
-        if (cancelled) return;
+        if (isStale()) return;
         loadedInitialEntries.current = true;
         mergeIntoDisplayed((state) => {
           Object.assign(state, allInitialEntries);
@@ -574,22 +591,23 @@ export const useConversationHistory = ({
         // Without this yield, cache hits resolve as microtasks and a large
         // conversation can starve the browser's next paint.
         await yieldToBrowser();
-        while (!cancelled) {
+        while (!isStale()) {
           const hasMore =
             await loadRemainingEntriesInBatches(REMAINING_BATCH_SIZE);
           if (!hasMore) break;
-          if (cancelled) return;
+          if (isStale()) return;
           emitEntries(displayedExecutionProcesses.current, 'historic', false);
           await yieldToBrowser();
         }
-        if (!cancelled) setIsLoadingHistory(false);
+        if (!isStale()) setIsLoadingHistory(false);
       } finally {
-        initialHistoryLoadInFlightRef.current = false;
+        // A walk that outlived its scope must not clear the in-flight flag a
+        // replacement walk for the new scope already owns.
+        if (historyLoadTokenRef.current === token) {
+          initialHistoryLoadInFlightRef.current = false;
+        }
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, [
     scopeKey,
     isLoading,

@@ -295,4 +295,86 @@ describe('useConversationHistory — conversation cache skips re-stream', () => 
     expect(streamJsonPatchEntries).toHaveBeenCalledTimes(2);
     expect(getCachedEntries('proc-followup')).toBeDefined();
   });
+
+  it('finishes the history walk when isLoading flips mid-load on a cached revisit', async () => {
+    const slow = makeFinishedProcess('proc-slow');
+    const cached = makeFinishedProcess('proc-cached');
+
+    setCachedExecutionProcesses('ws-1', [slow, cached]);
+    // 11 entries > MIN_INITIAL_ENTRIES (10): the initial paint stops after the
+    // cached process, leaving the UNCACHED slow process for the background
+    // batch — that batch blocks on its stream, which is exactly where the
+    // isLoading true -> false flip must land.
+    setCachedEntries(
+      'proc-cached',
+      Array.from({ length: 11 }, (_, i) => ({
+        ...cachedEntry('proc-cached'),
+        patchKey: `proc-cached:${i}`,
+      }))
+    );
+
+    // The slow process's stream stays pending until the test resolves it;
+    // every other stream finishes immediately like the default mock.
+    const pendingStreams: Array<{
+      onFinished?: (entries: unknown[]) => void;
+    }> = [];
+    vi.mocked(streamJsonPatchEntries).mockImplementation(
+      (url: string, opts: { onFinished?: (entries: unknown[]) => void }) => {
+        if (url.includes('proc-slow')) {
+          pendingStreams.push(opts);
+          return { close: () => {} };
+        }
+        const controller = { close: () => {} };
+        const sampleEntry = {
+          type: 'NORMALIZED_ENTRY',
+          content: { entry_type: { type: 'user_message' }, content: 'x' },
+        };
+        Promise.resolve().then(() => opts.onFinished?.([sampleEntry]));
+        return controller;
+      }
+    );
+
+    const onTimelineUpdated = vi.fn();
+    let context = makeLoadingContext();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ExecutionProcessesContext.Provider value={context}>
+        {children}
+      </ExecutionProcessesContext.Provider>
+    );
+
+    const { result, rerender } = renderHook(
+      () => useConversationHistory({ onTimelineUpdated, scopeKey: 'ws-1' }),
+      { wrapper }
+    );
+
+    // The background batch is now blocked on proc-slow's stream.
+    await waitFor(() =>
+      expect(streamJsonPatchEntries).toHaveBeenCalledTimes(1)
+    );
+    await waitFor(() => expect(result.current.isLoadingHistory).toBe(true));
+
+    // The live process snapshot arrives mid-walk (isLoading true -> false).
+    // This effect-dependency churn must NOT abort the walk.
+    context = makeContextList([slow, cached]);
+    await act(async () => {
+      rerender();
+    });
+
+    // The blocked stream completes; the walk must finish, emit the historic
+    // batch, and clear isLoadingHistory (it used to strand at true forever).
+    await act(async () => {
+      for (const opts of pendingStreams) {
+        opts.onFinished?.([cachedEntry('proc-slow')]);
+      }
+      pendingStreams.length = 0;
+    });
+
+    await waitFor(() => expect(result.current.isLoadingHistory).toBe(false));
+    expect(onTimelineUpdated).toHaveBeenCalledWith(
+      expect.anything(),
+      'historic',
+      false
+    );
+    expect(getCachedEntries('proc-slow')).toBeDefined();
+  });
 });
