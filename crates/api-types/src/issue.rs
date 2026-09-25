@@ -196,6 +196,13 @@ pub struct SearchIssuesRequest {
     #[ts(optional)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i32>,
+    /// Ask for the lean projection: `description` and `extension_metadata`
+    /// come back `null` so large lists don't ship the two free-text columns.
+    /// Filters/sort still run over the full rows, so a `search` term keeps
+    /// matching the description even in minimal mode.
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimal: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

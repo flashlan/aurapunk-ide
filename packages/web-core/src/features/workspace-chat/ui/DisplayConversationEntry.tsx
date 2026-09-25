@@ -24,6 +24,10 @@ import { useTheme } from '@/shared/hooks/useTheme';
 import WYSIWYGEditor from '@/shared/components/WYSIWYGEditor';
 import { useMessageEditContext } from '../model/contexts/MessageEditContext';
 import type { UseResetProcessResult } from '../model/hooks/useResetProcess';
+import {
+  useHydrateThinking,
+  useHydrateThinkingGroup,
+} from '../model/historicEntries';
 import { useChangesViewActions } from '@/shared/hooks/useChangesView';
 import { useLogsPanelActions } from '@/shared/hooks/useLogsPanel';
 import { cn } from '@/shared/lib/utils';
@@ -1132,6 +1136,12 @@ function ThinkingMessageEntry({
     thinkingExpanded
   );
 
+  // The server withholds thinking content until asked for — it is the single
+  // largest part of a reasoning transcript and most turns are never opened.
+  // `expansionKey` is the entry's patch key (`<processId>:<index>`), which is
+  // exactly what the hydration call needs.
+  useHydrateThinking(expanded, content, expansionKey);
+
   return (
     <ChatThinkingMessage
       content={content}
@@ -1387,7 +1397,9 @@ function AggregatedThinkingGroupEntry({
   );
   const [isHovered, setIsHovered] = useState(false);
 
-  // Extract thinking entries from the group
+  // Server withholds thinking content until asked for — hydrate the whole
+  // group the first time it is opened (see `ThinkingMessageEntry`).
+  useHydrateThinkingGroup(expanded, group.entries);
   const thinkingEntries = useMemo(() => {
     return group.entries
       .filter((entry) => entry.type === 'NORMALIZED_ENTRY')

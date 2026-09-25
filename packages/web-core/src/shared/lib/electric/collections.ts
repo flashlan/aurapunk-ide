@@ -1,8 +1,23 @@
 import { createCollection } from '@tanstack/react-db';
 
 import { makeRequest } from '@/shared/lib/remoteApi';
-import type { MutationDefinition, ShapeDefinition } from 'shared/remote-types';
+import {
+  ISSUE_COMMENT_MUTATION,
+  ISSUE_MUTATION,
+  ISSUE_RELATIONSHIP_MUTATION,
+  ISSUE_TAG_MUTATION,
+  PROJECT_MUTATION,
+  PROJECT_STATUS_MUTATION,
+  PULL_REQUEST_ISSUE_MUTATION,
+  TAG_MUTATION,
+  type MutationDefinition,
+  type ShapeDefinition,
+} from 'shared/remote-types';
 import type { CollectionConfig, SyncError } from '@/shared/lib/electric/types';
+import {
+  subscribeKanbanDeltas,
+  supportsKanbanDeltas,
+} from '@/shared/lib/electric/kanbanDelta';
 
 type ElectricRow = Record<string, unknown> & { [key: string]: unknown };
 
@@ -43,6 +58,47 @@ const FALLBACK_REFRESH_INTERVAL_MS = 30 * 1000;
 const collectionCache = new Map<string, ReturnType<typeof createCollection>>();
 const sourceRuntimes = new Map<string, SourceRuntime>();
 const fallbackSnapshotCache = new Map<string, ElectricRow[]>();
+
+/**
+ * Table → mutation definition.
+ *
+ * Collection ids used to include a `-mut` suffix derived from the CALL SITE,
+ * so a read-only consumer (sidebar tree, breadcrumb, drag lookup) and the
+ * mutating provider for the same table built TWO independent collections:
+ * two row sets in memory and two 30 s pollers fetching identical rows. Keying
+ * the decision off the table instead makes `hasMutations` a property of the
+ * table, so every consumer of that table converges on ONE collection. The
+ * handlers themselves stay inert unless someone actually writes through
+ * `useShape(shape, params, { mutation })`.
+ */
+const mutationsByTable = new Map<
+  string,
+  MutationDefinition<unknown, unknown, unknown>
+>([
+  ['projects', PROJECT_MUTATION],
+  ['tags', TAG_MUTATION],
+  ['project_statuses', PROJECT_STATUS_MUTATION],
+  ['issues', ISSUE_MUTATION],
+  ['issue_tags', ISSUE_TAG_MUTATION],
+  ['issue_relationships', ISSUE_RELATIONSHIP_MUTATION],
+  ['issue_comments', ISSUE_COMMENT_MUTATION],
+  ['pull_request_issues', PULL_REQUEST_ISSUE_MUTATION],
+]);
+
+function resolveMutation(
+  table: string,
+  explicit?: MutationDefinition<unknown, unknown, unknown>
+): MutationDefinition<unknown, unknown, unknown> | undefined {
+  const registered = mutationsByTable.get(table);
+  if (registered) return registered;
+  if (explicit) {
+    // A table not catalogued yet: adopt the call site's definition so its
+    // next consumer resolves to the same object (and thus the same id).
+    mutationsByTable.set(table, explicit);
+    return explicit;
+  }
+  return undefined;
+}
 
 class ErrorHandler {
   private lastErrorTime = 0;
@@ -230,6 +286,30 @@ function applySnapshot(syncParams: SyncParams, rows: ElectricRow[]): void {
   syncParams.markReady();
 }
 
+/**
+ * Keep the warm-restart snapshot cache in step with live deltas. It is the
+ * rows a remount paints before its first fetch lands, so a change that only
+ * arrives over the WebSocket must be reflected here too — otherwise the next
+ * mount briefly resurrects the pre-change row.
+ */
+function patchSnapshotCache(
+  sourceKey: string,
+  op: 'upsert' | 'delete',
+  row: ElectricRow | null,
+  id: string
+): void {
+  const rows = fallbackSnapshotCache.get(sourceKey);
+  if (!rows) return;
+  const index = rows.findIndex((candidate) => getRowKey(candidate) === id);
+  if (op === 'delete') {
+    if (index !== -1) rows.splice(index, 1);
+    return;
+  }
+  if (!row) return;
+  if (index !== -1) rows[index] = row;
+  else rows.push(row);
+}
+
 function extractFallbackRows(
   payload: unknown,
   table: string
@@ -271,13 +351,70 @@ function createFallbackSync(args: {
     let isCleanedUp = false;
     let refreshPromise: Promise<void> | null = null;
     let hasPendingRefresh = false;
+    // Rows the collection currently holds. Deltas need it to choose between
+    // `insert` and `update`, and to drop fan-out tombstones for ids that were
+    // never on this board (the server broadcasts junction-table deletes to
+    // every project because the owning project can no longer be resolved
+    // after the row is gone).
+    const knownIds = new Set<string>();
+    /** True only once a snapshot has actually arrived over the socket. */
+    let deltaLive = false;
+    /** Bumped by every WebSocket snapshot so an in-flight REST read can tell
+     *  it was overtaken and drop its stale result instead of reverting rows
+     *  the socket already delivered. */
+    let deltaSnapshotGeneration = 0;
+    let unsubscribeDelta: (() => void) | null = null;
+
+    const applyTrackedSnapshot = (rows: ElectricRow[]): void => {
+      knownIds.clear();
+      for (const row of rows) knownIds.add(getRowKey(row));
+      applySnapshot(syncParams, rows);
+    };
+
+    const applyDelta = (
+      op: 'upsert' | 'delete',
+      row: ElectricRow | null,
+      id: string
+    ): void => {
+      patchSnapshotCache(args.sourceKey, op, row, id);
+
+      if (op === 'delete') {
+        // Fan-out tombstones carry no project (the owning project can't be
+        // resolved after a junction row is gone), so a delete for an id this
+        // board never held belongs to another project — ignore it.
+        if (!knownIds.has(id)) return;
+        knownIds.delete(id);
+        syncParams.begin();
+        syncParams.write({ type: 'delete', value: { id }, metadata: {} });
+        syncParams.commit();
+        return;
+      }
+
+      if (!row) return;
+      const key = getRowKey(row);
+      const existed = knownIds.has(key);
+      knownIds.add(key);
+      syncParams.begin();
+      syncParams.write({
+        type: existed ? 'update' : 'insert',
+        value: row,
+        metadata: {},
+      });
+      syncParams.commit();
+    };
 
     const refreshNow = async () => {
+      // While the delta stream is live it delivers every change already; a
+      // truncate-based snapshot on top of it would only re-download the whole
+      // table and race with in-flight deltas.
+      if (deltaLive) return;
+
       if (refreshPromise) {
         hasPendingRefresh = true;
         return refreshPromise;
       }
 
+      const generationAtStart = deltaSnapshotGeneration;
       refreshPromise = (async () => {
         try {
           let latestRows: Array<ElectricRow> | null = null;
@@ -312,7 +449,12 @@ function createFallbackSync(args: {
           // visually reverting the card the operator just moved. Clearing
           // first lets that refresh start a genuinely new fetch.
           refreshPromise = null;
-          applySnapshot(syncParams, latestRows);
+          if (deltaSnapshotGeneration !== generationAtStart) {
+            // A WebSocket snapshot overtook this read: ours is stale, and the
+            // socket (plus the deltas still to come) is already the truth.
+            return;
+          }
+          applyTrackedSnapshot(latestRows);
 
           // A caller asked for freshness while we were applying: run once
           // more so the state it expected (its own write) is what lands.
@@ -344,12 +486,45 @@ function createFallbackSync(args: {
 
     const cachedRows = fallbackSnapshotCache.get(args.sourceKey);
     if (cachedRows) {
-      applySnapshot(syncParams, cachedRows);
+      applyTrackedSnapshot(cachedRows);
     }
 
     void refreshNow();
 
+    const projectId = args.params.project_id;
+    if (supportsKanbanDeltas(args.shape.table) && projectId) {
+      unsubscribeDelta = subscribeKanbanDeltas({
+        table: args.shape.table,
+        projectId,
+        minimal: args.params.minimal === '1',
+        onSnapshot: (rows) => {
+          if (isCleanedUp) return;
+          deltaLive = true;
+          deltaSnapshotGeneration += 1;
+          const next = rows as ElectricRow[];
+          fallbackSnapshotCache.set(args.sourceKey, next);
+          applyTrackedSnapshot(next);
+        },
+        onEvent: (op, row, id) => {
+          if (isCleanedUp) return;
+          applyDelta(op, row as ElectricRow | null, id);
+        },
+        onStateChange: (state) => {
+          if (isCleanedUp) return;
+          if (state === 'open') return; // liveness is decided by the snapshot
+          if (!deltaLive) return;
+          deltaLive = false;
+          // The stream dropped: catch up with one immediate read, then the
+          // interval below takes over again until it reconnects.
+          void refreshNow();
+        },
+      });
+    }
+
     const intervalId = globalThis.setInterval(() => {
+      // Delta stream live → it already delivers every change; polling would
+      // only re-download the whole table every 30 s.
+      if (deltaLive) return;
       void refreshNow();
     }, FALLBACK_REFRESH_INTERVAL_MS);
 
@@ -358,6 +533,8 @@ function createFallbackSync(args: {
         isCleanedUp = true;
         globalThis.clearInterval(intervalId);
         unregisterRefresher();
+        unsubscribeDelta?.();
+        unsubscribeDelta = null;
       },
       loadSubset: () => true,
     };
@@ -476,7 +653,8 @@ export function createShapeCollection<TRow extends ElectricRow>(
   config?: CollectionConfig,
   mutation?: MutationDefinition<unknown, unknown, unknown>
 ) {
-  const hasMutations = Boolean(mutation);
+  const effectiveMutation = resolveMutation(shape.table, mutation);
+  const hasMutations = Boolean(effectiveMutation);
   const collectionId = buildCollectionId(shape.table, params, hasMutations);
   const sourceKey = buildSourceKey(shape.table, params);
 
@@ -486,8 +664,8 @@ export function createShapeCollection<TRow extends ElectricRow>(
   }
 
   const reportError = createErrorReporter(config);
-  const mutationHandlers = mutation
-    ? buildMutationHandlers(mutation, sourceKey)
+  const mutationHandlers = effectiveMutation
+    ? buildMutationHandlers(effectiveMutation, sourceKey)
     : {};
 
   const collection = createCollection({

@@ -40,6 +40,7 @@ Rules:
 - [x] **Done** — Send now no chat mantendo Queue e Stop (`vk/340d-send-now`)
 - [x] **Done** — Fast Jev Compaction plugin com fallback Laya como classificador e POC (`vk/cae6-jev-plugin`)
 - [x] **Done** — Chat travado ao subir mensagens anteriores: race do cache que estrangula isLoadingHistory e aborta o walk de histórico (`vk/3a4e-caht-da-uam-tr`)
+- [x] **Done** — Carregamento sob demanda + sync por diff: projeção `?minimal=1`, gate da sidebar, cache de transcript normalizado, janela de histórico, thinking sob demanda, WS kanban com deltas (`vk/4a2c-corrigir-ram`)
 
 ## Card Pipeline Protocol (MCP)
 
@@ -324,3 +325,53 @@ fixed them. Newest last.
 - **Diagnóstico:** o DOM foi inspecionado com Chrome headless via CDP contra o
   app real (`--remote-debugging-port`), capturando `document.querySelectorAll('button')`
   e o fim do `document.body.innerText` enquanto a pergunta estava pendente.
+
+### 2026-09-25 — RAM: chat sob demanda + delta do kanban (vk/4a2c-corrigir-ram)
+- **Medição que motivou o card:** `~/.vibe-kanban/.../sessions/` tem **1,0 GB
+  em 419 `.jsonl`**; a maior sessão tem 171 MB em 77 processos. Quebrando os 5
+  maiores arquivos: **27,15 MB / 87.612 eventos são `message.part.delta`**
+  contra 1,59 MB de `part.updated` + 0,68 MB de `message.updated` — ~90% do log
+  bruto é ruído de streaming, e o que sobrevive à normalização é ~2,3 MB onde o
+  bruto tem ~30 MB.
+- **O que rodava a cada abertura de chat (por processo):** JSONL inteiro como
+  `String` → `Vec<LogMsg>` → `MsgStore` temporário (cada `push` clona para o
+  ring de 100k do broadcast = 2ª cópia) → `ensure_container_exists` (recriava
+  o worktree) → normalizador do executor (3ª cópia) → `get_history()` clona de
+  novo por conexão. No cliente: objetos JS por entrada (inflação ~3-5x),
+  `filteredEntries`/`rows` recriados a cada rAF, `scriptOutputCache` com o
+  stdout íntegro, e a transcript inteira em `localStorage`.
+- **Cache do transcript normalizado** (`services/normalized_transcript.rs`):
+  sidecar `<processo>.normalized.json` ao lado do bruto, chaveado por
+  (size, mtime) do JSONL, escrito só quando a coleta completa. `ContainerService::normalized_transcript`
+  consulta loja em memória → cache → normalização; `stream_normalized_logs` só
+  faz replay. Corta re-parse, `MsgStore` temporário, worktree e re-normalizar.
+- **Janela em vez de transcript inteira:** novo
+  `GET /api/execution-processes/{id}/entries?from_index=&limit=&include_thinking=`
+  serve um recorte do materializado; `useConversationHistory` passou a buscar
+  janelas (`HISTORIC_WINDOW_ENTRIES = 200`) por HTTP, com page-up no scroll
+  (`loadOlderWindow`) em vez do walk em background. O WS por processo continua
+  só no reload after-finish (processo ainda com store em memória).
+- **Thinking sob demanda:** o servidor devolve `content` de `thinking` vazio e
+  marca `thinking_omitted`; `DisplayConversationEntry` busca com
+  `include_thinking=true` no expand e o hook reaplica via `onThinkingHydrated`.
+- **Kanban por delta:** `HookTables` ganhou `issues`/`project_statuses`/
+  `kanban_tags`/`issue_tags`/`issue_relationships`; eles publicam em um bus
+  próprio (`events/kanban.rs`, `KanbanEvent.seq`) em vez do `MsgStore` global
+  de ~100 MB. Novo `GET /api/kanban/stream/ws?project_id=` manda snapshot +
+  deltas com reset-on-gap em `Lagged`; `createFallbackSync` assina e aplica
+  `write({type:'insert'|'update'|'delete'})`, desligando o poll de 30 s enquanto
+  o socket está vivo. `pull_requests`/`pull_request_issues`/`issue_comments`/
+  `projects` ficam no poll (sem `project_id` direto).
+- **Sidebar/colunas:** `?minimal=1` em `/v1/fallback/issues` devolve só as
+  colunas escalares (sem `description`/`extension_metadata`) para a árvore; o
+  loader de Tasks passou a habilitar só por seção expandida/projeto ativo
+  (antes: todos os projetos no boot); coleções `-mut` unificadas por tabela em
+  `collections.ts`, cortando pela metade os polls duplicados.
+- **Boot:** `RootRedirectPage` volta para o kanban (projeto salvo) em vez do
+  último workspace — abrir workspace montava o chat e dispara WS de transcript.
+- **Lint pré-existente vermelho (não tocados neste card):**
+  `sessions/queue.rs:125` (unused `axum::Json`), `services/queued_message.rs:126`
+  (`items_after_test_module`), `routes/config.rs:633` (match não exaustivo sob
+  `--features qa-mode`), e 4 arquivos fora do Prettier
+  (`sessionCompactor.test.ts`, `CloudAuthActions.tsx`, `CloudAuthDialog.tsx`,
+  `promptMessage.ts`). Todos são idênticos ao HEAD.

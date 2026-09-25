@@ -117,7 +117,20 @@ export type ExecutionProcessStaticInfo = {
 
 export type ExecutionProcessState = {
   executionProcess: ExecutionProcessStaticInfo;
+  /** Held window of the transcript — NOT necessarily the whole thing. */
   entries: PatchTypeWithKey[];
+  /**
+   * Transcript index of `entries[0]`. The server's real position, so the
+   * window can be extended upward (older) without renumbering patch keys.
+   * Absent means "loaded from the start" (`0`).
+   */
+  startIndex?: number;
+  /** Total entries the server has for this process. */
+  totalEntries?: number;
+  /** Older entries exist above the held window — the scroll loader can page. */
+  hasOlder?: boolean;
+  /** At least one held entry is a thinking entry whose content was withheld. */
+  thinkingOmitted?: boolean;
 };
 
 export type ExecutionProcessStateStore = Record<string, ExecutionProcessState>;

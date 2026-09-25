@@ -12,10 +12,20 @@ import {
   setCachedExecutionProcesses,
   setCachedEntries,
 } from '@/features/workspace-chat/model/conversationEntryCache';
+import {
+  CACHEABLE_TRANSCRIPT_ENTRIES,
+  FULL_TRANSCRIPT_LIMIT,
+  HISTORIC_WINDOW_ENTRIES,
+  fetchHistoricWindow,
+  onThinkingHydrated,
+  toKeyedEntries,
+} from '@/features/workspace-chat/model/historicEntries';
 import type {
   AddEntryType,
   ConversationTimelineSource,
+  ExecutionProcessState,
   ExecutionProcessStateStore,
+  PatchTypeWithKey,
   UseConversationHistoryParams,
 } from '@/shared/hooks/useConversationHistory/types';
 
@@ -23,8 +33,19 @@ import type {
 export interface UseConversationHistoryResult {
   /** Whether the conversation only has a single coding agent turn (no follow-ups) */
   isFirstTurn: boolean;
-  /** Whether background batches are still loading older history entries */
+  /** Whether an older-history batch is being fetched right now */
   isLoadingHistory: boolean;
+  /**
+   * Whether older history remains. Drives the scroll-directed loader: the hook
+   * paints only the initial budgeted window and waits to be asked.
+   */
+  hasMoreHistory: boolean;
+  /**
+   * Fetch the next older window. Resolves `true` when more history may still
+   * remain. Safe to call concurrently — a second call while one is in flight
+   * is a no-op.
+   */
+  loadOlderBatch: () => Promise<boolean>;
 }
 
 function isConversationProcess(
@@ -38,22 +59,6 @@ function isConversationProcess(
   );
 }
 
-function countConversationEntries(
-  executionProcessState: ExecutionProcessStateStore
-): number {
-  return Object.values(executionProcessState).reduce(
-    (count, processState) =>
-      isConversationProcess(processState.executionProcess)
-        ? count + processState.entries.length
-        : count,
-    0
-  );
-}
-
-function yieldToBrowser(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 const HISTORIC_STREAM_TIMEOUT_MS = 15_000;
 const INITIAL_HISTORY_LOAD_BUDGET_MS = 5_000;
 
@@ -65,10 +70,7 @@ type HistoricEntriesResult = {
 type ConversationStreamController = ReturnType<
   typeof streamJsonPatchEntries<PatchType>
 >;
-import {
-  MIN_INITIAL_ENTRIES,
-  REMAINING_BATCH_SIZE,
-} from '@/shared/hooks/useConversationHistory/constants';
+import { MIN_INITIAL_ENTRIES } from '@/shared/hooks/useConversationHistory/constants';
 
 export const useConversationHistory = ({
   onTimelineUpdated,
@@ -110,6 +112,13 @@ export const useConversationHistory = ({
     new Set()
   );
   const [isLoadingHistoryState, setIsLoadingHistory] = useState(false);
+  const [hasMoreHistoryState, setHasMoreHistory] = useState(false);
+  const hasMoreHistoryRef = useRef(false);
+  const olderBatchInFlightRef = useRef(false);
+  const setHasMoreHistoryBoth = useCallback((value: boolean) => {
+    hasMoreHistoryRef.current = value;
+    setHasMoreHistory(value);
+  }, []);
   // Distinguishes "this walk's scope is gone" from "the effect re-ran because
   // a volatile dependency (isLoading) changed". Only a scope change or
   // unmount bumps the token; a same-scope dependency flip must let the walk
@@ -245,6 +254,85 @@ export const useConversationHistory = ({
     };
   };
 
+  /**
+   * Read one window of a finished process's transcript.
+   *
+   * Conversation processes are windowed: the server hands back at most
+   * `HISTORIC_WINDOW_ENTRIES` entries and the scroll loader pages upward, so
+   * opening a workspace never materializes every entry it ever produced.
+   * Script processes (setup/cleanup/archivescript) are the exception — their
+   * whole output is rendered as one turn, so truncating it would silently
+   * rewrite what the operator sees.
+   *
+   * `fromIndex` omitted means "the newest window", which is what a first paint
+   * wants.
+   */
+  const loadHistoricWindow = useCallback(
+    async (
+      executionProcess: ExecutionProcess,
+      fromIndex?: number,
+      limit?: number
+    ): Promise<ExecutionProcessState | null> => {
+      const isScript =
+        executionProcess.executor_action.typ.type === 'ScriptRequest';
+
+      if (fromIndex === undefined && !isScript) {
+        const cached = getCachedEntries(executionProcess.id);
+        if (cached) {
+          return {
+            executionProcess,
+            entries: cached,
+            startIndex: 0,
+            totalEntries: cached.length,
+            hasOlder: false,
+          };
+        }
+      }
+
+      try {
+        const window = await fetchHistoricWindow({
+          processId: executionProcess.id,
+          fromIndex: fromIndex ?? (isScript ? 0 : undefined),
+          limit:
+            limit ??
+            (isScript ? FULL_TRANSCRIPT_LIMIT : HISTORIC_WINDOW_ENTRIES),
+        });
+        const entries = toKeyedEntries(window, executionProcess.id);
+
+        // Only a window that covers the whole transcript and fits the budget
+        // is worth pinning: a partial window must never be mistaken for the
+        // whole thing on the next visit, and a multi-thousand-entry run has no
+        // business living in localStorage.
+        if (
+          fromIndex === undefined &&
+          window.from_index === 0 &&
+          window.end_index >= window.total_entries &&
+          window.total_entries <= CACHEABLE_TRANSCRIPT_ENTRIES
+        ) {
+          setCachedEntries(executionProcess.id, entries);
+        }
+
+        return {
+          executionProcess,
+          entries,
+          startIndex: window.from_index,
+          totalEntries: window.total_entries,
+          hasOlder: window.next_from_index !== null,
+          thinkingOmitted: window.entries.some(
+            (entry) => entry.thinking_omitted
+          ),
+        };
+      } catch (error) {
+        console.warn(
+          `Failed to read transcript window for ${executionProcess.id}`,
+          error
+        );
+        return null;
+      }
+    },
+    []
+  );
+
   const getActiveAgentProcesses = (): ExecutionProcess[] => {
     return (
       executionProcesses?.current.filter(
@@ -379,32 +467,15 @@ export const useConversationHistory = ({
           continue;
         if (deadline !== null && Date.now() >= deadline) break;
 
-        let entriesWithKey = getCachedEntries(executionProcess.id);
-        if (!entriesWithKey) {
-          const remainingMs =
-            deadline === null ? undefined : Math.max(1, deadline - Date.now());
-          const result = await loadEntriesForHistoricExecutionProcess(
-            executionProcess,
-            remainingMs
-          );
-          // Do not put an incomplete process in the displayed set. The
-          // background loader can retry it immediately after the first paint.
-          if (!result.complete) break;
-          entriesWithKey = result.entries.map((e, idx) =>
-            patchWithKey(e, executionProcess.id, idx)
-          );
-          if (result.complete) {
-            setCachedEntries(executionProcess.id, entriesWithKey);
-          }
-        }
-
-        localDisplayedExecutionProcesses[executionProcess.id] = {
-          executionProcess,
-          entries: entriesWithKey,
-        };
+        // A null window is a cold failure (first-ever open still normalizing
+        // server-side). Stop rather than skipping ahead: the retry below picks
+        // this process up again once the cache exists.
+        const state = await loadHistoricWindow(executionProcess);
+        if (!state) break;
+        localDisplayedExecutionProcesses[executionProcess.id] = state;
 
         if (isConversationProcess(executionProcess)) {
-          loadedConversationEntries += entriesWithKey.length;
+          loadedConversationEntries += state.entries.length;
         }
 
         if (maxEntries != null && loadedConversationEntries > maxEntries) {
@@ -414,60 +485,74 @@ export const useConversationHistory = ({
 
       return localDisplayedExecutionProcesses;
     },
-    [executionProcesses, loadEntriesForHistoricExecutionProcess]
+    [executionProcesses, loadHistoricWindow]
   );
 
-  const loadRemainingEntriesInBatches = useCallback(
-    async (batchSize: number): Promise<boolean> => {
-      if (!executionProcesses?.current) return false;
+  /**
+   * One scroll step of history: first extend the newest held window upward
+   * (that is the direction the reader is travelling), then pull the next older
+   * process they have not reached yet. Resolves `true` when something loaded.
+   */
+  const loadOlderWindow = useCallback(async (): Promise<boolean> => {
+    if (!executionProcesses?.current) return false;
+    const displayed = displayedExecutionProcesses.current;
 
-      let anyUpdated = false;
-      let loadedConversationEntries = countConversationEntries(
-        displayedExecutionProcesses.current
-      );
-      for (const executionProcess of [
-        ...executionProcesses.current,
-      ].reverse()) {
-        const current = displayedExecutionProcesses.current;
-        if (
-          current[executionProcess.id] ||
-          executionProcess.status === ExecutionProcessStatus.running
-        )
-          continue;
+    const held = executionProcesses.current.filter(
+      (executionProcess) =>
+        executionProcess.status !== ExecutionProcessStatus.running &&
+        displayed[executionProcess.id]
+    );
 
-        let entriesWithKey = getCachedEntries(executionProcess.id);
-        if (!entriesWithKey) {
-          const result =
-            await loadEntriesForHistoricExecutionProcess(executionProcess);
-          entriesWithKey = result.entries.map((e, idx) =>
-            patchWithKey(e, executionProcess.id, idx)
-          );
-          if (result.complete) {
-            setCachedEntries(executionProcess.id, entriesWithKey);
-          }
-        }
-
-        mergeIntoDisplayed((state) => {
-          state[executionProcess.id] = {
-            executionProcess,
-            entries: entriesWithKey,
-          };
+    for (const executionProcess of held.reverse()) {
+      const state = displayed[executionProcess.id];
+      if (!state?.hasOlder) continue;
+      const start = state.startIndex ?? 0;
+      if (start <= 0) {
+        mergeIntoDisplayed((draft) => {
+          const target = draft[executionProcess.id];
+          if (target) target.hasOlder = false;
         });
-
-        if (isConversationProcess(executionProcess)) {
-          loadedConversationEntries += entriesWithKey.length;
-        }
-
-        if (loadedConversationEntries > batchSize) {
-          anyUpdated = true;
-          break;
-        }
-        anyUpdated = true;
+        continue;
       }
-      return anyUpdated;
-    },
-    [executionProcesses, loadEntriesForHistoricExecutionProcess]
-  );
+
+      // Request exactly the range above the held window: asking for a full
+      // window when fewer entries remain would overlap and duplicate rows
+      // (and their patch keys).
+      const from = Math.max(0, start - HISTORIC_WINDOW_ENTRIES);
+      const older = await loadHistoricWindow(
+        executionProcess,
+        from,
+        start - from
+      );
+      if (!older) return false;
+
+      mergeIntoDisplayed((draft) => {
+        const target = draft[executionProcess.id];
+        if (!target) return;
+        target.entries = [...older.entries, ...target.entries];
+        target.startIndex = older.startIndex;
+        target.totalEntries = older.totalEntries;
+        target.hasOlder = older.hasOlder;
+        target.thinkingOmitted =
+          Boolean(target.thinkingOmitted) || Boolean(older.thinkingOmitted);
+      });
+      return true;
+    }
+
+    for (const executionProcess of [...executionProcesses.current].reverse()) {
+      if (displayed[executionProcess.id]) continue;
+      if (executionProcess.status === ExecutionProcessStatus.running) continue;
+
+      const state = await loadHistoricWindow(executionProcess);
+      if (!state) return false;
+      mergeIntoDisplayed((draft) => {
+        draft[executionProcess.id] = state;
+      });
+      return true;
+    }
+
+    return false;
+  }, [executionProcesses, loadHistoricWindow]);
 
   const ensureProcessVisible = useCallback((p: ExecutionProcess) => {
     mergeIntoDisplayed((state) => {
@@ -484,6 +569,79 @@ export const useConversationHistory = ({
       }
     });
   }, []);
+
+  /**
+   * Older history is still reachable when a held window has entries above it,
+   * or when a finished process has not been pulled in at all.
+   */
+  const hasOlderHistory = useCallback((): boolean => {
+    const displayed = displayedExecutionProcesses.current;
+    for (const executionProcess of executionProcesses.current ?? []) {
+      if (executionProcess.status === ExecutionProcessStatus.running) continue;
+      const state = displayed[executionProcess.id];
+      if (!state) return true;
+      if (state.hasOlder) return true;
+    }
+    return false;
+  }, []);
+
+  // One scroll step of history. The old behaviour walked every remaining
+  // process in a background loop right after the initial paint — a cold
+  // workspace paid for its ENTIRE transcript (one websocket + normalisation
+  // pass per process) whether or not the operator ever scrolled up. The loop
+  // is gone; this is the only way older history is fetched now, driven by the
+  // reader reaching the top of the list.
+  const loadOlderBatch = useCallback(async (): Promise<boolean> => {
+    if (olderBatchInFlightRef.current) return hasMoreHistoryRef.current;
+    if (!hasMoreHistoryRef.current) return false;
+
+    const token = historyLoadTokenRef.current;
+    olderBatchInFlightRef.current = true;
+    setIsLoadingHistory(true);
+    try {
+      const progressed = await loadOlderWindow();
+      if (historyLoadTokenRef.current !== token) return false;
+      if (progressed) {
+        emitEntries(displayedExecutionProcesses.current, 'historic', false);
+      }
+      const more = hasOlderHistory();
+      setHasMoreHistoryBoth(more);
+      return more;
+    } finally {
+      // A batch that outlived its scope must not clear the in-flight flag the
+      // replacement walk for the new scope now owns.
+      if (historyLoadTokenRef.current === token) {
+        olderBatchInFlightRef.current = false;
+        setIsLoadingHistory(false);
+      }
+    }
+  }, [loadOlderWindow, emitEntries, hasOlderHistory, setHasMoreHistoryBoth]);
+
+  // Thinking content is withheld by default — it is the single largest part of
+  // a reasoning-heavy transcript and most turns are never opened. When the
+  // operator expands a collapsed entry the display layer fetches the real
+  // content and lands here, so the row re-renders in place without re-reading
+  // the window.
+  useEffect(() => {
+    return onThinkingHydrated((processId, index, content) => {
+      const state = displayedExecutionProcesses.current[processId];
+      if (!state) return;
+      const position = state.entries.findIndex(
+        (entry) => entry.patchKey === `${processId}:${index}`
+      );
+      if (position === -1) return;
+
+      const current = state.entries[position] as PatchTypeWithKey | undefined;
+      if (!current || current.type !== 'NORMALIZED_ENTRY') return;
+
+      state.entries[position] = {
+        ...current,
+        content: { ...current.content, content },
+      };
+      state.thinkingOmitted = false;
+      emitEntries(displayedExecutionProcesses.current, 'historic', false);
+    });
+  }, [emitEntries]);
 
   const idListKey = useMemo(
     () => executionProcessesForConversation.map((p) => p.id).join(','),
@@ -536,6 +694,8 @@ export const useConversationHistory = ({
   useEffect(() => {
     historyLoadTokenRef.current += 1;
     setIsLoadingHistory(false);
+    setHasMoreHistoryBoth(false);
+    olderBatchInFlightRef.current = false;
     displayedExecutionProcesses.current = {};
     loadedInitialEntries.current = false;
     initialHistoryLoadInFlightRef.current = false;
@@ -543,7 +703,7 @@ export const useConversationHistory = ({
     streamingProcessIdsRef.current.clear();
     previousStatusMapRef.current.clear();
     emitEntries(displayedExecutionProcesses.current, 'initial', true);
-  }, [scopeKey, emitEntries]);
+  }, [scopeKey, emitEntries, setHasMoreHistoryBoth]);
 
   // Abort any in-flight history walk after unmount so it neither emits into a
   // dead component nor keeps opening streams.
@@ -586,20 +746,10 @@ export const useConversationHistory = ({
         });
         emitEntries(displayedExecutionProcesses.current, 'initial', false);
 
-        setIsLoadingHistory(true);
-        // Let React paint the initial cached batch before walking older history.
-        // Without this yield, cache hits resolve as microtasks and a large
-        // conversation can starve the browser's next paint.
-        await yieldToBrowser();
-        while (!isStale()) {
-          const hasMore =
-            await loadRemainingEntriesInBatches(REMAINING_BATCH_SIZE);
-          if (!hasMore) break;
-          if (isStale()) return;
-          emitEntries(displayedExecutionProcesses.current, 'historic', false);
-          await yieldToBrowser();
-        }
-        if (!isStale()) setIsLoadingHistory(false);
+        // Everything older is fetched on demand when the reader reaches the
+        // top of the list (`loadOlderBatch`), not walked eagerly here. Only
+        // advertise that there IS something older so the scroll handler arms.
+        setHasMoreHistoryBoth(hasOlderHistory());
       } finally {
         // A walk that outlived its scope must not clear the in-flight flag a
         // replacement walk for the new scope already owns.
@@ -613,8 +763,9 @@ export const useConversationHistory = ({
     isLoading,
     cachedExecutionProcesses,
     loadHistoricEntries,
-    loadRemainingEntriesInBatches,
+    hasOlderHistory,
     emitEntries,
+    setHasMoreHistoryBoth,
   ]);
 
   useEffect(() => {
@@ -693,11 +844,18 @@ export const useConversationHistory = ({
           state[process.id] = {
             executionProcess: process,
             entries: entriesWithKey,
+            startIndex: 0,
+            totalEntries: entriesWithKey.length,
+            hasOlder: false,
           };
         });
-        // Cache only a completed stream; a timeout/error may contain a partial
-        // snapshot and must be retried on the next workspace visit.
-        if (result.complete) {
+        // Cache only a completed, comfortably-sized transcript: a partial
+        // snapshot must be retried on the next visit, and a multi-thousand
+        // entry run has no business living in localStorage.
+        if (
+          result.complete &&
+          entriesWithKey.length <= CACHEABLE_TRANSCRIPT_ENTRIES
+        ) {
           setCachedEntries(process.id, entriesWithKey);
         }
         anyUpdated = true;
@@ -736,5 +894,10 @@ export const useConversationHistory = ({
     }
   }, [scopeKey, idListKey, executionProcessesForConversation]);
 
-  return { isFirstTurn, isLoadingHistory: isLoadingHistoryState };
+  return {
+    isFirstTurn,
+    isLoadingHistory: isLoadingHistoryState,
+    hasMoreHistory: hasMoreHistoryState,
+    loadOlderBatch,
+  };
 };

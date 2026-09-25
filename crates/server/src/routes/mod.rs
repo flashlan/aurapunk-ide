@@ -43,6 +43,7 @@ pub mod health;
 pub mod instance;
 pub mod jev;
 pub mod kanban;
+pub mod kanban_stream;
 pub mod local_kanban;
 pub mod memory_migration;
 pub mod mobile_sync;
@@ -72,6 +73,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(pipelines::router())
         .merge(recurrent::router())
         .merge(kanban::router(&deployment))
+        .merge(kanban_stream::router())
         .merge(workspaces::router(&deployment))
         .merge(execution_processes::router(&deployment))
         .merge(tags::router(&deployment))

@@ -22,32 +22,16 @@ export function RootRedirectPage() {
 
       // Read saved selections imperatively to avoid re-triggering this effect
       // when the scratch store initializes from the server
-      const { selectedProjectId, lastWorkspaceId } =
-        useUiPreferencesStore.getState();
+      const { selectedProjectId } = useUiPreferencesStore.getState();
 
-      // "nao salva o workspace ao sair" — restore the last workspace
-      // the operator was on before closing the tab. localStorage is the
-      // source of truth before the scratch store hydrates.
-      let effectiveLastWorkspaceId: string | null = lastWorkspaceId;
-      if (!effectiveLastWorkspaceId) {
-        try {
-          effectiveLastWorkspaceId = localStorage.getItem(
-            'vk-last-workspace-id'
-          );
-        } catch {
-          effectiveLastWorkspaceId = null;
-        }
-      }
-      if (effectiveLastWorkspaceId) {
-        if (!isActive) return;
-        appNavigation.goToWorkspace(effectiveLastWorkspaceId, {
-          replace: true,
-        });
-        return;
-      }
-
-      // ADR-018 — projects are tenant-less, so the `savedOrgId` arg is
-      // dropped. Only the saved project id is consulted.
+      // Boot restores the KANBAN (last project → first project → workspaces
+      // create), never the last workspace. Mounting a workspace page also
+      // mounts the conversation panel, which opens one transcript WebSocket
+      // per historic execution process and walks the whole history — a large
+      // cold-start RAM/network spike for a surface the operator usually isn't
+      // looking at on launch. `lastWorkspaceId` (store + `vk-last-workspace-id`)
+      // stays persisted for the workspace routes themselves; it just no longer
+      // decides where boot lands.
       const destination = await getFirstProjectDestination(
         undefined,
         selectedProjectId

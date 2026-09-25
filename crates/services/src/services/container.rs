@@ -62,8 +62,23 @@ use uuid::Uuid;
 use crate::services::config::Config;
 use worktree_manager::WorktreeError;
 
-use crate::services::{execution_process, notification::NotificationService, speckit, token_usage};
+use crate::services::{
+    execution_process, normalized_transcript, notification::NotificationService, speckit,
+    token_usage,
+};
 pub type ContainerRef = String;
+
+/// Replay a fully-normalized transcript as the same patch stream a live
+/// process would have produced, terminated by `Finished`.
+fn replay_transcript(patches: Vec<Patch>) -> BoxStream<'static, Result<LogMsg, std::io::Error>> {
+    futures::stream::iter(
+        patches
+            .into_iter()
+            .map(|patch| Ok::<_, std::io::Error>(LogMsg::JsonPatch(patch)))
+            .chain(std::iter::once(Ok(LogMsg::Finished))),
+    )
+    .boxed()
+}
 
 #[derive(Debug, Error)]
 pub enum ContainerError {
@@ -1120,6 +1135,9 @@ pub trait ContainerService {
         }
     }
 
+    /// Live view of a process's normalized log. While the process still has an
+    /// in-memory `MsgStore` this is history + the live tail; otherwise the full
+    /// transcript is replayed from [`ContainerService::normalized_transcript`].
     async fn stream_normalized_logs(
         &self,
         id: &Uuid,
@@ -1136,6 +1154,59 @@ pub trait ContainerService {
                     .boxed(),
             )
         } else {
+            Some(replay_transcript(self.normalized_transcript(id).await?))
+        }
+    }
+
+    /// Full normalized transcript of a finished process, as the RFC6902
+    /// patches a client would have received. Resolved cheapest-first:
+    ///
+    /// 1. the in-memory `MsgStore`, while it is still resident;
+    /// 2. the sidecar cache written by an earlier normalization;
+    /// 3. raw log → worktree → executor normalizer, which then populates 2.
+    ///
+    /// Step 3 used to run on *every* chat open for *every* process: it re-read
+    /// the whole raw JSONL, pushes each message through a temporary `MsgStore`
+    /// (every push cloning into its 100k-slot broadcast ring), recreates the
+    /// worktree and re-runs the normalizer — to rebuild something a few percent
+    /// the size of what it just parsed. Measured locally, ~90% of a raw
+    /// opencode log is `message.part.delta` streaming noise.
+    async fn normalized_transcript(&self, id: &Uuid) -> Option<Vec<Patch>> {
+        if let Some(store) = self.get_msg_store_by_id(id).await {
+            return Some(
+                store
+                    .get_history()
+                    .into_iter()
+                    .filter_map(|msg| match msg {
+                        LogMsg::JsonPatch(patch) => Some(patch),
+                        _ => None,
+                    })
+                    .collect(),
+            );
+        }
+
+        let process = match ExecutionProcess::find_by_id(&self.db().pool, *id).await {
+            Ok(Some(process)) => process,
+            Ok(None) => {
+                tracing::error!("No execution process found for ID: {}", id);
+                return None;
+            }
+            Err(e) => {
+                tracing::error!("Failed to fetch execution process {}: {}", id, e);
+                return None;
+            }
+        };
+
+        let fingerprint = normalized_transcript::raw_fingerprint(process.session_id, *id).await;
+        if let Some(fingerprint) = fingerprint
+            && let Some(cached) =
+                normalized_transcript::load(process.session_id, *id, fingerprint).await
+        {
+            tracing::debug!("normalized transcript cache hit for {id}");
+            return Some(cached);
+        }
+
+        {
             let raw_messages =
                 execution_process::load_raw_log_messages(&self.db().pool, *id).await?;
 
@@ -1151,15 +1222,14 @@ pub trait ContainerService {
                 .iter()
                 .any(|message| matches!(message, LogMsg::Stdout(_) | LogMsg::Stderr(_)));
             if has_json_patches && !has_raw_output {
-                let stream = futures::stream::iter(
-                    raw_messages
-                        .into_iter()
-                        .filter(|message| matches!(message, LogMsg::JsonPatch(_)))
-                        .chain(std::iter::once(LogMsg::Finished))
-                        .map(Ok::<_, std::io::Error>),
-                )
-                .boxed();
-                return Some(stream);
+                let patches: Vec<Patch> = raw_messages
+                    .into_iter()
+                    .filter_map(|message| match message {
+                        LogMsg::JsonPatch(patch) => Some(patch),
+                        _ => None,
+                    })
+                    .collect();
+                return Some(patches);
             }
 
             // Create temporary store and populate
@@ -1174,18 +1244,6 @@ pub trait ContainerService {
                 }
             }
             temp_store.push_finished();
-
-            let process = match ExecutionProcess::find_by_id(&self.db().pool, *id).await {
-                Ok(Some(process)) => process,
-                Ok(None) => {
-                    tracing::error!("No execution process found for ID: {}", id);
-                    return None;
-                }
-                Err(e) => {
-                    tracing::error!("Failed to fetch execution process {}: {}", id, e);
-                    return None;
-                }
-            };
 
             // Get the workspace to determine correct directory
             let (workspace, _session) =
@@ -1356,7 +1414,40 @@ pub trait ContainerService {
                 Ok::<_, std::io::Error>(LogMsg::Finished)
             }));
 
-            Some(deduped.boxed())
+            // Collect rather than stream back: the result is cached for the
+            // next open, and a finished process has no live tail to get ahead
+            // of. Holding the normalized output once is far cheaper than the
+            // parse/clone/re-normalize pass it replaces.
+            let mut patches: Vec<Patch> = Vec::new();
+            let mut complete = false;
+            let mut stream = Box::pin(deduped);
+            while let Some(item) = stream.next().await {
+                match item {
+                    Ok(LogMsg::JsonPatch(patch)) => patches.push(patch),
+                    Ok(LogMsg::Finished) => {
+                        complete = true;
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(err) => {
+                        tracing::warn!("normalized transcript failed for {id}: {err}");
+                        break;
+                    }
+                }
+            }
+
+            if complete {
+                if let Some(fingerprint) = fingerprint {
+                    normalized_transcript::store(process.session_id, *id, fingerprint, &patches)
+                        .await;
+                }
+            } else {
+                // An incomplete transcript must never be cached — the client
+                // would keep a truncated conversation forever.
+                tracing::warn!("normalized transcript incomplete for {id}; not caching");
+            }
+
+            Some(patches)
         }
     }
 

@@ -814,6 +814,7 @@ export function SharedAppLayout() {
         <KanbanDragHandlerProvider value={providerValue}>
           <SidebarProjectTasksRegistry
             projectIds={realProjectIds}
+            activeProjectId={activeProjectId}
             onTasksByProject={handleTasksByProject}
             onLoadingTasksProjectIds={handleLoadingTasks}
           />
