@@ -28,6 +28,8 @@ import {
 import {
   NEAR_BOTTOM_THRESHOLD_PX,
   isNearBottom,
+  shouldReleaseBottomLock,
+  shouldResumeFollow,
 } from './conversation-scroll-commands';
 
 // TanStack Virtual's ScrollBehavior ('auto' | 'smooth' | 'instant') shadows
@@ -276,29 +278,41 @@ export function useConversationVirtualizer({
 
     const handleScroll = () => {
       const currentScrollTop = el.scrollTop;
+      const prevScrollTop = prevScrollTopRef.current;
 
-      // Release bottom lock on any user-initiated upward scroll.
-      // Guards prevent false positives from programmatic scroll sources:
-      // - smoothScrollDeadlineRef: set during scrollToBottom('smooth')
-      // - shouldSuppressSizeAdjustment: set during interaction anchor corrections
-      // - 5px threshold: filters input-resize micro-adjustments
+      // Release the terminal lock on ANY user scroll that leaves the bottom
+      // — wheel capture already does this, but scrollbar drags and keyboard
+      // scrolling only pass through here. Pause follow at the same time: a
+      // streaming follow-bottom must not yank the reader straight back down
+      // (the old time-based guard was re-armed by every emit, so release was
+      // starved while streaming and every scroll snapped to the end).
       if (
-        bottomLockedRef.current &&
-        prevScrollTopRef.current - currentScrollTop > 5 &&
-        performance.now() > smoothScrollDeadlineRef.current &&
-        !shouldSuppressSizeAdjustment?.()
+        shouldReleaseBottomLock(
+          bottomLockedRef.current,
+          prevScrollTop,
+          currentScrollTop,
+          el.scrollHeight - el.clientHeight,
+          shouldSuppressSizeAdjustment?.() ?? false
+        )
       ) {
         bottomLockedRef.current = false;
+        userScrollPausedRef.current = true;
       }
 
       prevScrollTopRef.current = currentScrollTop;
 
-      // A manual scroll pauses live follow. If the user later scrolls back to
-      // the end themselves, resume follow so subsequent messages are tracked
-      // naturally without requiring the explicit "scroll to bottom" action.
+      // Resume live follow only when the user actively scrolls BACK DOWN
+      // into the near-bottom band. Merely crossing that band while scrolling
+      // up must not re-arm follow — the reader always starts a climb within
+      // it, and re-arming there is what produced the snap-to-end loop.
       if (
-        userScrollPausedRef.current &&
-        isNearBottom(currentScrollTop, el.clientHeight, el.scrollHeight)
+        shouldResumeFollow(
+          userScrollPausedRef.current,
+          prevScrollTop,
+          currentScrollTop,
+          el.clientHeight,
+          el.scrollHeight
+        )
       ) {
         userScrollPausedRef.current = false;
       }

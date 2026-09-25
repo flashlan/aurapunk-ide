@@ -654,6 +654,10 @@ export const ConversationList = forwardRef<
         if (Math.abs(delta) < 0.5) return;
         const scrollElement = tanstackScrollRef.current;
         if (!scrollElement) return;
+        // Composer-resize compensation must not read as a user scroll:
+        // without this suppression window a shrink pass would release (and
+        // pause) a bottom-lock the user never touched.
+        programmaticScrollDeadlineRef.current = performance.now() + 100;
         scrollElement.scrollTop += delta;
       },
       getScrollElement: () => tanstackScrollRef.current,

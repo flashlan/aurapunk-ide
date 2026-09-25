@@ -40,6 +40,7 @@ Rules:
 - [x] **Done** — Send now no chat mantendo Queue e Stop (`vk/340d-send-now`)
 - [x] **Done** — Fast Jev Compaction plugin com fallback Laya como classificador e POC (`vk/cae6-jev-plugin`)
 - [x] **Done** — Chat travado ao subir mensagens anteriores: race do cache que estrangula isLoadingHistory e aborta o walk de histórico (`vk/3a4e-caht-da-uam-tr`)
+- [x] **Done** — Chat volta pro final ao rolar para cima durante streaming: bottom-lock libera em todo scroll do usuário e follow pausa até descer ao fim (`vk/3a4e-caht-da-uam-tr`)
 
 ## Card Pipeline Protocol (MCP)
 

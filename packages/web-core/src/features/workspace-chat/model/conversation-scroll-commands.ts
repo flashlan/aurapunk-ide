@@ -220,6 +220,55 @@ export function isNearBottom(
 }
 
 // ---------------------------------------------------------------------------
+// Bottom-Lock Release / Follow Resume
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a scroll event should release the terminal bottom-lock.
+ *
+ * Requires a deliberate upward move that leaves the bottom: programmatic
+ * writes land exactly on `maxScroll` (correctBottomLock / scrollToBottom) or
+ * run while suppressed by `shouldSuppressSizeAdjustment` (anchor corrections,
+ * composer-resize compensation), so they never qualify. The time-based guard
+ * that used to live here — a `smoothScrollDeadline` re-armed by every
+ * streaming follow-bottom — starved release during active streaming:
+ * scrollbar and keyboard scrolling could never escape the lock and kept
+ * snapping back to the end.
+ */
+export function shouldReleaseBottomLock(
+  bottomLocked: boolean,
+  prevScrollTop: number,
+  currentScrollTop: number,
+  maxScroll: number,
+  suppressed: boolean
+): boolean {
+  if (!bottomLocked || suppressed) return false;
+  if (prevScrollTop - currentScrollTop <= 1) return false;
+  return currentScrollTop < maxScroll - 1;
+}
+
+/**
+ * Whether a scroll event should resume live follow after the user paused it.
+ *
+ * Only an ACTIVE downward scroll back into the near-bottom band re-arms
+ * follow. Merely crossing that band while scrolling up must not: the reader
+ * starts every upward climb within `NEAR_BOTTOM_THRESHOLD_PX` of the end, so
+ * an unpause keyed only on distance let the next streaming emit yank them
+ * straight back down.
+ */
+export function shouldResumeFollow(
+  userScrollPaused: boolean,
+  prevScrollTop: number,
+  currentScrollTop: number,
+  clientHeight: number,
+  scrollHeight: number
+): boolean {
+  if (!userScrollPaused) return false;
+  if (currentScrollTop - prevScrollTop <= 1) return false;
+  return isNearBottom(currentScrollTop, clientHeight, scrollHeight);
+}
+
+// ---------------------------------------------------------------------------
 // Intent Equality (for deduplication)
 // ---------------------------------------------------------------------------
 
