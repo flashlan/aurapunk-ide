@@ -43,33 +43,63 @@ export function useWorkspaceSessions(
   );
   const prevWorkspaceIdRef = useRef(workspaceId);
 
-  const { data: sessions = [], isLoading } = useQuery<Session[]>({
+  const {
+    data: sessions = [],
+    isLoading,
+    isPending,
+  } = useQuery<Session[]>({
     queryKey: workspaceSessionKeys.byWorkspace(workspaceId, hostId),
     queryFn: () => sessionsApi.getByWorkspace(workspaceId!),
     enabled: enabled && !!workspaceId,
   });
 
-  // Combined effect: handle workspace changes and auto-select sessions
-  // This replaces two separate effects that had a race condition where the reset
-  // effect would fire after auto-select when sessions were cached, undoing the selection.
+  // Combined effect: handle workspace changes and auto-select sessions.
+  // Selection is STICKY: query refreshes, most-recently-used reordering, and
+  // transient no-data windows (query key changes, enabled toggles) must never
+  // clear or hijack a valid selection — every selectedSessionId change
+  // remounts the conversation (blank flash + jump to the end) mid-read, which
+  // is exactly what made scrolling history unusable. Default to the most
+  // recently used session only when nothing valid is selected; the send flow
+  // selects newly created sessions explicitly (useSessionSend), so nothing
+  // relies on refreshes stomping the selection.
   useEffect(() => {
     const workspaceChanged = prevWorkspaceIdRef.current !== workspaceId;
     prevWorkspaceIdRef.current = workspaceId;
 
+    if (workspaceChanged) {
+      // Never leak the previous workspace's session into the new scope.
+      setSelection(
+        sessions.length > 0
+          ? { mode: 'existing', sessionId: sessions[0].id }
+          : undefined
+      );
+      return;
+    }
+
+    // No data yet (first load, query key change, disabled query): hold the
+    // current selection so the conversation does not blank or remount.
+    if (isPending) return;
+
     if (sessions.length > 0) {
-      // Sessions are ordered by most recently used, so first is the most recently used
-      // Always select first session when sessions are available for this workspace
-      // Only preserve new session mode within the same workspace
       setSelection((prev) => {
-        if (prev?.mode === 'new' && !workspaceChanged) return prev;
+        if (prev?.mode === 'new') return prev;
+        if (
+          prev?.mode === 'existing' &&
+          sessions.some((session) => session.id === prev.sessionId)
+        ) {
+          return prev;
+        }
         return { mode: 'existing', sessionId: sessions[0].id };
       });
     } else {
+      // The server reports no sessions at all (all deleted): drop the
+      // selection so the workspace falls back to new-session mode.
       setSelection(undefined);
     }
-  }, [workspaceId, sessions]);
+  }, [workspaceId, sessions, isPending]);
 
-  const isNewSessionMode = selection?.mode === 'new' || sessions.length === 0;
+  const isNewSessionMode =
+    selection?.mode === 'new' || (sessions.length === 0 && !isPending);
   const selectedSessionId =
     selection?.mode === 'existing' ? selection.sessionId : undefined;
 
