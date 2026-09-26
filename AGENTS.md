@@ -531,3 +531,25 @@ fixed them. Newest last.
   build de release (app normal continua sem). Para medir a UI, prefira
   `vmmap --summary <pid> | grep "Physical footprint"` ao RSS, que oscila com a
   compressão de memória do macOS.
+
+### 2026-09-26 — Teste de runtime com agente real (vk/runtime-fixes)
+- **Como medir de novo:** crie um card de teste (sem merge/commit/build),
+  rode-o com `start_workspace` / `run_issue_in_workspace` e amostre
+  `vmmap --summary <pid>` (Physical footprint) do `aurapunk-tauri` e do
+  `WebKit.WebContent` a cada 1–2 s. Para a lógica do frontend, abra o mesmo
+  workspace no Chrome contra o backend (`http://localhost:<porta>/workspaces/<id>`)
+  com um `initScript` que embrulha `WebSocket` (bytes por endpoint) e amostra
+  `performance.memory`.
+- **Resultados:** Claude Code (92 s) backend pico 177 MB / CPU média 1,5%;
+  OpenCode (68 s) backend pico 221 MB / 2,2%. Sidecar normalizado gravado no fim
+  em todos os casos, inclusive execução que falhou (limite de sessão 429).
+  Frontend com o chat na tela, 71 s de streaming: heap JS 113→140→112 MB, sem
+  saltos ≥15 MB/s, ~1,3 MB de WS no total. Os picos transitórios de 450–560 MB
+  do WebContent no app não vêm da lógica do app (não aparecem no V8); são
+  internos do WebKit/JSC — atribuir exige o Web Inspector do Safari
+  (`AURAPUNK_DEVTOOLS=1`). Menor: `agents/discovered-options/ws` reenvia
+  mensagens de ~100–126 KB (632 KB em 26 msgs).
+- **Bug corrigido:** apagar o workspace aberto deixava a tela nele (chat vazio,
+  404 em loop, "Failed to send: Not Found"). `WorkspaceProvider` agora sai para
+  a raiz quando o workspace some da lista viva ou `GET /api/workspaces/:id`
+  dá 404 (URL antiga). Verificado nos dois caminhos.

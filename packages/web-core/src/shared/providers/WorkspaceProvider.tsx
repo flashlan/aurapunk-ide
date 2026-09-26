@@ -8,7 +8,7 @@ import { useWorkspaceRepo } from '@/shared/hooks/useWorkspaceRepo';
 import { useWorkspaceSessions } from '@/shared/hooks/useWorkspaceSessions';
 import { useGitHubComments } from '@/shared/hooks/useGitHubComments';
 import { useDiffStream } from '@/shared/hooks/useDiffStream';
-import { workspacesApi } from '@/shared/lib/api';
+import { ApiError, workspacesApi } from '@/shared/lib/api';
 import { useWorkspaceDiffStore } from '@/shared/stores/useWorkspaceDiffStore';
 import { useUiPreferencesStore } from '@/shared/stores/useUiPreferencesStore';
 import type { DiffStats } from 'shared/types';
@@ -35,10 +35,13 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     isLoading: isLoadingList,
   } = useWorkspaces();
 
-  const { data: workspace, isLoading: isLoadingWorkspace } = useWorkspaceRecord(
-    workspaceId,
-    { enabled: !!workspaceId && !isCreateMode }
-  );
+  const {
+    data: workspace,
+    isLoading: isLoadingWorkspace,
+    error: workspaceError,
+  } = useWorkspaceRecord(workspaceId, {
+    enabled: !!workspaceId && !isCreateMode,
+  });
 
   const {
     sessions,
@@ -208,6 +211,43 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       window.removeEventListener('pagehide', handler);
     };
   }, [workspaceId, isCreateMode]);
+
+  // Leave a workspace that no longer exists. Deleting the open workspace (from
+  // the sidebar, the board or an agent via MCP) used to strand the view on it:
+  // an empty chat, every poll answering 404, and "Failed to send: Not Found"
+  // on the next message. Two signals, so a brand-new workspace that has not
+  // reached the list stream yet is never mistaken for a deleted one: it was in
+  // the live list and vanished, or fetching it directly returned 404 (a stale
+  // URL or bookmark).
+  const seenInListRef = useRef<string | null>(null);
+  const isInList =
+    !!workspaceId &&
+    (activeWorkspaces.some((w) => w.id === workspaceId) ||
+      archivedWorkspaces.some((w) => w.id === workspaceId));
+  const recordNotFound =
+    workspaceError instanceof ApiError && workspaceError.status === 404;
+  useEffect(() => {
+    if (!workspaceId || isCreateMode) return;
+    if (isInList) {
+      seenInListRef.current = workspaceId;
+      return;
+    }
+    const vanished = !isLoadingList && seenInListRef.current === workspaceId;
+    if (vanished || recordNotFound) {
+      seenInListRef.current = null;
+      console.info(
+        `[workspace] ${workspaceId} no longer exists; leaving its view`
+      );
+      appNavigation.goToRoot();
+    }
+  }, [
+    workspaceId,
+    isCreateMode,
+    isInList,
+    isLoadingList,
+    recordNotFound,
+    appNavigation,
+  ]);
 
   const selectWorkspace = useCallback(
     (id: string) => {
