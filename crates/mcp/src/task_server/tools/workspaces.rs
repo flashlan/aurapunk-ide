@@ -117,8 +117,9 @@ struct McpReportPipelineStageRequest {
         description = "Workspace ID to report progress for. Optional if running inside that workspace context."
     )]
     workspace_id: Option<Uuid>,
+    #[serde(deserialize_with = "api_types::i64_from_number_or_string")]
     #[schemars(
-        description = "1-based stage number, matching the numbered list in the card's ## Pipeline instructions (e.g. 2 for the second stage)"
+        description = "1-based stage number, matching the numbered list in the card's ## Pipeline instructions (e.g. 2 for the second stage). Integer or numeric string."
     )]
     stage: i64,
 }
@@ -419,6 +420,40 @@ mod tests {
 
         assert_eq!(obj["name"], serde_json::json!("VIBE-23"));
         assert_eq!(obj["issue_id"], serde_json::json!(issue_id.to_string()));
+    }
+
+    // --- AC: report_pipeline_stage survives a proxy that stringifies args ---
+    #[test]
+    fn report_pipeline_stage_accepts_number_and_string_stage() {
+        let as_number: McpReportPipelineStageRequest =
+            serde_json::from_value(serde_json::json!({ "stage": 2 }))
+                .expect("integer stage decodes");
+        assert_eq!(as_number.stage, 2);
+
+        let as_string: McpReportPipelineStageRequest =
+            serde_json::from_value(serde_json::json!({ "stage": "2" }))
+                .expect("string stage must not be rejected");
+        assert_eq!(as_string.stage, 2);
+
+        let garbage = serde_json::from_value::<McpReportPipelineStageRequest>(serde_json::json!({
+            "stage": "two"
+        }));
+        assert!(garbage.is_err(), "non-numeric strings must stay rejected");
+    }
+
+    // --- AC: the advertised schema keeps `stage` as an integer ---
+    #[test]
+    fn report_pipeline_stage_schema_still_advertises_an_integer_stage() {
+        let schema = schemars::schema_for!(McpReportPipelineStageRequest);
+        let stage = schema
+            .get("properties")
+            .and_then(|props| props.get("stage"))
+            .expect("stage property present in schema");
+        let rendered = stage.to_string();
+        assert!(
+            rendered.contains("integer"),
+            "schema must keep advertising an integer stage, got {rendered}"
+        );
     }
 
     // --- AC: ~10 workspaces ≤ ~2k chars ---

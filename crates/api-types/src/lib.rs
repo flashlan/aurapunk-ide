@@ -48,3 +48,125 @@ where
 {
     T::deserialize(deserializer).map(Some)
 }
+
+/// Deserialize an `i64` that may arrive as either a JSON number or a decimal
+/// string (`2` or `"2"`).
+///
+/// Tool arguments are normally typed, but a proxy between the client and the
+/// server can stringify them before they land — e.g. `mcpo`, which converts
+/// MCP tools into REST parameters (query parameters are strings by
+/// definition). serde's strict `i64` then rejects the call with
+/// `invalid type: string "2", expected i64`. The advertised schema stays
+/// `integer`; this only widens what is *accepted*.
+pub fn i64_from_number_or_string<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct NumberOrString;
+
+    impl<'de> serde::de::Visitor<'de> for NumberOrString {
+        type Value = i64;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an integer, or a string containing an integer")
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(value)
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            i64::try_from(value).map_err(|err| serde::de::Error::custom(err.to_string()))
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            if value.fract() == 0.0 && value.is_finite() {
+                Ok(value as i64)
+            } else {
+                Err(serde::de::Error::custom(format!(
+                    "expected an integer, got {value}"
+                )))
+            }
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            value.trim().parse::<i64>().map_err(|err| {
+                serde::de::Error::custom(format!("invalid integer string {value:?}: {err}"))
+            })
+        }
+    }
+
+    deserializer.deserialize_any(NumberOrString)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct StageRequest {
+        #[serde(deserialize_with = "i64_from_number_or_string")]
+        stage: i64,
+    }
+
+    fn stage_from(value: serde_json::Value) -> Result<i64, serde_json::Error> {
+        Ok(serde_json::from_value::<StageRequest>(value)?.stage)
+    }
+
+    #[test]
+    fn accepts_a_json_number() {
+        assert_eq!(
+            stage_from(serde_json::json!({ "stage": 2 })).expect("number stage decodes"),
+            2
+        );
+    }
+
+    #[test]
+    fn accepts_a_numeric_string() {
+        for (value, expected) in [
+            (serde_json::json!({ "stage": "2" }), 2),
+            (serde_json::json!({ "stage": " 13 " }), 13),
+            (serde_json::json!({ "stage": -1 }), -1),
+            (serde_json::json!({ "stage": 2.0 }), 2),
+        ] {
+            assert_eq!(
+                stage_from(value).expect("stage decodes"),
+                expected,
+                "stage must decode leniently"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_garbage_in_either_shape() {
+        assert!(
+            stage_from(serde_json::json!({ "stage": "two" })).is_err(),
+            "a non-numeric string must be rejected"
+        );
+        assert!(
+            stage_from(serde_json::json!({ "stage": 2.5 })).is_err(),
+            "a fractional number must be rejected"
+        );
+        assert!(
+            stage_from(serde_json::json!({ "stage": null })).is_err(),
+            "null must be rejected"
+        );
+        assert!(
+            stage_from(serde_json::json!({})).is_err(),
+            "a missing stage must stay required"
+        );
+    }
+}

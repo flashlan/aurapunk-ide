@@ -207,7 +207,11 @@ pub async fn get_queue_status(
 #[derive(Debug, Deserialize)]
 pub struct ReportPipelineStageRequest {
     /// 1-based stage number, matching the numbered list in the card's
-    /// `## Pipeline` block (see `cardPipeline.ts`).
+    /// `## Pipeline` block (see `cardPipeline.ts`). Accepts a JSON number or
+    /// a numeric string: anything that proxies the call (e.g. `mcpo`, whose
+    /// REST parameters are strings) would otherwise fail here with
+    /// `invalid type: string, expected i64`.
+    #[serde(deserialize_with = "api_types::i64_from_number_or_string")]
     pub stage: i64,
 }
 
@@ -355,4 +359,30 @@ pub async fn resolve_pipeline(
             current_pipeline_stage: workspace.current_pipeline_stage,
         },
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- AC: the endpoint tolerates a proxy that stringifies the stage ---
+    #[test]
+    fn report_pipeline_stage_request_accepts_number_and_string_stage() {
+        let as_number: ReportPipelineStageRequest =
+            serde_json::from_str(r#"{"stage": 2}"#).expect("integer stage decodes");
+        assert_eq!(as_number.stage, 2);
+
+        let as_string: ReportPipelineStageRequest =
+            serde_json::from_str(r#"{"stage": "2"}"#).expect("string stage must not be rejected");
+        assert_eq!(as_string.stage, 2);
+
+        assert!(
+            serde_json::from_str::<ReportPipelineStageRequest>(r#"{"stage": "two"}"#).is_err(),
+            "non-numeric strings must stay rejected"
+        );
+        assert!(
+            serde_json::from_str::<ReportPipelineStageRequest>(r#"{}"#).is_err(),
+            "a missing stage must stay required"
+        );
+    }
 }

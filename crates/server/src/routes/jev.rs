@@ -78,8 +78,8 @@ async fn evaluate(
         .await
     {
         Ok(upstream) => {
-            let status = StatusCode::from_u16(upstream.status().as_u16())
-                .unwrap_or(StatusCode::BAD_GATEWAY);
+            let status =
+                StatusCode::from_u16(upstream.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
             let bytes = upstream.bytes().await.unwrap_or_default();
             let mut response = Response::new(axum::body::Body::from(bytes));
             *response.status_mut() = status;
