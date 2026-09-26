@@ -43,7 +43,7 @@ Rules:
 - [x] **Done** — Chat volta pro final ao rolar para cima durante streaming: bottom-lock libera em todo scroll do usuário e follow pausa até descer ao fim; seleção de sessão sticky (refresh/reorder/não-dados não remontam o chat) (`vk/3a4e-caht-da-uam-tr`)
 - [~] **In Progress** — Guardião do merge: explica o bloqueio, espera e recusa Done sem merge (`vk/2b51-agent-activity-n`)
 - [x] **Done** — Carregamento sob demanda + sync por diff: projeção `?minimal=1`, gate da sidebar, cache de transcript normalizado, janela de histórico, thinking sob demanda, WS kanban com deltas (`vk/4a2c-corrigir-ram`)
-- [~] **In Progress** — Perf RAM/CPU: loop de render/localStorage do chat, normalização serializada, fim do travamento do Mac (`vk/perf-ram-cpu`)
+- [x] **Done** — Perf RAM/CPU: chat cache/localStorage, normalização serializada, chats travados no `Ready`, índice git racy após worktree add, cota UTF-16 (Laya Cloud não salvava) (`vk/perf-ram-cpu`)
 
 ## Card Pipeline Protocol (MCP)
 
@@ -449,6 +449,20 @@ fixed them. Newest last.
 - **Medido após a correção (dados reais):** 3 históricos de 77/64/59 MB em
   paralelo a frio → 5,6 s, pico 897 MB; reabertura com sidecar → 84 ms, CPU 9%.
   Em aberto: RSS não volta após o pico (~900 MB) e já parte de ~627 MB.
+- **CPU ociosa com workspace aberto:** cada `git status` do poll de branch
+  (5 s) custava ~0,25 s de CPU num repo de 2,3 mil arquivos — o checkout novo
+  deixa o índice "racily clean" e o `--no-optional-locks` nunca grava o índice
+  atualizado, então o re-hash se repetia para sempre. `GitCli::worktree_add`
+  agora roda `update-index -q --refresh` (0,25 s → 0,01 s). Backend ocioso
+  ~0,7%, com workspace aberto ~3%.
+- **"Laya Cloud volta para Local ao reiniciar":** não era o Laya — o
+  localStorage do origin da UI estava na cota e todo `setItem` falhava calado
+  (`catch {}`), perdendo QUALQUER preferência. O cache media em unidades de
+  código, mas o WebKit guarda UTF-16 e cobra a cota em bytes (2×): o orçamento
+  achava estar na metade enquanto o disco estava cheio. `byteLength` agora conta
+  2 bytes por unidade e `Bootstrap.tsx` poda o cache antes do render. Medido no
+  disco: 5.118 KB → 3.125 KB. Para inspecionar o localStorage do app, feche-o
+  antes: com ele aberto o SQLite do WebKit não reflete o WAL para leitores externos.
 - **Pendente:** gravar o sidecar no fim do processo (cuidado: normalizadores
   ainda drenam linhas após `push_finished`), fixar a porta da UI, polling de
   fundo (diff stream a 1s, branch-status/agent-activity a 3–5s) e medir o pico
