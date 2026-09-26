@@ -659,10 +659,19 @@ export const useConversationHistory = ({
   // Keep the process manifest alongside the entry cache. This is deliberately
   // keyed by workspace/session scope because process IDs alone do not tell us
   // which conversation should be painted while the live stream is connecting.
+  // The manifest only matters for which processes exist and their status, so
+  // persist it when that changes — not on every stream patch (updated_at and
+  // friends), since each write is a synchronous localStorage serialization.
+  const rawProcessesRef = useRef(executionProcessesRaw);
+  rawProcessesRef.current = executionProcessesRaw;
+  const rawIdStatusKey = useMemo(
+    () => executionProcessesRaw.map((p) => `${p.id}:${p.status}`).join(','),
+    [executionProcessesRaw]
+  );
   useEffect(() => {
     if (isLoading || !isConnected) return;
-    setCachedExecutionProcesses(scopeKey, executionProcessesRaw);
-  }, [scopeKey, executionProcessesRaw, isLoading, isConnected]);
+    setCachedExecutionProcesses(scopeKey, rawProcessesRef.current);
+  }, [scopeKey, rawIdStatusKey, isLoading, isConnected]);
 
   // Clean up entries for processes that have been removed (e.g., after reset)
   useEffect(() => {

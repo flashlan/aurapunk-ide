@@ -415,3 +415,30 @@ fixed them. Newest last.
   `--features qa-mode`), e 4 arquivos fora do Prettier
   (`sessionCompactor.test.ts`, `CloudAuthActions.tsx`, `CloudAuthDialog.tsx`,
   `promptMessage.ts`). Todos são idênticos ao HEAD.
+
+### 2026-09-26 — Mac travando: picos de RAM, cache de chat na cota (vk/perf-ram-cpu)
+- **Medição (app v0.3.23, Mac de 8 GB já com 2,6 GB de swap):** backend
+  `aurapunk-tauri` com pico de **926 MB / 114% CPU** ao abrir chats históricos,
+  WebContent até 391 MB; média ociosa baixa (~16% / ~11%). O travamento é pressão
+  de memória, não CPU contínua. Logs de processo opencode chegam a 77 MB de JSONL.
+- **localStorage na cota:** vários origins em ~5,1 MB, 98% `vibe-conversation-entry:*`;
+  127 origins distintos (a porta da UI muda a cada abertura). Com a cota cheia
+  toda gravação falhava após serializar megabytes e o cache nunca acertava, então
+  cada troca de workspace re-normalizava o histórico no backend.
+- **Correções:** integrada a branch `vk/4a2c-corrigir-ram` (sidecar normalizado,
+  janela de histórico, orçamentos do cache). Por cima:
+  `useExecutionProcesses` memoiza as listas derivadas (antes eram novas a cada
+  render e re-disparavam efeitos, incluindo uma gravação síncrona do manifesto);
+  o manifesto só é gravado quando ids/status mudam; `getCachedEntries` /
+  `getCachedExecutionProcesses` não regravam o que acabaram de ler; o cache abre
+  espaço ANTES de gravar (uma loja já na cota agora se recupera). No backend,
+  `NORMALIZE_PERMITS` serializa normalizações a frio (com re-checagem do sidecar
+  após o permit) e o caminho de histórico não chama mais `ensure_container_exists`
+  (normalizadores só usam o caminho como texto).
+- **Verificação:** `cargo check` (services/server/local-deployment) limpo,
+  `cargo test -p services` 182; web-core `tsc` limpo, vitest workspace-chat 63
+  (2 testes novos do cache falham sem a correção), lint do local-web limpo.
+- **Pendente:** gravar o sidecar no fim do processo (cuidado: normalizadores
+  ainda drenam linhas após `push_finished`), fixar a porta da UI, polling de
+  fundo (diff stream a 1s, branch-status/agent-activity a 3–5s) e medir o pico
+  no app empacotado.

@@ -121,9 +121,31 @@ function enforceStorageBudget(): void {
   }
 }
 
+function makeRoomFor(processId: string, incoming: number): void {
+  seedStorageBudget();
+  const replaced = storageBytes.get(processId) ?? 0;
+  while (
+    storageTotalBytes - replaced + incoming > MAX_TOTAL_STORAGE_BYTES &&
+    storageOrder.length > 0
+  ) {
+    const oldest = storageOrder.find((id) => id !== processId);
+    if (oldest === undefined) break;
+    dropStorageKey(oldest);
+  }
+}
+
+/** Mark a persisted transcript as recently used without rewriting it. */
+function touchStorageOrder(processId: string): void {
+  const index = storageOrder.indexOf(processId);
+  if (index === -1) return;
+  storageOrder.splice(index, 1);
+  storageOrder.push(processId);
+}
+
 function rememberInMemory(
   processId: string,
-  entries: PatchTypeWithKey[]
+  entries: PatchTypeWithKey[],
+  knownSize?: number
 ): void {
   const previous = memoryBytes.get(processId);
   if (previous !== undefined) {
@@ -134,7 +156,9 @@ function rememberInMemory(
 
   MEMORY.set(processId, entries);
   memoryOrder.push(processId);
-  const size = entries.length === 0 ? 0 : byteLength(JSON.stringify(entries));
+  const size =
+    knownSize ??
+    (entries.length === 0 ? 0 : byteLength(JSON.stringify(entries)));
   memoryBytes.set(processId, size);
   memoryTotalBytes += size;
 
@@ -215,6 +239,11 @@ function writeEntryStorage(
       return;
     }
 
+    // Make room BEFORE writing. A store that is already at the WebKit quota
+    // (left behind by the old 4 MiB-per-process policy) would otherwise fail
+    // every setItem, and the post-write eviction below would never run.
+    makeRoomFor(processId, size);
+
     const key = storageKey(ENTRY_STORAGE_PREFIX, processId);
     // Commit to storage FIRST: on quota failure the previous value (and its
     // bookkeeping) is still what's on disk, so the totals stay truthful.
@@ -259,24 +288,30 @@ export function getCachedEntries(
   const fromMemory = MEMORY.get(processId);
   if (fromMemory) return fromMemory;
 
-  let fromStorage: PatchTypeWithKey[] | undefined;
   try {
     const raw = localStorage.getItem(
       storageKey(ENTRY_STORAGE_PREFIX, processId)
     );
-    fromStorage = raw ? (JSON.parse(raw) as PatchTypeWithKey[]) : undefined;
+    if (raw) {
+      const entries = JSON.parse(raw) as PatchTypeWithKey[];
+      // Already persisted under its own key: only refresh recency. Writing it
+      // back would re-serialize megabytes synchronously on every cache hit.
+      seedStorageBudget();
+      touchStorageOrder(processId);
+      rememberInMemory(processId, entries, byteLength(raw));
+      return entries;
+    }
   } catch {
-    fromStorage = undefined;
+    // Corrupt or unavailable — fall through to the legacy aggregate.
   }
 
   // Read the pre-v2 aggregate only for entries that have not been promoted to
-  // their own key yet. This keeps existing caches usable without putting the
-  // aggregate JSON on the normal path for newly written entries.
-  if (!fromStorage) fromStorage = readEntriesStorage()[processId];
-  if (fromStorage) {
-    rememberInMemory(processId, fromStorage);
-    writeEntryStorage(processId, fromStorage);
-    return fromStorage;
+  // their own key yet, and promote them once.
+  const legacy = readEntriesStorage()[processId];
+  if (legacy) {
+    rememberInMemory(processId, legacy);
+    writeEntryStorage(processId, legacy);
+    return legacy;
   }
   return undefined;
 }
@@ -317,21 +352,24 @@ export function getCachedExecutionProcesses(
   const fromMemory = PROCESS_MEMORY.get(scopeKey);
   if (fromMemory) return fromMemory;
 
-  let fromStorage: ExecutionProcess[] | undefined;
   try {
     const raw = localStorage.getItem(
       storageKey(PROCESS_STORAGE_PREFIX, scopeKey)
     );
-    fromStorage = raw ? (JSON.parse(raw) as ExecutionProcess[]) : undefined;
+    if (raw) {
+      const processes = JSON.parse(raw) as ExecutionProcess[];
+      PROCESS_MEMORY.set(scopeKey, processes);
+      return processes;
+    }
   } catch {
-    fromStorage = undefined;
+    // Corrupt or unavailable — fall through to the legacy aggregate.
   }
 
-  if (!fromStorage) fromStorage = readProcessStorage()[scopeKey];
-  if (fromStorage) {
-    PROCESS_MEMORY.set(scopeKey, fromStorage);
-    writeProcessStorage(scopeKey, fromStorage);
-    return fromStorage;
+  const legacy = readProcessStorage()[scopeKey];
+  if (legacy) {
+    PROCESS_MEMORY.set(scopeKey, legacy);
+    writeProcessStorage(scopeKey, legacy);
+    return legacy;
   }
   return undefined;
 }

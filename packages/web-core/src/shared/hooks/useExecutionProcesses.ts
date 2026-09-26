@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useJsonPatchWsStream } from '@/shared/hooks/useJsonPatchWsStream';
 import { useHostId } from '@/shared/providers/HostIdProvider';
 import type { ExecutionProcess } from 'shared/types';
@@ -50,36 +50,47 @@ export const useExecutionProcesses = (
       initialData
     );
 
-  const streamedExecutionProcesses = Object.values(
-    data?.execution_processes ?? {}
-  ).sort(
-    (a, b) =>
-      new Date(a.created_at as unknown as string).getTime() -
-      new Date(b.created_at as unknown as string).getTime()
-  );
+  // `data` is produced by Immer, so its identity only changes when a patch
+  // lands. Deriving the arrays inside a memo keeps them referentially stable
+  // across unrelated re-renders; otherwise every render handed consumers a new
+  // array and re-fired their effects (including a synchronous localStorage
+  // write of the whole process list in the conversation cache).
+  const processMap = data?.execution_processes;
+  const { executionProcesses, executionProcessesById, isAttemptRunning } =
+    useMemo(() => {
+      const streamed = Object.values(processMap ?? {}).sort(
+        (a, b) =>
+          new Date(a.created_at as unknown as string).getTime() -
+          new Date(b.created_at as unknown as string).getTime()
+      );
 
-  // Guard against stale buffered stream data when switching sessions quickly.
-  const executionProcesses = sessionId
-    ? streamedExecutionProcesses.filter(
-        (executionProcess) => executionProcess.session_id === sessionId
-      )
-    : streamedExecutionProcesses;
+      // Guard against stale buffered stream data when switching sessions quickly.
+      const processes = sessionId
+        ? streamed.filter(
+            (executionProcess) => executionProcess.session_id === sessionId
+          )
+        : streamed;
 
-  const executionProcessesById = executionProcesses.reduce<
-    Record<string, ExecutionProcess>
-  >((processesById, executionProcess) => {
-    processesById[executionProcess.id] = executionProcess;
-    return processesById;
-  }, {});
+      const byId: Record<string, ExecutionProcess> = {};
+      for (const executionProcess of processes) {
+        byId[executionProcess.id] = executionProcess;
+      }
 
-  const isAttemptRunning = executionProcesses.some(
-    (process) =>
-      (process.run_reason === 'codingagent' ||
-        process.run_reason === 'setupscript' ||
-        process.run_reason === 'cleanupscript' ||
-        process.run_reason === 'archivescript') &&
-      process.status === 'running'
-  );
+      const running = processes.some(
+        (process) =>
+          (process.run_reason === 'codingagent' ||
+            process.run_reason === 'setupscript' ||
+            process.run_reason === 'cleanupscript' ||
+            process.run_reason === 'archivescript') &&
+          process.status === 'running'
+      );
+
+      return {
+        executionProcesses: processes,
+        executionProcessesById: byId,
+        isAttemptRunning: running,
+      };
+    }, [processMap, sessionId]);
   const isLoading = !!sessionId && !isInitialized && !error; // until first snapshot
 
   return {

@@ -91,4 +91,66 @@ describe('conversationEntryCache', () => {
 
     delete (globalThis as { localStorage?: Storage }).localStorage;
   });
+
+  describe('with an enumerable, quota-limited localStorage', () => {
+    const ENTRY_PREFIX = 'vibe-conversation-entry:';
+    let store: Map<string, string>;
+    let setItemCalls: number;
+
+    function installStorage(quotaChars: number) {
+      store = new Map<string, string>();
+      setItemCalls = 0;
+      const used = () =>
+        [...store.values()].reduce((sum, v) => sum + v.length, 0);
+      (globalThis as { localStorage?: Storage }).localStorage = {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: (k: string, v: string) => {
+          setItemCalls += 1;
+          const previous = store.get(k)?.length ?? 0;
+          if (used() - previous + v.length > quotaChars) {
+            throw new Error('QuotaExceededError');
+          }
+          store.set(k, v);
+        },
+        removeItem: (k: string) => void store.delete(k),
+        clear: () => store.clear(),
+        key: (i: number) => [...store.keys()][i] ?? null,
+        get length() {
+          return store.size;
+        },
+      } as Storage;
+    }
+
+    afterEach(() => {
+      delete (globalThis as { localStorage?: Storage }).localStorage;
+    });
+
+    it('does not rewrite a transcript that is already persisted under its own key', () => {
+      installStorage(10 * 1024 * 1024);
+      const entries = makeEntries('p1', 3);
+      store.set(`${ENTRY_PREFIX}p1`, JSON.stringify(entries));
+
+      expect(getCachedEntries('p1')).toEqual(entries);
+      expect(setItemCalls).toBe(0);
+    });
+
+    it('evicts older transcripts before writing when the store is at quota', () => {
+      // Mirrors a real profile left at the WebKit quota by the old
+      // 4 MiB-per-process policy: six ~500K transcripts and no headroom.
+      installStorage(3_200_000);
+      for (let i = 0; i < 6; i += 1) {
+        store.set(`${ENTRY_PREFIX}old-${i}`, 'x'.repeat(520_000));
+      }
+
+      const fresh = makeEntries('fresh', 1);
+      fresh[0]!.content = {
+        entry_type: { type: 'user_message' },
+        content: 'y'.repeat(100_000),
+      } as PatchTypeWithKey['content'];
+      setCachedEntries('fresh', fresh);
+
+      expect(store.has(`${ENTRY_PREFIX}fresh`)).toBe(true);
+      expect(store.has(`${ENTRY_PREFIX}old-0`)).toBe(false);
+    });
+  });
 });

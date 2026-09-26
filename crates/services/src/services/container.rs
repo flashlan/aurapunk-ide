@@ -1206,6 +1206,21 @@ pub trait ContainerService {
             return Some(cached);
         }
 
+        // See `NORMALIZE_PERMITS`: one cold normalization at a time, then
+        // re-check the sidecar in case the permit holder just produced it.
+        let _normalize_permit = normalized_transcript::NORMALIZE_PERMITS
+            .acquire()
+            .await
+            .ok()?;
+        let fingerprint = normalized_transcript::raw_fingerprint(process.session_id, *id).await;
+        if let Some(fingerprint) = fingerprint
+            && let Some(cached) =
+                normalized_transcript::load(process.session_id, *id, fingerprint).await
+        {
+            tracing::debug!("normalized transcript cache hit for {id} after waiting");
+            return Some(cached);
+        }
+
         {
             let raw_messages =
                 execution_process::load_raw_log_messages(&self.db().pool, *id).await?;
@@ -1266,14 +1281,10 @@ pub trait ContainerService {
                     }
                 };
 
-            if let Err(err) = self.ensure_container_exists(&workspace).await {
-                tracing::warn!(
-                    "Failed to recreate worktree before log normalization for workspace {}: {}",
-                    workspace.id,
-                    err
-                );
-            }
-
+            // No `ensure_container_exists` here: normalizers only use the
+            // worktree path to relativize file paths and never read from it,
+            // so recreating a cleaned-up worktree just to show old history
+            // was pure git + disk work on the UI path.
             let current_dir = self.workspace_to_current_dir(&workspace);
 
             let executor_action = if let Ok(executor_action) = process.executor_action() {

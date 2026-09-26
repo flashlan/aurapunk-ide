@@ -23,6 +23,16 @@ use utils::execution_logs::{process_log_cache_path, process_log_file_path};
 
 const CACHE_VERSION: u32 = 1;
 
+/// Full normalizations run one at a time. A cold re-normalization of a large
+/// opencode log briefly holds several copies of it (raw `String`, parsed
+/// `Vec<LogMsg>`, the temporary `MsgStore`, the produced patches) — measured at
+/// ~900 MB peak for a 77 MB JSONL. Opening a workspace asks for many historic
+/// processes at once, and doing them in parallel multiplied that peak until an
+/// 8 GB machine swapped hard. Serializing keeps the peak at one transcript;
+/// waiters re-check the sidecar after acquiring, so a transcript requested
+/// twice is only normalized once.
+pub static NORMALIZE_PERMITS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+
 /// Identity of the raw JSONL a cached transcript was derived from. Opaque to
 /// callers — they only carry it between [`raw_fingerprint`], [`load`] and
 /// [`store`].
