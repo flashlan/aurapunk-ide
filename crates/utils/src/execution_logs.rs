@@ -21,6 +21,14 @@ pub fn process_log_file_path_in_root(root: &Path, session_id: Uuid, process_id: 
         .join(format!("{}.jsonl", process_id))
 }
 
+/// Sidecar cache of the *normalized* transcript for a finished process, keyed
+/// by the raw log's (size, mtime). Reopening a conversation reads this instead
+/// of re-reading and re-normalizing the raw log — see
+/// `services::normalized_transcript`.
+pub fn process_log_cache_path(session_id: Uuid, process_id: Uuid) -> PathBuf {
+    process_log_file_path(session_id, process_id).with_extension("normalized.json")
+}
+
 pub struct ExecutionLogWriter {
     path: PathBuf,
     file: tokio::fs::File,

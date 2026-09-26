@@ -1,6 +1,10 @@
 import type { CSSProperties, Ref } from 'react';
 import type { NodeApi } from 'react-arborist';
-import type { Issue, IssuePriority, ProjectStatus } from 'shared/remote-types';
+import type {
+  IssuePriority,
+  MinimalIssue,
+  ProjectStatus,
+} from 'shared/remote-types';
 import type { WorkspaceKind } from 'shared/types';
 import type { WorkspaceStatusItem } from '@vibe/ui/lib/workspaceStatus';
 import { type BucketId } from '../../lib/buckets';
@@ -16,10 +20,15 @@ export interface TreeNodeRenderProps<T extends { id: string }> {
  * Kanban data for one project's Tasks section (ADR-011). Single source of
  * truth shared by the pure tree builder (packages/ui) and the lazy loader
  * hook (packages/web-core imports this from @vibe/ui — never the reverse).
+ *
+ * Issues arrive on the `?minimal=1` projection: the tree only reads ids,
+ * titles, priority and ordering, so `description` / `extension_metadata`
+ * (the two free-text columns that dominate an issue row's size) are never
+ * fetched. `Issue` remains assignable here for fixtures that carry them.
  */
 export interface ProjectTasksData {
   statuses: readonly ProjectStatus[];
-  issues: readonly Issue[];
+  issues: readonly MinimalIssue[];
 }
 
 /** A single workspace rendered as a leaf in a workspaces tree. */

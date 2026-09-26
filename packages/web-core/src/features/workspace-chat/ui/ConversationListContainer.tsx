@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type WheelEvent,
 } from 'react';
 import { SpinnerIcon } from '@phosphor-icons/react';
 import { useTranslation } from 'react-i18next';
@@ -64,6 +65,13 @@ export interface ConversationListHandle {
 
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 const STREAMING_UNVIRTUALIZED_BUFFER_ROWS = 24;
+/** Scroll distance (px) from the top that still counts as "at the top". */
+const TOP_LOAD_THRESHOLD_PX = 24;
+/** First virtualized row is the only one that counts as "at the top". */
+const TOP_RANGE_THRESHOLD = 0;
+/** Older-history batches a single gesture may fetch before waiting for the
+ *  next one — keeps one wheel-flick from pulling the whole transcript. */
+const MAX_BATCHES_PER_GESTURE = 4;
 
 function renderRowContent(
   entry: DisplayEntry,
@@ -384,11 +392,59 @@ export const ConversationList = forwardRef<
     }
   };
 
-  const { isFirstTurn, isLoadingHistory } = useConversationHistory({
-    attempt,
-    onTimelineUpdated,
-    scopeKey: conversationScopeKey,
-  });
+  const { isFirstTurn, isLoadingHistory, hasMoreHistory, loadOlderBatch } =
+    useConversationHistory({
+      attempt,
+      onTimelineUpdated,
+      scopeKey: conversationScopeKey,
+    });
+
+  // -------------------------------------------------------------------------
+  // Scroll-directed history loading
+  //
+  // The hook paints only the initial budgeted slice; older processes are
+  // fetched when the reader reaches the top of the list. `armed` flips on
+  // every range change away from the top (and on any upward wheel), so a
+  // gesture fetches one bounded run of batches instead of the old "walk
+  // everything in the background" loop. Arming only on a gesture is what
+  // keeps a short conversation from auto-pulling its whole transcript on
+  // mount: at the top with `armed === false`, nothing requests.
+  // -------------------------------------------------------------------------
+  const olderLoadArmedRef = useRef(false);
+  const olderLoadInFlightRef = useRef(false);
+  const requestOlderHistory = useCallback(async () => {
+    if (olderLoadInFlightRef.current) return;
+    if (!hasMoreHistory) return;
+    const scrollEl = tanstackScrollRef.current;
+    if (scrollEl && scrollEl.scrollTop > TOP_LOAD_THRESHOLD_PX) return;
+
+    olderLoadInFlightRef.current = true;
+    try {
+      // Bounded: a gesture tops up a few processes, then waits for the next
+      // one, so a single wheel-flick can't pull the entire transcript.
+      for (let batch = 0; batch < MAX_BATCHES_PER_GESTURE; batch += 1) {
+        const more = await loadOlderBatch();
+        if (!more) break;
+        const el = tanstackScrollRef.current;
+        if (el && el.scrollTop > TOP_LOAD_THRESHOLD_PX) break;
+      }
+    } finally {
+      olderLoadInFlightRef.current = false;
+    }
+  }, [hasMoreHistory, loadOlderBatch]);
+
+  const handleRangeChanged = useCallback(
+    (range: { startIndex: number; endIndex: number }) => {
+      if (range.startIndex > TOP_RANGE_THRESHOLD) {
+        olderLoadArmedRef.current = true;
+        return;
+      }
+      if (!olderLoadArmedRef.current || !hasMoreHistory) return;
+      olderLoadArmedRef.current = false;
+      void requestOlderHistory();
+    },
+    [hasMoreHistory, requestOlderHistory]
+  );
 
   const prevEntriesRef = useRef<DisplayEntry[]>([]);
   const prevRowsRef = useRef<ConversationRow[]>([]);
@@ -465,8 +521,26 @@ export const ConversationList = forwardRef<
     totalRowCount: conversationRows.length,
     scrollContainerRef: tanstackScrollRef,
     onAtBottomChange,
+    onRangeChanged: handleRangeChanged,
     shouldSuppressSizeAdjustment: shouldSuppressInteractionDrivenSizeAdjustment,
   });
+
+  // A wheel-up while already pinned to the top produces no scroll event and
+  // no range change — it is still a request for older history. Declared after
+  // the virtualizer because it releases the bottom lock through it.
+  const handleConversationWheel = useCallback(
+    (event: WheelEvent<HTMLDivElement>) => {
+      conversationVirtualizer.releaseBottomLock();
+      if (event.deltaY >= 0) return;
+      olderLoadArmedRef.current = true;
+      const scrollEl = tanstackScrollRef.current;
+      if (!scrollEl || scrollEl.scrollTop > TOP_LOAD_THRESHOLD_PX) return;
+      if (!hasMoreHistory) return;
+      olderLoadArmedRef.current = false;
+      void requestOlderHistory();
+    },
+    [conversationVirtualizer, hasMoreHistory, requestOlderHistory]
+  );
 
   // NOTE: Do NOT call conversationVirtualizer.virtualizer.measure() when
   // firstUnvirtualizedRowIndex changes. measure() wipes ALL cached item sizes,
@@ -773,7 +847,7 @@ export const ConversationList = forwardRef<
           ref={tanstackScrollRef}
           className="h-full overflow-y-auto scrollbar-none"
           style={{ overflowAnchor: 'none', contain: 'strict' }}
-          onWheelCapture={() => conversationVirtualizer.releaseBottomLock()}
+          onWheelCapture={handleConversationWheel}
           onClickCapture={handleConversationClickCapture}
         >
           <div className="flex min-h-full flex-col pt-2">

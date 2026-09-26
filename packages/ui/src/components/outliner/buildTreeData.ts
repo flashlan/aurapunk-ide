@@ -1,4 +1,4 @@
-import type { Issue } from 'shared/remote-types';
+import type { MinimalIssue } from 'shared/remote-types';
 import { categorizeWorkspacesForOutliner } from '../../lib/workspaceStatus';
 import { BUCKETS, BUCKET_ORDER } from '../../lib/buckets';
 import {
@@ -253,7 +253,7 @@ function buildTasksSection(
     .sort((a, b) => a.sort_order - b.sort_order);
   const statusById = new Set(visibleStatuses.map((s) => s.id));
 
-  const issuesByStatus = new Map<string, Issue[]>();
+  const issuesByStatus = new Map<string, MinimalIssue[]>();
   for (const issue of data?.issues ?? []) {
     if (!statusById.has(issue.status_id)) continue; // orphan → drop
     const arr = issuesByStatus.get(issue.status_id);
@@ -358,10 +358,10 @@ function buildWorkspacesSection(
  * The `parent_issue_id` is kept on the node so the card renderer can show
  * sub-issue depth without re-deriving it.
  */
-function buildCardForest(issues: readonly Issue[]): CardNode[] {
+function buildCardForest(issues: readonly MinimalIssue[]): CardNode[] {
   const byId = new Map(issues.map((i) => [i.id, i]));
-  const childrenByParent = new Map<string, Issue[]>();
-  const roots: Issue[] = [];
+  const childrenByParent = new Map<string, MinimalIssue[]>();
+  const roots: MinimalIssue[] = [];
 
   for (const issue of issues) {
     const parent = issue.parent_issue_id
@@ -376,7 +376,7 @@ function buildCardForest(issues: readonly Issue[]): CardNode[] {
     }
   }
 
-  const toIssuePayload = (issue: Issue): CardNode['issue'] => ({
+  const toIssuePayload = (issue: MinimalIssue): CardNode['issue'] => ({
     id: issue.id,
     title: issue.title,
     priority: issue.priority,
@@ -391,7 +391,7 @@ function buildCardForest(issues: readonly Issue[]): CardNode[] {
   // depth, no duplicate ids in the tree), and any issue never reached from a
   // root is promoted to a top-level card so nothing disappears.
   const placed = new Set<string>();
-  const toCardNode = (issue: Issue): CardNode | null => {
+  const toCardNode = (issue: MinimalIssue): CardNode | null => {
     if (placed.has(issue.id)) return null; // cycle → truncate here
     placed.add(issue.id);
     return {

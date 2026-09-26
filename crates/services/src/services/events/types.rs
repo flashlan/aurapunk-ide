@@ -17,7 +17,7 @@ pub enum EventError {
     Other(#[from] AnyhowError), // Catches any unclassified errors
 }
 
-#[derive(EnumString, Display)]
+#[derive(EnumString, Display, Clone, Copy, PartialEq, Eq)]
 pub enum HookTables {
     #[strum(to_string = "workspaces")]
     Workspaces,
@@ -25,6 +25,50 @@ pub enum HookTables {
     ExecutionProcesses,
     #[strum(to_string = "scratch")]
     Scratch,
+    // --- Kanban board tables (delta sync) ---------------------------------
+    // Only tables with a BLOB (Uuid) primary key and a resolvable owning
+    // project are hooked; `pull_requests` / `pull_request_issues`
+    // (TEXT ids, project reachable only through a multi-hop join) and
+    // `issue_comments` (scoped per issue, not per project) keep the plain
+    // fallback poll.
+    #[strum(to_string = "issues")]
+    Issues,
+    #[strum(to_string = "project_statuses")]
+    ProjectStatuses,
+    #[strum(to_string = "kanban_tags")]
+    KanbanTags,
+    #[strum(to_string = "issue_tags")]
+    IssueTags,
+    #[strum(to_string = "issue_relationships")]
+    IssueRelationships,
+}
+
+impl HookTables {
+    /// Wire table name (`/v1/fallback/<name>`) for board tables that ride the
+    /// kanban delta bus; `None` for the legacy event-store tables.
+    ///
+    /// NOTE `kanban_tags` is served to the frontend as `tags` — a pre-existing
+    /// `tags` table occupies that name in SQLite (see the kanban migration).
+    pub fn kanban_table(&self) -> Option<&'static str> {
+        match self {
+            HookTables::Issues => Some("issues"),
+            HookTables::ProjectStatuses => Some("project_statuses"),
+            HookTables::KanbanTags => Some("tags"),
+            HookTables::IssueTags => Some("issue_tags"),
+            HookTables::IssueRelationships => Some("issue_relationships"),
+            _ => None,
+        }
+    }
+
+    /// Whether column 1 of the row is the owning `project_id`. Junction
+    /// tables (`issue_tags`, `issue_relationships`) carry an `issue_id` there
+    /// instead and must resolve their project through the issue.
+    pub fn project_id_on_row(&self) -> bool {
+        matches!(
+            self,
+            HookTables::Issues | HookTables::ProjectStatuses | HookTables::KanbanTags
+        )
+    }
 }
 
 #[derive(Serialize, Deserialize, TS)]

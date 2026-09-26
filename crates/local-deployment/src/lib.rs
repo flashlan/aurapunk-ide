@@ -11,7 +11,7 @@ use services::services::{
     approvals::Approvals,
     config::{Config, load_config_from_file, save_config_to_file},
     container::ContainerService,
-    events::EventService,
+    events::{EventService, KanbanEventBus},
     file::FileService,
     file_search::FileSearchCache,
     filesystem::FilesystemService,
@@ -121,6 +121,9 @@ impl Deployment for LocalDeployment {
         // Create shared components for EventService
         let events_msg_store = Arc::new(MsgStore::new());
         let events_entry_count = Arc::new(RwLock::new(0));
+        // Board changes get their own small bus (see events::kanban) so they
+        // never grow the transcript-sized event MsgStore.
+        let kanban_bus = KanbanEventBus::new();
 
         // Create DB with event hooks
         let db = {
@@ -128,6 +131,7 @@ impl Deployment for LocalDeployment {
                 events_msg_store.clone(),
                 events_entry_count.clone(),
                 DBService::new().await?, // Temporary DB service for the hook
+                kanban_bus.clone(),
             );
             DBService::new_with_after_connect(hook).await?
         };
@@ -164,7 +168,8 @@ impl Deployment for LocalDeployment {
         )
         .await;
 
-        let events = EventService::new(db.clone(), events_msg_store, events_entry_count);
+        let events =
+            EventService::new(db.clone(), events_msg_store, events_entry_count, kanban_bus);
 
         let file_search_cache = Arc::new(FileSearchCache::new());
 

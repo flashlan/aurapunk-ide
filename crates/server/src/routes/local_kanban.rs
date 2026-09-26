@@ -97,6 +97,48 @@ fn to_api_project(p: DbProject) -> ApiProject {
 #[derive(Debug, Deserialize)]
 struct ProjectScope {
     project_id: Uuid,
+    /// `?minimal=1` — ask for the lean issue projection (no `description`, no
+    /// `extension_metadata`). Wire-typed as `MinimalIssue`; consumers that only
+    /// render metadata (sidebar tree, breadcrumbs, drag lookup) use it so the
+    /// heavy free-text columns never reach the browser. Accepted as `1`/`true`
+    /// for leniency; every other endpoint ignores it.
+    #[serde(default)]
+    minimal: Option<String>,
+}
+
+impl ProjectScope {
+    fn minimal(&self) -> bool {
+        matches!(
+            self.minimal.as_deref(),
+            Some("1") | Some("true") | Some("yes")
+        )
+    }
+}
+
+/// Project an issue down to the lean wire shape. Everything kept here is a
+/// scalar/id the metadata-only consumers need; the two free-text columns
+/// (`description`, `extension_metadata`) are dropped entirely so the keys are
+/// genuinely absent from the JSON (the TS side types this as `MinimalIssue`).
+fn minimal_issue(i: DbIssue) -> Value {
+    json!({
+        "id": i.id,
+        "project_id": i.project_id,
+        "issue_number": i.issue_number,
+        "simple_id": i.simple_id,
+        "status_id": i.status_id,
+        "title": i.title,
+        "priority": i.priority,
+        "start_date": i.start_date,
+        "target_date": i.target_date,
+        "completed_at": i.completed_at,
+        "sort_order": i.sort_order,
+        "parent_issue_id": i.parent_issue_id,
+        "parent_issue_sort_order": i.parent_issue_sort_order,
+        "archived": i.archived,
+        "archived_at": i.archived_at,
+        "created_at": i.created_at,
+        "updated_at": i.updated_at,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -165,6 +207,10 @@ async fn fb_issues(
     Query(q): Query<ProjectScope>,
 ) -> Result<ResponseJson<Value>, ApiError> {
     let rows = DbIssue::list_by_project(&deployment.db().pool, q.project_id).await?;
+    if q.minimal() {
+        let projected: Vec<Value> = rows.into_iter().map(minimal_issue).collect();
+        return Ok(ResponseJson(json!({ "issues": projected })));
+    }
     Ok(ResponseJson(json!({ "issues": rows })))
 }
 

@@ -12,6 +12,7 @@ pub mod file_search;
 pub mod filesystem;
 pub mod filesystem_watcher;
 pub mod mem0_relevance;
+pub mod normalized_transcript;
 pub mod notification;
 pub mod opencode_agents;
 pub mod orchestrator_compactor;

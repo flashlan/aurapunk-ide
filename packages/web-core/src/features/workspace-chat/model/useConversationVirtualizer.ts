@@ -69,6 +69,14 @@ export interface ConversationVirtualizerOptions {
    */
   onAtBottomChange?: (atBottom: boolean) => void;
 
+  /**
+   * Called whenever the visible index window changes (deduped against the
+   * previous window). Shells use it to arm scroll-directed loading of older
+   * history: `startIndex > 0` means the reader is away from the top, so the
+   * next time they reach it a batch should be fetched.
+   */
+  onRangeChanged?: (range: { startIndex: number; endIndex: number }) => void;
+
   shouldSuppressSizeAdjustment?: () => boolean;
 }
 
@@ -152,12 +160,16 @@ export function useConversationVirtualizer({
   totalRowCount,
   scrollContainerRef,
   onAtBottomChange,
+  onRangeChanged,
   shouldSuppressSizeAdjustment,
 }: ConversationVirtualizerOptions): ConversationVirtualizerResult {
   const bottomLockedRef = useRef(false);
   const userScrollPausedRef = useRef(false);
   const smoothScrollDeadlineRef = useRef(0);
   const lastScrollBehaviorRef = useRef<ScrollToOptionsBehavior>('auto');
+  const onRangeChangedRef = useRef(onRangeChanged);
+  onRangeChangedRef.current = onRangeChanged;
+  const prevRangeRef = useRef({ startIndex: -1, endIndex: -1 });
 
   const isBottomScrollCorrectionActive = useCallback(
     () => bottomLockedRef.current,
@@ -171,6 +183,27 @@ export function useConversationVirtualizer({
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollContainerRef.current,
+    onChange: (instance) => {
+      const callback = onRangeChangedRef.current;
+      if (!callback) return;
+      const range = instance.range;
+      if (!range) return;
+      const prev = prevRangeRef.current;
+      if (
+        range.startIndex === prev.startIndex &&
+        range.endIndex === prev.endIndex
+      ) {
+        return;
+      }
+      prevRangeRef.current = {
+        startIndex: range.startIndex,
+        endIndex: range.endIndex,
+      };
+      callback({
+        startIndex: range.startIndex,
+        endIndex: range.endIndex,
+      });
+    },
     estimateSize: (index) => {
       const row = rows[index];
       if (!row) return SIZE_ESTIMATE_PX.medium;

@@ -13,6 +13,8 @@ use tokio::sync::RwLock;
 use utils::msg_store::MsgStore;
 use uuid::Uuid;
 
+#[path = "events/kanban.rs"]
+pub mod kanban;
 #[path = "events/patches.rs"]
 pub mod patches;
 #[path = "events/streams.rs"]
@@ -20,6 +22,7 @@ mod streams;
 #[path = "events/types.rs"]
 pub mod types;
 
+pub use kanban::{KanbanEvent, KanbanEventBus, KanbanOp};
 pub use patches::{execution_process_patch, scratch_patch, workspace_patch};
 pub use types::{EventError, EventPatch, EventPatchInner, HookTables, RecordTypes};
 
@@ -27,18 +30,30 @@ pub use types::{EventError, EventPatch, EventPatchInner, HookTables, RecordTypes
 pub struct EventService {
     msg_store: Arc<MsgStore>,
     db: DBService,
+    kanban: KanbanEventBus,
     #[allow(dead_code)]
     entry_count: Arc<RwLock<usize>>,
 }
 
 impl EventService {
     /// Creates a new EventService that will work with a DBService configured with hooks
-    pub fn new(db: DBService, msg_store: Arc<MsgStore>, entry_count: Arc<RwLock<usize>>) -> Self {
+    pub fn new(
+        db: DBService,
+        msg_store: Arc<MsgStore>,
+        entry_count: Arc<RwLock<usize>>,
+        kanban: KanbanEventBus,
+    ) -> Self {
         Self {
             msg_store,
             db,
+            kanban,
             entry_count,
         }
+    }
+
+    /// Board-change bus feeding `/api/kanban/stream/ws`.
+    pub fn kanban(&self) -> &KanbanEventBus {
+        &self.kanban
     }
 
     async fn push_workspace_update_for_session(
@@ -62,6 +77,7 @@ impl EventService {
         msg_store: Arc<MsgStore>,
         entry_count: Arc<RwLock<usize>>,
         db_service: DBService,
+        kanban: KanbanEventBus,
     ) -> impl for<'a> Fn(
         &'a mut sqlx::sqlite::SqliteConnection,
     ) -> std::pin::Pin<
@@ -73,17 +89,50 @@ impl EventService {
             let msg_store_for_hook = msg_store.clone();
             let entry_count_for_hook = entry_count.clone();
             let db_for_hook = db_service.clone();
+            let kanban_for_hook = kanban.clone();
             Box::pin(async move {
                 let mut handle = conn.lock_handle().await?;
                 let runtime_handle = tokio::runtime::Handle::current();
                 handle.set_preupdate_hook({
                     let msg_store_for_preupdate = msg_store_for_hook.clone();
+                    let kanban_for_preupdate = kanban_for_hook.clone();
                     move |preupdate: sqlx::sqlite::PreupdateHookResult<'_>| {
                         if preupdate.operation != SqliteOperation::Delete {
                             return;
                         }
 
                         match preupdate.table {
+                            // --- Kanban board tables -------------------------------
+                            // The preupdate hook is the ONLY place a deleted row's
+                            // values are visible. Column 0 is always `id`; column 1
+                            // is `project_id` on the three direct tables and
+                            // `issue_id` on the two junction tables (whose project
+                            // can no longer be resolved — they fan out instead).
+                            "issues"
+                            | "project_statuses"
+                            | "kanban_tags"
+                            | "issue_tags"
+                            | "issue_relationships" => {
+                                if let Ok(id_value) = preupdate.get_old_column_value(0)
+                                    && let Ok(id) = <Uuid as Decode<Sqlite>>::decode(id_value)
+                                    && let Ok(table) = HookTables::from_str(preupdate.table)
+                                    && let Some(wire_table) = table.kanban_table()
+                                {
+                                    let project_id = if table.project_id_on_row() {
+                                        preupdate.get_old_column_value(1).ok().and_then(|value| {
+                                            <Uuid as Decode<Sqlite>>::decode(value).ok()
+                                        })
+                                    } else {
+                                        None
+                                    };
+                                    kanban_for_preupdate.publish(
+                                        wire_table,
+                                        project_id,
+                                        KanbanOp::Delete,
+                                        id,
+                                    );
+                                }
+                            }
                             "workspaces" => {
                                 if let Ok(value) = preupdate.get_old_column_value(0)
                                     && let Ok(workspace_id) =
@@ -123,8 +172,40 @@ impl EventService {
                     let entry_count_for_hook = entry_count_for_hook.clone();
                     let msg_store_for_hook = msg_store_for_hook.clone();
                     let db = db_for_hook.clone();
+                    let kanban = kanban_for_hook.clone();
 
                     if let Ok(table) = HookTables::from_str(hook.table) {
+                        // Board tables never enter the legacy `/entries/{n}`
+                        // envelope — they are published on the delta bus as
+                        // bare (table, id) changes and the WebSocket resolves
+                        // the row from its typed queries.
+                        if let Some(wire_table) = table.kanban_table() {
+                            if hook.operation == SqliteOperation::Delete {
+                                // The preupdate hook already published the
+                                // tombstone (it is the only place the old row
+                                // values are still visible).
+                                return;
+                            }
+                            let pool = db.pool.clone();
+                            let rowid = hook.rowid;
+                            runtime_handle.spawn(async move {
+                                let Some(id) =
+                                    kanban_row_id(&pool, wire_table, rowid).await
+                                else {
+                                    return;
+                                };
+                                let project_id =
+                                    kanban_project_id(&pool, table, id).await;
+                                kanban.publish(
+                                    wire_table,
+                                    project_id,
+                                    KanbanOp::Upsert,
+                                    id,
+                                );
+                            });
+                            return;
+                        }
+
                         let rowid = hook.rowid;
                         runtime_handle.spawn(async move {
                             let record_type: RecordTypes = match (table, hook.operation.clone()) {
@@ -179,6 +260,9 @@ impl EventService {
                                         }
                                     }
                                 }
+                                // Kanban tables return above on the delta bus;
+                                // this arm keeps the match exhaustive.
+                                _ => return,
                             };
 
                             let db_op: &str = match hook.operation {
@@ -322,4 +406,51 @@ impl EventService {
     pub fn msg_store(&self) -> &Arc<MsgStore> {
         &self.msg_store
     }
+}
+
+/// Primary key of a board row from its SQLite rowid. Deliberately non-macro
+/// sqlx: a fresh `query_as!` would need `cargo sqlx prepare` against a live
+/// database, and one column doesn't justify that. Tables without a BLOB id
+/// (the PR join tables) are not hooked, so they never reach here.
+async fn kanban_row_id(pool: &SqlitePool, table: &str, rowid: i64) -> Option<Uuid> {
+    let sql = match table {
+        "issues" => "SELECT id FROM issues WHERE rowid = ?",
+        "project_statuses" => "SELECT id FROM project_statuses WHERE rowid = ?",
+        "tags" => "SELECT id FROM kanban_tags WHERE rowid = ?",
+        "issue_tags" => "SELECT id FROM issue_tags WHERE rowid = ?",
+        "issue_relationships" => "SELECT id FROM issue_relationships WHERE rowid = ?",
+        _ => return None,
+    };
+    sqlx::query_scalar(sql)
+        .bind(rowid)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+}
+
+/// Owning project of a board row. The three direct tables carry
+/// `project_id` themselves; junction tables resolve it through their issue so
+/// the WebSocket can scope the delta to the subscriber's project.
+async fn kanban_project_id(pool: &SqlitePool, table: HookTables, id: Uuid) -> Option<Uuid> {
+    let sql = match (table, table.project_id_on_row()) {
+        (HookTables::Issues, _) => "SELECT project_id FROM issues WHERE id = ?",
+        (HookTables::ProjectStatuses, _) => "SELECT project_id FROM project_statuses WHERE id = ?",
+        (HookTables::KanbanTags, _) => "SELECT project_id FROM kanban_tags WHERE id = ?",
+        (HookTables::IssueTags, _) => {
+            "SELECT i.project_id FROM issues i \
+             JOIN issue_tags t ON t.issue_id = i.id WHERE t.id = ?"
+        }
+        (HookTables::IssueRelationships, _) => {
+            "SELECT i.project_id FROM issues i \
+             JOIN issue_relationships r ON r.issue_id = i.id WHERE r.id = ?"
+        }
+        _ => return None,
+    };
+    sqlx::query_scalar(sql)
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
 }

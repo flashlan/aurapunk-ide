@@ -73,6 +73,51 @@ export function readLegacyBucketOpenState(): Record<BucketId, boolean> {
 const SIDEBAR_TREE_OPEN_STATE_KEY = 'vibe.ui.sidebarTree.openState';
 const SIDEBAR_TREE_OPEN_STATE_VERSION = 1;
 
+// In-page subscribers for the persisted open-state blob. react-arborist owns
+// its own store post-mount and mirrors toggles through
+// `writeSidebarTreeOpenState`, so the raw blob is a reliable change signal for
+// consumers that must react to a section being opened (e.g. the Tasks loader
+// gate). Cross-tab `storage` events are folded in below for completeness.
+const openStateListeners = new Set<() => void>();
+
+function notifyOpenStateListeners(): void {
+  for (const listener of openStateListeners) listener();
+}
+
+if (
+  typeof window !== 'undefined' &&
+  typeof window.addEventListener === 'function'
+) {
+  window.addEventListener('storage', (event) => {
+    if (event.key === null || event.key === SIDEBAR_TREE_OPEN_STATE_KEY) {
+      notifyOpenStateListeners();
+    }
+  });
+}
+
+/** Subscribe to changes of the persisted open-state blob. */
+export function subscribeSidebarTreeOpenState(
+  listener: () => void
+): () => void {
+  openStateListeners.add(listener);
+  return () => {
+    openStateListeners.delete(listener);
+  };
+}
+
+/**
+ * Raw snapshot of the blob (stable string identity), so it can back
+ * `useSyncExternalStore` without allocating a fresh parse result per render.
+ */
+export function readSidebarTreeOpenStateRaw(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.localStorage.getItem(SIDEBAR_TREE_OPEN_STATE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
 /** Read the persisted open-state blob (or {} on miss / corruption). */
 export function readSidebarTreeOpenState(
   liveProjectIds?: ReadonlySet<string>
@@ -125,6 +170,7 @@ export function writeSidebarTreeOpenState(map: Record<string, boolean>): void {
   } catch {
     // quota | unavailable — in-memory mirror still authoritative for session
   }
+  notifyOpenStateListeners();
 }
 
 /**

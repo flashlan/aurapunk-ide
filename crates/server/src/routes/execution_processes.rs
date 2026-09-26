@@ -12,8 +12,10 @@ use db::models::{
 };
 use deployment::Deployment;
 use futures_util::{StreamExt, TryStreamExt};
+use json_patch::{Patch, PatchOperation};
 use serde::Deserialize;
 use services::services::container::{AgentProgress, ContainerService};
+use std::collections::BTreeMap;
 use utils::{log_msg::LogMsg, response::ApiResponse};
 use uuid::Uuid;
 
@@ -32,6 +34,146 @@ struct SessionExecutionProcessQuery {
     /// If true, include soft-deleted (dropped) processes in results/stream
     #[serde(default)]
     pub show_soft_deleted: Option<bool>,
+}
+
+/// Default slice served by `GET /{id}/entries`. Deliberately small: a chat is
+/// rendered from a window, not from the whole transcript — a long opencode
+/// session's raw log measures in the tens of MB per process.
+const DEFAULT_ENTRY_WINDOW: usize = 200;
+
+#[derive(Debug, Deserialize)]
+struct EntriesQuery {
+    /// First entry index to return. Defaults to the newest window
+    /// (`total - limit`), so omitting it asks for "the end of the chat".
+    #[serde(default)]
+    from_index: Option<usize>,
+    #[serde(default)]
+    limit: Option<usize>,
+    /// Thinking content is withheld unless asked for: it is the single largest
+    /// part of a reasoning-heavy transcript and most turns never open it.
+    #[serde(default)]
+    include_thinking: Option<bool>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct EntrySlot {
+    /// Position in the process's transcript — the same index the patch wire
+    /// uses (`/entries/{N}`), so `patchKey = <processId>:<index>` stays stable
+    /// across window fetches.
+    index: usize,
+    value: serde_json::Value,
+    /// This is a `thinking` entry whose `content` was emptied. The client
+    /// re-fetches with `include_thinking=true` to hydrate it on expand.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    thinking_omitted: bool,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct EntriesPage {
+    entries: Vec<EntrySlot>,
+    from_index: usize,
+    /// Exclusive end of the returned range.
+    end_index: usize,
+    total_entries: usize,
+    /// Older window to request next, `None` when the beginning is reached.
+    next_from_index: Option<usize>,
+}
+
+fn entry_index(path: &str) -> Option<usize> {
+    path.strip_prefix("/entries/")?.parse().ok()
+}
+
+/// Apply the stored patch stream to rebuild the final entry table. Patches are
+/// append/replace/remove on `/entries/{N}`, so a map keyed by index is the
+/// exact document the streaming client would have ended up with.
+fn materialize_entries(patches: &[Patch]) -> BTreeMap<usize, serde_json::Value> {
+    let mut entries: BTreeMap<usize, serde_json::Value> = BTreeMap::new();
+    for patch in patches {
+        for op in &patch.0 {
+            let Some(index) = entry_index(op.path().as_str()) else {
+                continue;
+            };
+            match op {
+                PatchOperation::Add(add) => {
+                    entries.insert(index, add.value.clone());
+                }
+                PatchOperation::Replace(replace) => {
+                    entries.insert(index, replace.value.clone());
+                }
+                PatchOperation::Remove(_) => {
+                    entries.remove(&index);
+                }
+                _ => {}
+            }
+        }
+    }
+    entries
+}
+
+fn is_thinking(value: &serde_json::Value) -> bool {
+    value.get("type").and_then(serde_json::Value::as_str) == Some("NORMALIZED_ENTRY")
+        && value
+            .get("content")
+            .and_then(|c| c.get("entry_type"))
+            .and_then(|t| t.get("type"))
+            .and_then(serde_json::Value::as_str)
+            == Some("thinking")
+}
+
+async fn execution_entries(
+    Extension(execution_process): Extension<ExecutionProcess>,
+    State(deployment): State<DeploymentImpl>,
+    Query(query): Query<EntriesQuery>,
+) -> Result<ResponseJson<ApiResponse<EntriesPage>>, ApiError> {
+    let Some(patches) = deployment
+        .container()
+        .normalized_transcript(&execution_process.id)
+        .await
+    else {
+        return Err(ApiError::BadRequest("transcript unavailable".into()));
+    };
+
+    let entries = materialize_entries(&patches);
+    let total_entries = entries.len();
+    // Upper bound is generous on purpose: script turns render their output
+    // whole and are fetched with a "give me everything" limit, while `end_index`
+    // is still clamped to the real entry count — so the only thing this caps
+    // is a bogus query, not memory.
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_ENTRY_WINDOW)
+        .clamp(1, 1_000_000);
+    let default_from = total_entries.saturating_sub(limit);
+    let from_index = query.from_index.unwrap_or(default_from).min(total_entries);
+    let end_index = from_index.saturating_add(limit).min(total_entries);
+    let include_thinking = query.include_thinking.unwrap_or(false);
+
+    let mut page: Vec<EntrySlot> = Vec::new();
+    for (index, value) in entries.range(from_index..end_index) {
+        let mut value = value.clone();
+        let mut thinking_omitted = false;
+        if !include_thinking
+            && is_thinking(&value)
+            && let Some(content) = value.get_mut("content").and_then(|c| c.get_mut("content"))
+            && !content.as_str().is_some_and(str::is_empty)
+        {
+            *content = serde_json::Value::String(String::new());
+            thinking_omitted = true;
+        }
+        page.push(EntrySlot {
+            index: *index,
+            value,
+            thinking_omitted,
+        });
+    }
+
+    Ok(ResponseJson(ApiResponse::success(EntriesPage {
+        entries: page,
+        from_index,
+        end_index,
+        total_entries,
+        next_from_index: (from_index > 0).then(|| from_index.saturating_sub(limit)),
+    })))
 }
 
 async fn get_execution_process_by_id(
@@ -400,6 +542,7 @@ pub(super) fn router(deployment: &DeploymentImpl) -> Router<DeploymentImpl> {
         .route("/agent-progress", get(get_agent_progress))
         .route("/raw-logs/ws", get(stream_raw_logs_ws))
         .route("/normalized-logs/ws", get(stream_normalized_logs_ws))
+        .route("/entries", get(execution_entries))
         .layer(from_fn_with_state(
             deployment.clone(),
             load_execution_process_middleware,

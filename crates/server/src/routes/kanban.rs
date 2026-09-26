@@ -466,11 +466,23 @@ async fn search_issues(
     let total_count = issues.len();
     let offset = req.offset.unwrap_or(0).max(0) as usize;
     let limit = req.limit.unwrap_or(50).max(0) as usize;
+    let minimal = req.minimal.unwrap_or(false);
     let page: Vec<ApiIssue> = issues
         .into_iter()
         .skip(offset)
         .take(limit)
         .map(to_api_issue)
+        .map(|mut issue| {
+            // Lean projection: the two free-text columns are the bulk of an
+            // issue row. `null` stays type-valid for both fields, so callers
+            // that didn't ask for `minimal` are unaffected and callers that
+            // did get a predictable empty value instead of a missing key.
+            if minimal {
+                issue.description = None;
+                issue.extension_metadata = serde_json::Value::Null;
+            }
+            issue
+        })
         .collect();
 
     Ok(ok(ListIssuesResponse {

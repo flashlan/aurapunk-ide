@@ -28,7 +28,7 @@ export type IssueSortField = "sort_order" | "priority" | "created_at" | "updated
 
 export type ListIssuesQuery = { project_id: string, };
 
-export type SearchIssuesRequest = { project_id: string, status_id?: string, status_ids?: Array<string>, priority?: IssuePriority, parent_issue_id?: string, search?: string, simple_id?: string, tag_id?: string, tag_ids?: Array<string>, sort_field?: IssueSortField, sort_direction?: SortDirection, limit?: number, offset?: number, };
+export type SearchIssuesRequest = { project_id: string, status_id?: string, status_ids?: Array<string>, priority?: IssuePriority, parent_issue_id?: string, search?: string, simple_id?: string, tag_id?: string, tag_ids?: Array<string>, sort_field?: IssueSortField, sort_direction?: SortDirection, limit?: number, offset?: number, minimal?: boolean, };
 
 export type ListIssuesResponse = { issues: Array<Issue>, total_count: number, limit: number, offset: number, };
 
@@ -158,6 +158,24 @@ export const PROJECT_PROJECT_STATUSES_SHAPE = defineShape<ProjectStatus>(
 export const PROJECT_ISSUES_SHAPE = defineShape<Issue>(
   'issues',
   ['project_id'] as const,
+  '/v1/shape/project/{project_id}/issues',
+  '/v1/fallback/issues'
+);
+
+// Hand-maintained since the `remote` crate generator was removed (AGENTS.md).
+// `GET /v1/fallback/issues?minimal=1` drops the two free-text columns, so the
+// keys are ABSENT on the wire — hence `Omit`. Both dropped fields are re-opened
+// as optional so a full `Issue` remains assignable to `MinimalIssue` (fixture
+// literals that carry a description must keep compiling) while genuine
+// `MinimalIssue` rows never promise a value. Read them with `?? null`.
+export type MinimalIssue = Omit<Issue, 'description' | 'extension_metadata'> & {
+  description?: string | null;
+  extension_metadata?: JsonValue;
+};
+
+export const PROJECT_ISSUES_MINIMAL_SHAPE = defineShape<MinimalIssue>(
+  'issues',
+  ['project_id', 'minimal'] as const,
   '/v1/shape/project/{project_id}/issues',
   '/v1/fallback/issues'
 );
