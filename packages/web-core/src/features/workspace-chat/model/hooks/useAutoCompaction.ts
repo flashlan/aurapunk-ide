@@ -71,6 +71,13 @@ export interface UseAutoCompactionOptions {
   isRunning: boolean;
   entries: PatchTypeWithKey[];
   setEntries: (entries: PatchTypeWithKey[]) => void;
+  /**
+   * Ask the agent to compact its own session (sends `/compact`). Without it
+   * auto-compaction only produced the local Fast Jev marker: the prompt was
+   * reshaped but the agent's context window stayed full, so the usage meter
+   * never dropped. Resolves to whether the request was delivered.
+   */
+  requestAgentCompaction?: () => Promise<boolean>;
 }
 
 function thresholdToNumber(t: string | null | undefined): number | null {
@@ -92,7 +99,10 @@ export function useAutoCompaction({
   isRunning,
   entries,
   setEntries,
+  requestAgentCompaction,
 }: UseAutoCompactionOptions): void {
+  const requestAgentCompactionRef = useRef(requestAgentCompaction);
+  requestAgentCompactionRef.current = requestAgentCompaction;
   const threshold = useCompactionThreshold();
   const engine = useCompactorEngine();
   const layaMode = useLayaMode();
@@ -198,6 +208,21 @@ export function useAutoCompaction({
         console.log(
           `[auto-compact] Token usage reached ${pct.toFixed(1)}% (threshold: ${thresholdPct}%). Executing compaction via ${latest.engine}...`
         );
+        // 1) The compaction that actually shrinks the context: the agent's own.
+        const requestAgent = requestAgentCompactionRef.current;
+        if (requestAgent) {
+          const delivered = await requestAgent().catch(() => false);
+          if (!delivered) {
+            void reportIntegrationError(
+              compactionService(latest.engine),
+              'auto-compaction (asking the agent to /compact)',
+              'the /compact request was not delivered to the agent'
+            );
+          }
+        }
+
+        // 2) Fast Jev / Laya: the visible summary and the local isolation
+        //    marker used when building later prompts.
         const token = readCloudAccessToken() ?? undefined;
         const run = (mode: 'docker' | 'cloud') =>
           executeSessionCompaction({

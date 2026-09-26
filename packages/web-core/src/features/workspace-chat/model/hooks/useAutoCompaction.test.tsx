@@ -11,6 +11,7 @@ const executeSessionCompaction = vi.fn();
 vi.mock('../sessionCompactor', () => ({
   executeSessionCompaction: (...args: unknown[]) =>
     executeSessionCompaction(...args),
+  compactionService: () => 'laya',
 }));
 
 vi.mock('@/shared/stores/useUiPreferencesStore', () => ({
@@ -152,5 +153,37 @@ describe('useAutoCompaction', () => {
     });
 
     expect(executeSessionCompaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks the agent to compact before building the local marker', async () => {
+    const order: string[] = [];
+    const requestAgentCompaction = vi.fn(async () => {
+      order.push('agent');
+      return true;
+    });
+    executeSessionCompaction.mockImplementation(async () => {
+      order.push('fast-jev');
+      return {
+        markerPatch: { type: 'NORMALIZED_ENTRY', patchKey: 'm', content: {} },
+        summary: 'compacted',
+        tokensBefore: 600,
+        tokensAfter: 300,
+        reductionRatio: 0.5,
+        providerUsed: 'laya',
+      };
+    });
+    renderHook(() =>
+      useAutoCompaction({
+        ...baseProps(vi.fn(), 'session-agent-compact'),
+        requestAgentCompaction,
+      })
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(requestAgentCompaction).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['agent', 'fast-jev']);
   });
 });

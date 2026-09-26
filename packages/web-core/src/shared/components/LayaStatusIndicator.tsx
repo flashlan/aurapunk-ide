@@ -21,6 +21,29 @@ import {
 } from './layaStatus';
 
 const POLL_INTERVAL_MS = 60_000;
+
+async function probeCloudHealth(
+  endpoint: string,
+  token: string
+): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+  const started = performance.now();
+  try {
+    const response = await fetch(`${endpoint.replace(/\/$/, '')}/health`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000),
+    });
+    const latencyMs = Math.round(performance.now() - started);
+    return response.ok
+      ? { ok: true, latencyMs }
+      : { ok: false, latencyMs, error: `HTTP ${response.status}` };
+  } catch (error) {
+    return {
+      ok: false,
+      latencyMs: Math.round(performance.now() - started),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
 /** RLCD runs on Laya or Jev; both report under this indicator. */
 const RLCD_SERVICES: IntegrationService[] = ['laya', 'jev'];
 
@@ -76,13 +99,13 @@ export function LayaStatusIndicator() {
       setProbe({ state: 'unauthorized' });
       return;
     }
-    const result = await testLayaConnection({
-      endpoint,
-      headers:
-        mode === 'cloud' && token
-          ? { Authorization: `Bearer ${token}` }
-          : undefined,
-    });
+    // Cloud: the gateway's /health authenticates the device token without
+    // running (and metering) a prediction. Docker: a real prediction is local
+    // and free, and proves the model — not just the HTTP server — answers.
+    const result =
+      mode === 'cloud' && token
+        ? await probeCloudHealth(endpoint, token)
+        : await testLayaConnection({ endpoint });
     setProbe(
       result.ok
         ? { state: 'online', latencyMs: result.latencyMs }

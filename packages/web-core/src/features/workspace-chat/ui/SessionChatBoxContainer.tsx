@@ -588,6 +588,8 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       !!pendingApproval?.approvalId,
     entries,
     setEntries,
+    requestAgentCompaction:
+      isNewSessionMode || !sessionId ? undefined : () => send('/compact'),
   });
 
   const handleSend = useCallback(async () => {

@@ -483,7 +483,41 @@ impl McpServer {
         content: &str,
         user_id: &str,
     ) -> Result<bool, ErrorData> {
-        Ok(self.save_memory_detailed(content, user_id).await?.is_ok())
+        // No RLCD gate here: completion is a hard gate on Mem0 acknowledging
+        // the card summary, and a classifier must never block closing a card.
+        Ok(self
+            .save_memory_detailed(content, user_id, false)
+            .await?
+            .is_ok())
+    }
+
+    /// Ask the backend's RLCD memory gate whether `content` is worth storing.
+    /// Returns the rejection reason, or `None` to store. Fails open: if the
+    /// backend cannot answer, the fact is stored.
+    async fn memory_gate_rejection(&self, content: &str) -> Option<String> {
+        #[derive(Deserialize)]
+        struct Verdict {
+            store: bool,
+            reason: Option<String>,
+        }
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(6))
+            .build()
+            .ok()?;
+        let url = self.url("/api/rlcd/classify-memory");
+        let response = client
+            .post(&url)
+            .json(&serde_json::json!({ "content": content }))
+            .send()
+            .await
+            .ok()?;
+        let envelope: utils::response::ApiResponse<Verdict> = response.json().await.ok()?;
+        let verdict = envelope.into_data()?;
+        (!verdict.store).then(|| {
+            verdict
+                .reason
+                .unwrap_or_else(|| "rejected by the RLCD memory gate".to_string())
+        })
     }
 
     /// Record a Mem0 failure on the backend so it reaches the sidebar
@@ -517,6 +551,7 @@ impl McpServer {
         &self,
         content: &str,
         user_id: &str,
+        gate: bool,
     ) -> Result<Result<(), String>, ErrorData> {
         let failed = |reason: String| {
             self.report_mem0_failure("memory_save", &reason);
@@ -525,6 +560,13 @@ impl McpServer {
         if !memory_enabled() {
             tracing::debug!(target: "mem0", user_id, "memory_save skipped because memory is disabled");
             return Ok(Err("memory is disabled in Settings".to_string()));
+        }
+        // RLCD memory gate (Laya / Jev): keep logs, build output and secrets
+        // out of Mem0 / Qdrant. A rejection is a decision, not a failure, so it
+        // is returned to the agent but not reported as an integration error.
+        if gate && let Some(reason) = self.memory_gate_rejection(content).await {
+            tracing::info!(target: "mem0", user_id, reason, "memory_save skipped by RLCD gate");
+            return Ok(Err(format!("not stored: {reason}")));
         }
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
@@ -926,7 +968,7 @@ impl McpServer {
         &self,
         Parameters(McpMemorySaveRequest { content, user_id }): Parameters<McpMemorySaveRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let outcome = self.save_memory_detailed(&content, &user_id).await?;
+        let outcome = self.save_memory_detailed(&content, &user_id, true).await?;
         let stored = outcome.is_ok();
         McpServer::success(&McpMemorySaveResult {
             success: stored,

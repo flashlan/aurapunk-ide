@@ -1,0 +1,49 @@
+//! RLCD configuration sync and memory classification. See
+//! `services::services::rlcd`.
+
+use axum::{
+    Json, Router,
+    response::Json as ResponseJson,
+    routing::{get, post},
+};
+use serde::Deserialize;
+use services::services::rlcd::{self, MemoryVerdict, RlcdConfig, RlcdConfigView};
+use utils::response::ApiResponse;
+
+use crate::DeploymentImpl;
+
+pub fn router() -> Router<DeploymentImpl> {
+    Router::new()
+        .route("/rlcd/config", get(get_config).put(put_config))
+        .route("/rlcd/classify-memory", post(classify_memory))
+}
+
+async fn get_config() -> ResponseJson<ApiResponse<RlcdConfigView>> {
+    ResponseJson(ApiResponse::success(RlcdConfigView::from(&rlcd::config())))
+}
+
+/// Settings mirrors its Laya / Jev / guardrail preferences here so backend
+/// features (tool-call guardrails, the memory gate) follow them.
+async fn put_config(Json(config): Json<RlcdConfig>) -> ResponseJson<ApiResponse<RlcdConfigView>> {
+    let view = RlcdConfigView::from(&config);
+    match rlcd::save_config(config) {
+        Ok(()) => ResponseJson(ApiResponse::success(view)),
+        Err(error) => ResponseJson(ApiResponse::error(&format!(
+            "failed to save rlcd.toml: {error}"
+        ))),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ClassifyMemoryRequest {
+    pub content: String,
+}
+
+/// Used by the MCP `memory_save` before writing to Mem0.
+async fn classify_memory(
+    Json(body): Json<ClassifyMemoryRequest>,
+) -> ResponseJson<ApiResponse<MemoryVerdict>> {
+    ResponseJson(ApiResponse::success(
+        rlcd::classify_memory(&body.content).await,
+    ))
+}

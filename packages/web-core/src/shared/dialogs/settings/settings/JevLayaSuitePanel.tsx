@@ -31,6 +31,8 @@ import {
   useSetGuardrailGitOps,
   useGuardrailSemanticJev,
   useSetGuardrailSemanticJev,
+  useRlcdMemoryGateEnabled,
+  useSetRlcdMemoryGateEnabled,
   useCompactorEngine,
   useSetCompactorEngine,
   usePrimaryEngine,
@@ -100,6 +102,8 @@ export const JevLayaSuitePanel: React.FC = () => {
   const setGuardrailGitOps = useSetGuardrailGitOps();
   const guardrailSemanticJev = useGuardrailSemanticJev();
   const setGuardrailSemanticJev = useSetGuardrailSemanticJev();
+  const rlcdMemoryGateEnabled = useRlcdMemoryGateEnabled();
+  const setRlcdMemoryGateEnabled = useSetRlcdMemoryGateEnabled();
 
   // Compactor
   const compactorEngine = useCompactorEngine();
@@ -578,15 +582,17 @@ export const JevLayaSuitePanel: React.FC = () => {
               />
               <div className="space-y-0.5">
                 <div className="text-xs font-medium text-normal flex items-center gap-1.5">
-                  <span>Avaliação semântica via Fast Jev (TypeSafe)</span>
+                  <span>Avaliação semântica de comandos (Laya / Jev)</span>
                   <span className="rounded-xs bg-brand/20 px-1.5 py-0.2 text-[10px] font-mono text-brand">
                     Jev ~300ms
                   </span>
                 </div>
                 <p className="text-2xs text-low">
-                  Envia diffs e regras semânticas complexas (ex: regras de
-                  arquitetura, tratamento de erros, ausência de abstrações de
-                  uso único) para o modelo de decisão Jev com limiar calibrado.
+                  Antes de um agente headed rodar um comando de shell, o
+                  classificador avalia se ele é destrutivo fora do worktree ou
+                  se envia segredos/código para fora. Limite de 2,5s; se o
+                  classificador falhar, o comando segue (falha aparece no balão
+                  do RLCD).
                 </p>
               </div>
             </div>
@@ -595,6 +601,34 @@ export const JevLayaSuitePanel: React.FC = () => {
               label=""
               checked={guardrailSemanticJev}
               onChange={setGuardrailSemanticJev}
+            />
+          </div>
+
+          {/* Memory gate: classify facts before they reach Mem0 / Qdrant */}
+          <div className="py-2.5 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <SparkleIcon
+                className="size-4.5 text-brand mt-0.5 shrink-0"
+                weight="bold"
+              />
+              <div className="space-y-0.5">
+                <div className="text-xs font-medium text-normal">
+                  Classificar memórias antes de gravar (Mem0 / Qdrant)
+                </div>
+                <p className="text-2xs text-low">
+                  Cada <code>memory_save</code> de agente passa pelo
+                  classificador: fatos duráveis são gravados; logs, saída de
+                  build, estado transitório e segredos são recusados (o agente
+                  recebe o motivo). Se o classificador falhar, grava assim
+                  mesmo. A conclusão de cards nunca é bloqueada.
+                </p>
+              </div>
+            </div>
+            <SettingsCheckbox
+              id="rlcd-memory-gate"
+              label=""
+              checked={rlcdMemoryGateEnabled}
+              onChange={setRlcdMemoryGateEnabled}
             />
           </div>
         </div>

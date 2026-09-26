@@ -3,6 +3,7 @@ import { Outlet } from '@tanstack/react-router';
 import { XIcon } from '@phosphor-icons/react';
 import { SyncErrorProvider } from '@/shared/providers/SyncErrorProvider';
 import { useIsMobile } from '@/shared/hooks/useIsMobile';
+import { useRlcdConfigSync } from '@/shared/hooks/useRlcdConfigSync';
 import { useUiPreferencesStore } from '@/shared/stores/useUiPreferencesStore';
 import { cn } from '@/shared/lib/utils';
 
@@ -71,6 +72,8 @@ export function SharedAppLayout() {
   const currentDestination = useCurrentAppDestination();
   const { issueId: activeIssueId } = useCurrentKanbanRouteState();
   const isMobile = useIsMobile();
+  // Keep backend guardrails and the memory gate on the Settings choices.
+  useRlcdConfigSync();
   const mobileFontScale = useUiPreferencesStore((s) => s.mobileFontScale);
   const isLeftSidebarVisible = useUiPreferencesStore(
     (s) => s.isLeftSidebarVisible

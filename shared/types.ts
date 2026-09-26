@@ -773,6 +773,48 @@ export type IntegrationErrorsResponse = { errors: Array<IntegrationError>,
  */
 latest_seq: number, };
 
+export type RlcdEngine = "laya" | "jev" | "adaptive";
+
+export type GuardrailAction = "block" | "warn";
+
+export type GuardrailSettings = { 
+/**
+ * Master switch for all tool-call guardrails.
+ */
+enabled: boolean, action: GuardrailAction, protected_files: boolean, ai_attribution: boolean, secret_leak: boolean, git_ops: boolean, 
+/**
+ * Ask the classifier about destructive / exfiltrating commands.
+ */
+semantic: boolean, };
+
+export type MemoryGateSettings = { 
+/**
+ * Classify each memory write before it reaches Mem0 / Qdrant.
+ */
+enabled: boolean, };
+
+export type RlcdConfig = { engine: RlcdEngine, 
+/**
+ * Laya base URL (Docker container or AuraPunk Cloud gateway).
+ */
+laya_url: string | null, 
+/**
+ * Bearer token for the Cloud gateway (the signed-in device token).
+ */
+laya_token: string | null, jev_url: string | null, jev_key: string | null, jev_model: string | null, guardrails: GuardrailSettings, memory_gate: MemoryGateSettings, };
+
+export type RlcdConfigView = { engine: RlcdEngine, laya_url: string | null, has_laya_token: boolean, jev_url: string | null, has_jev_key: boolean, guardrails: GuardrailSettings, memory_gate: MemoryGateSettings, };
+
+export type MemoryVerdict = { store: boolean, 
+/**
+ * Why the fact was rejected, or why it was stored without a verdict.
+ */
+reason: string | null, 
+/**
+ * Classifier probabilities, when the classifier answered.
+ */
+durable: number | null, volatile: number | null, secret: number | null, };
+
 export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_path: string, };
 
 export type SearchMode = "taskform" | "settings";

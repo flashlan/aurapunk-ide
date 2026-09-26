@@ -52,6 +52,7 @@ pub mod pipelines;
 pub mod preview;
 pub mod recurrent;
 pub mod repo;
+pub mod rlcd;
 pub mod scratch;
 pub mod search;
 pub mod sessions;
@@ -94,6 +95,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(usage::router())
         .merge(jev::router())
         .merge(integration_errors::router())
+        .merge(rlcd::router())
         .merge(memory_migration::router())
         .merge(mobile_sync::router())
         .merge(mobile_sync::tailcat_router())

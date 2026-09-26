@@ -354,7 +354,17 @@ fn main() {
                 // as well as bundled plugins (fast-jev-compaction), in
                 // Tauri's platform-specific resource directory.
                 if let Ok(resource_dir) = app.path().resource_dir() {
-                    let bundled_bin_dir = resource_dir.join("bin");
+                    // `tauri.conf.json` bundles `resources/bin/*` and
+                    // `resources/plugins/**`, which keep their `resources/`
+                    // prefix inside the bundle (Contents/Resources/resources/…).
+                    // Looking only at `resource_dir/bin` never matched, so the
+                    // bundled executables and plugins were silently ignored.
+                    let bundled = |name: &str| {
+                        [resource_dir.join("resources").join(name), resource_dir.join(name)]
+                            .into_iter()
+                            .find(|dir| dir.is_dir())
+                    };
+                    let bundled_bin_dir = bundled("bin").unwrap_or_default();
                     if bundled_bin_dir.is_dir() {
                         // Process-wide configuration is set before the local
                         // server starts and before any worker threads launch.
@@ -365,7 +375,7 @@ fn main() {
                             )
                         };
                     }
-                    let bundled_plugins_dir = resource_dir.join("plugins");
+                    let bundled_plugins_dir = bundled("plugins").unwrap_or_default();
                     if bundled_plugins_dir.is_dir() {
                         unsafe {
                             std::env::set_var(

@@ -25,7 +25,6 @@ const MAX_MESSAGE_CHARS: usize = 600;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
-#[ts(export)]
 pub enum IntegrationService {
     Mem0,
     Laya,
@@ -33,7 +32,6 @@ pub enum IntegrationService {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
 pub struct IntegrationError {
     /// Monotonic id; clients remember the last one they have seen.
     #[ts(type = "number")]
@@ -46,7 +44,6 @@ pub struct IntegrationError {
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]
-#[ts(export)]
 pub struct ReportIntegrationErrorRequest {
     pub service: IntegrationService,
     pub operation: String,
@@ -54,7 +51,6 @@ pub struct ReportIntegrationErrorRequest {
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
-#[ts(export)]
 pub struct IntegrationErrorsResponse {
     pub errors: Vec<IntegrationError>,
     /// Highest `seq` recorded so far (0 when none), so a client with nothing

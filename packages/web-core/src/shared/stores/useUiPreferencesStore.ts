@@ -411,6 +411,7 @@ const GUARDRAIL_AI_ATTRIBUTION_KEY = 'vk-guardrail-ai-attribution';
 const GUARDRAIL_SECRET_LEAK_KEY = 'vk-guardrail-secret-leak';
 const GUARDRAIL_GIT_OPS_KEY = 'vk-guardrail-git-ops';
 const GUARDRAIL_SEMANTIC_JEV_KEY = 'vk-guardrail-semantic-jev';
+const RLCD_MEMORY_GATE_KEY = 'vk-rlcd-memory-gate';
 
 const loadBoolPref = (key: string, defaultValue = true): boolean => {
   try {
@@ -936,6 +937,8 @@ type State = {
   guardrailGitOps: boolean;
   setGuardrailGitOps: (enabled: boolean) => void;
   guardrailSemanticJev: boolean;
+  rlcdMemoryGateEnabled: boolean;
+  setRlcdMemoryGateEnabled: (enabled: boolean) => void;
   setGuardrailSemanticJev: (enabled: boolean) => void;
 
   // Last selected project (persisted via scratch store).
@@ -1267,6 +1270,13 @@ export const useUiPreferencesStore = create<State>()((set, get) => ({
     set({ guardrailGitOps: enabled });
   },
   guardrailSemanticJev: loadBoolPref(GUARDRAIL_SEMANTIC_JEV_KEY),
+  rlcdMemoryGateEnabled: loadBoolPref(RLCD_MEMORY_GATE_KEY),
+  setRlcdMemoryGateEnabled: (enabled) => {
+    try {
+      localStorage.setItem(RLCD_MEMORY_GATE_KEY, String(enabled));
+    } catch {}
+    set({ rlcdMemoryGateEnabled: enabled });
+  },
   setGuardrailSemanticJev: (enabled) => {
     try {
       localStorage.setItem(GUARDRAIL_SEMANTIC_JEV_KEY, String(enabled));
@@ -2089,6 +2099,10 @@ export const useGuardrailSemanticJev = () =>
   useUiPreferencesStore((s) => s.guardrailSemanticJev);
 export const useSetGuardrailSemanticJev = () =>
   useUiPreferencesStore((s) => s.setGuardrailSemanticJev);
+export const useRlcdMemoryGateEnabled = () =>
+  useUiPreferencesStore((s) => s.rlcdMemoryGateEnabled);
+export const useSetRlcdMemoryGateEnabled = () =>
+  useUiPreferencesStore((s) => s.setRlcdMemoryGateEnabled);
 
 // Hooks for typography & custom theme
 export function useUiFontFamily() {
