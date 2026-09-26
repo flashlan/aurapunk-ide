@@ -422,7 +422,8 @@ fixed them. Newest last.
   WebContent até 391 MB; média ociosa baixa (~16% / ~11%). O travamento é pressão
   de memória, não CPU contínua. Logs de processo opencode chegam a 77 MB de JSONL.
 - **localStorage na cota:** vários origins em ~5,1 MB, 98% `vibe-conversation-entry:*`;
-  127 origins distintos (a porta da UI muda a cada abertura). Com a cota cheia
+  127 origins distintos, todos anteriores a 19/09 (hoje a porta da UI é estável
+  — nenhum origin novo foi criado em 4 relançamentos). Com a cota cheia
   toda gravação falhava após serializar megabytes e o cache nunca acertava, então
   cada troca de workspace re-normalizava o histórico no backend.
 - **Correções:** integrada a branch `vk/4a2c-corrigir-ram` (sidecar normalizado,
