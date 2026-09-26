@@ -1946,7 +1946,10 @@ pub trait ContainerService {
                 if let Some(executor) =
                     ExecutorConfigs::get_cached().get_coding_agent(&executor_profile_id)
                 {
-                    let _ = executor.normalize_logs(msg_store, &working_dir);
+                    // Fresh store from the first line: its transcript can be
+                    // persisted at exit (see `persist_finished`).
+                    let handles = executor.normalize_logs(msg_store, &working_dir);
+                    normalized_transcript::register_live_normalizers(execution_process.id, handles);
                 } else {
                     tracing::error!(
                         "Failed to resolve profile '{:?}' for normalization",
@@ -2049,7 +2052,7 @@ pub trait ContainerService {
 
 /// Item of a normalized-log source: a patch, or the Ready sentinel that marks
 /// the end of normalization.
-enum PatchOrDone {
+pub(crate) enum PatchOrDone {
     Patch(Patch),
     Done,
 }
@@ -2063,7 +2066,7 @@ enum PatchOrDone {
 /// buffer on `Done` used to hand the source back and keep reading: with a patch
 /// still buffered (almost always), the next poll waited on the broadcast
 /// forever and the chat never finished loading.
-fn dedup_until_ready(
+pub(crate) fn dedup_until_ready(
     source: futures::stream::BoxStream<'static, PatchOrDone>,
 ) -> impl futures::Stream<Item = Patch> {
     futures::stream::unfold(

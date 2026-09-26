@@ -14,12 +14,24 @@
 //! any append invalidates it, and a process with no raw file (cloud-imported /
 //! DB-only history) simply skips the cache and keeps the existing replay path.
 
-use std::path::PathBuf;
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{LazyLock, Mutex},
+    time::Duration,
+};
 
+use futures::StreamExt;
 use json_patch::Patch;
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncWriteExt;
-use utils::execution_logs::{process_log_cache_path, process_log_file_path};
+use tokio::{io::AsyncWriteExt, task::JoinHandle};
+use utils::{
+    execution_logs::{process_log_cache_path, process_log_file_path},
+    msg_store::MsgStore,
+};
+use uuid::Uuid;
+
+use crate::services::container::{PatchOrDone, dedup_until_ready};
 
 const CACHE_VERSION: u32 = 1;
 
@@ -128,5 +140,147 @@ pub async fn store(
     if let Err(err) = tokio::fs::rename(&tmp, &path).await {
         tracing::debug!("normalized cache: rename failed for {path:?}: {err}");
         let _ = tokio::fs::remove_file(&tmp).await;
+    }
+}
+
+/// Normalizer tasks of live processes whose `MsgStore` has seen the process
+/// from its first line. Only those stores can produce a complete transcript at
+/// exit; a process resumed after an app restart starts with an empty store and
+/// is deliberately never registered.
+static LIVE_NORMALIZERS: LazyLock<Mutex<HashMap<Uuid, Vec<JoinHandle<()>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// How long exit waits for normalizers to drain the tail after `Finished`.
+const NORMALIZER_DRAIN_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Remember the normalizer tasks of a process started from scratch, so its
+/// transcript can be persisted when it exits (see [`persist_finished`]).
+pub fn register_live_normalizers(process_id: Uuid, handles: Vec<JoinHandle<()>>) {
+    LIVE_NORMALIZERS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .insert(process_id, handles);
+}
+
+/// Persist the normalized transcript of a process that just exited, straight
+/// from its live `MsgStore`, so the first open never pays the cold
+/// re-normalization (which peaks near 1 GB for large opencode logs).
+///
+/// Call after `Finished` was pushed and the raw JSONL was flushed. Writes
+/// nothing — leaving the cold path as the fallback — unless the process was
+/// registered at start, every normalizer finished draining, and the store
+/// never evicted history.
+pub async fn persist_finished(session_id: Uuid, process_id: Uuid, msg_store: &MsgStore) {
+    let handles = LIVE_NORMALIZERS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .remove(&process_id);
+    let Some(handles) = handles else { return };
+
+    for handle in handles {
+        match tokio::time::timeout(NORMALIZER_DRAIN_TIMEOUT, handle).await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                tracing::debug!("normalized cache: normalizer for {process_id} failed: {err}");
+                return;
+            }
+            Err(_) => {
+                tracing::debug!("normalized cache: normalizer for {process_id} did not drain");
+                return;
+            }
+        }
+    }
+    if !msg_store.history_is_complete() {
+        tracing::debug!("normalized cache: {process_id} history was evicted; not persisting");
+        return;
+    }
+    let Some(fingerprint) = raw_fingerprint(session_id, process_id).await else {
+        return;
+    };
+    if load(session_id, process_id, fingerprint).await.is_some() {
+        return;
+    }
+
+    let source = futures::stream::iter(
+        msg_store
+            .history_patches()
+            .into_iter()
+            .map(PatchOrDone::Patch)
+            .chain(std::iter::once(PatchOrDone::Done)),
+    )
+    .boxed();
+    let patches: Vec<Patch> = dedup_until_ready(source).collect().await;
+    store(session_id, process_id, fingerprint, &patches).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use utils::log_msg::LogMsg;
+
+    use super::*;
+
+    fn add(path: &str, text: &str) -> Patch {
+        serde_json::from_value(serde_json::json!([
+            { "op": "add", "path": path, "value": { "content": text } }
+        ]))
+        .unwrap()
+    }
+
+    /// Raw JSONL on disk so the transcript has a fingerprint to key on.
+    async fn write_raw(session_id: Uuid, process_id: Uuid) {
+        let path = process_log_file_path(session_id, process_id);
+        tokio::fs::create_dir_all(path.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(&path, b"{\"Stdout\":\"hello\\n\"}\n")
+            .await
+            .unwrap();
+    }
+
+    async fn cleanup(session_id: Uuid) {
+        let dir = utils::execution_logs::process_logs_session_dir(session_id);
+        let _ = tokio::fs::remove_dir_all(dir).await;
+    }
+
+    fn finished_store() -> Arc<MsgStore> {
+        let store = Arc::new(MsgStore::new());
+        store.push(LogMsg::Stdout("hello\n".into()));
+        store.push_patch(add("/entries/0", "draft"));
+        store.push_patch(add("/entries/0", "final"));
+        store.push_patch(add("/entries/1", "next"));
+        store.push_finished();
+        store
+    }
+
+    #[tokio::test]
+    async fn persists_a_registered_process_at_exit() {
+        let (session_id, process_id) = (Uuid::new_v4(), Uuid::new_v4());
+        write_raw(session_id, process_id).await;
+        let store = finished_store();
+        register_live_normalizers(process_id, vec![tokio::spawn(async {})]);
+
+        persist_finished(session_id, process_id, &store).await;
+
+        let fingerprint = raw_fingerprint(session_id, process_id).await.unwrap();
+        let cached = load(session_id, process_id, fingerprint).await;
+        cleanup(session_id).await;
+        // Same dedup as the cold path: the two writes to entry 0 collapse.
+        assert_eq!(cached.map(|patches| patches.len()), Some(2));
+    }
+
+    #[tokio::test]
+    async fn skips_a_process_that_was_not_registered() {
+        // e.g. resumed after an app restart: its store lacks the early lines.
+        let (session_id, process_id) = (Uuid::new_v4(), Uuid::new_v4());
+        write_raw(session_id, process_id).await;
+
+        persist_finished(session_id, process_id, &finished_store()).await;
+
+        let fingerprint = raw_fingerprint(session_id, process_id).await.unwrap();
+        let cached = load(session_id, process_id, fingerprint).await;
+        cleanup(session_id).await;
+        assert!(cached.is_none());
     }
 }

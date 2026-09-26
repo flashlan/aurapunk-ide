@@ -52,6 +52,7 @@ use services::services::{
     diff_stream::{self, DiffStreamHandle},
     execution_process,
     file::FileService,
+    normalized_transcript,
     notification::NotificationService,
     pipeline_stage::spawn_pipeline_stage_tracker,
     queued_message::QueuedMessageService,
@@ -561,6 +562,25 @@ impl LocalContainerService {
     ///
     /// Shared by [`Self::spawn_exit_monitor`] (owned child processes) and the
     /// detached tmux liveness poller, so both modes reach the same end state.
+    /// Persist the finished process's normalized transcript from its live
+    /// store, off the exit path (it waits for the normalizers to drain). See
+    /// `normalized_transcript::persist_finished` for when it writes nothing.
+    fn persist_transcript_in_background(&self, exec_id: Uuid, store: Arc<MsgStore>) {
+        let pool = self.db.pool.clone();
+        tokio::spawn(async move {
+            match ExecutionProcess::find_by_id(&pool, exec_id).await {
+                Ok(Some(process)) => {
+                    normalized_transcript::persist_finished(process.session_id, exec_id, &store)
+                        .await;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    tracing::debug!("normalized cache: cannot load process {exec_id}: {err}");
+                }
+            }
+        });
+    }
+
     async fn finalize_completed_execution(
         &self,
         exec_id: Uuid,
@@ -827,11 +847,15 @@ impl LocalContainerService {
 
         // Wait for DB persistence to complete before cleaning up MsgStore
         let db_stream_handle = container.take_db_stream_handle(&exec_id).await;
-        if let Some(msg_arc) = container.msg_stores.write().await.remove(&exec_id) {
+        let finished_store = container.msg_stores.write().await.remove(&exec_id);
+        if let Some(msg_arc) = &finished_store {
             msg_arc.push_finished();
         }
         if let Some(handle) = db_stream_handle {
             let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
+        }
+        if let Some(msg_arc) = finished_store {
+            container.persist_transcript_in_background(exec_id, msg_arc);
         }
 
         // SIGKILL any orphaned children (e.g. MCP servers) still in the
@@ -2949,11 +2973,15 @@ impl ContainerService for LocalContainerService {
 
             // Tear down MsgStore + db stream exactly like the owned-child path.
             let db_stream_handle = self.take_db_stream_handle(&execution_process.id).await;
-            if let Some(msg) = self.msg_stores.write().await.remove(&execution_process.id) {
+            let finished_store = self.msg_stores.write().await.remove(&execution_process.id);
+            if let Some(msg) = &finished_store {
                 msg.push_finished();
             }
             if let Some(handle) = db_stream_handle {
                 let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
+            }
+            if let Some(msg) = finished_store {
+                self.persist_transcript_in_background(execution_process.id, msg);
             }
 
             self.update_after_head_commits(execution_process.id).await;
@@ -3015,11 +3043,15 @@ impl ContainerService for LocalContainerService {
 
         // Mark the process finished in the MsgStore and wait for DB persistence
         let db_stream_handle = self.take_db_stream_handle(&execution_process.id).await;
-        if let Some(msg) = self.msg_stores.write().await.remove(&execution_process.id) {
+        let finished_store = self.msg_stores.write().await.remove(&execution_process.id);
+        if let Some(msg) = &finished_store {
             msg.push_finished();
         }
         if let Some(handle) = db_stream_handle {
             let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
+        }
+        if let Some(msg) = finished_store {
+            self.persist_transcript_in_background(execution_process.id, msg);
         }
 
         tracing::debug!(

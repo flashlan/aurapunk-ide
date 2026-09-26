@@ -21,6 +21,9 @@ struct StoredMsg {
 struct Inner {
     history: VecDeque<StoredMsg>,
     total_bytes: usize,
+    /// Set once the byte cap forced the oldest messages out; from then on the
+    /// history no longer describes the whole process.
+    evicted: bool,
 }
 
 pub struct MsgStore {
@@ -41,6 +44,7 @@ impl MsgStore {
             inner: RwLock::new(Inner {
                 history: VecDeque::with_capacity(32),
                 total_bytes: 0,
+                evicted: false,
             }),
             sender,
         }
@@ -54,6 +58,7 @@ impl MsgStore {
         while inner.total_bytes.saturating_add(bytes) > HISTORY_BYTES {
             if let Some(front) = inner.history.pop_front() {
                 inner.total_bytes = inner.total_bytes.saturating_sub(front.bytes);
+                inner.evicted = true;
             } else {
                 break;
             }
@@ -85,6 +90,27 @@ impl MsgStore {
 
     pub fn get_receiver(&self) -> broadcast::Receiver<LogMsg> {
         self.sender.subscribe()
+    }
+
+    /// Whether the history still holds every message ever pushed (the byte cap
+    /// never evicted anything).
+    pub fn history_is_complete(&self) -> bool {
+        !self.inner.read().unwrap().evicted
+    }
+
+    /// Clone only the JSON patches in history — the normalized transcript —
+    /// without copying the (much larger) raw stdout/stderr alongside it.
+    pub fn history_patches(&self) -> Vec<json_patch::Patch> {
+        self.inner
+            .read()
+            .unwrap()
+            .history
+            .iter()
+            .filter_map(|stored| match &stored.msg {
+                LogMsg::JsonPatch(patch) => Some(patch.clone()),
+                _ => None,
+            })
+            .collect()
     }
 
     pub fn get_history(&self) -> Vec<LogMsg> {
