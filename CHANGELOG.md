@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.24] - 2026-09-26
+
+### Added
+
+- **Integration error balloons.** Mem0, Laya and Jev failures (memory writes
+  that were not queued, classifier calls, Jev proxy errors) are now recorded
+  and shown as balloons on the Mem0 and RLCD indicators, which turn red until
+  dismissed. `memory_save` returns the reason in a new `error` field.
+- **RLCD in the backend.** Settings now syncs the Laya/Jev engine, endpoints
+  and guardrail toggles to the backend (`rlcd.toml`), enabling:
+  - **Tool-call guardrails that follow Settings**, now covering `Write` and
+    `MultiEdit`, plus a classifier check that blocks destructive or
+    exfiltrating shell commands.
+  - **A Mem0 memory gate**: agent `memory_save` calls are classified and logs,
+    build output, transient state and secrets are not stored. Card completion
+    is never gated.
+- **Optional Web Inspector** in release builds via `AURAPUNK_DEVTOOLS=1`.
+
+### Fixed
+
+- **Mac freezing / high RAM.** Chat history no longer re-normalizes large logs
+  on every open (normalized transcripts are cached and written when a process
+  exits; cold normalizations run one at a time); the chat cache stays within
+  the WebKit localStorage quota (UTF-16 bytes), which also stopped settings
+  such as the Laya execution mode from reverting on restart.
+- **Chats stuck on "loading"** after the history cache change.
+- **Card descriptions not loading** (kanban delta frames now carry their
+  projection).
+- **Deleted workspace left open** now navigates away instead of polling 404s.
+- **`git status` polling cost** on freshly created worktrees (index refreshed
+  at creation, ~25x cheaper).
+- **Auto-compaction** now asks the agent to `/compact`, so the context
+  actually shrinks.
+- **Bundled resources** are found under `Contents/Resources/resources`.
+
+### Changed
+
+- **Smaller startup bundle** (5.3 MB → 3.8 MB): settings sections, the
+  terminal and diff viewers load on demand; the Noto Emoji webfont was
+  replaced by the system emoji font.
+- **Laya Cloud status** uses `/health` instead of a metered prediction.
+
 ## [0.3.23] - 2026-09-25
 
 ### Added
