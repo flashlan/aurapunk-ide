@@ -484,6 +484,8 @@ impl McpServer {
                 sort_direction,
                 limit: Some(limit.unwrap_or(50).max(0)),
                 offset: Some(offset.unwrap_or(0).max(0)),
+                // Agents read descriptions, so keep the full projection.
+                minimal: None,
             };
             let url = self.url("/api/issues/search");
             match self.send_json(self.client.post(&url).json(&query)).await {
