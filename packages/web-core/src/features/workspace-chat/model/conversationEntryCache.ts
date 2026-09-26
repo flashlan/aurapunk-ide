@@ -299,6 +299,10 @@ export function getCachedEntries(
   const fromMemory = MEMORY.get(processId);
   if (fromMemory) return fromMemory;
 
+  // First storage lookup of the session seeds the budget, which also prunes
+  // leftovers — on a miss too, since most lookups miss after an upgrade.
+  seedStorageBudget();
+
   try {
     const raw = localStorage.getItem(
       storageKey(ENTRY_STORAGE_PREFIX, processId)
@@ -307,7 +311,6 @@ export function getCachedEntries(
       const entries = JSON.parse(raw) as PatchTypeWithKey[];
       // Already persisted under its own key: only refresh recency. Writing it
       // back would re-serialize megabytes synchronously on every cache hit.
-      seedStorageBudget();
       touchStorageOrder(processId);
       rememberInMemory(processId, entries, byteLength(raw));
       return entries;

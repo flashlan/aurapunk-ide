@@ -156,6 +156,16 @@ describe('conversationEntryCache', () => {
       expect(setItemCalls).toBe(0);
     });
 
+    it('prunes leftovers on the first lookup even when it misses', () => {
+      installStorage(10 * 1024 * 1024);
+      store.set(`${ENTRY_PREFIX}huge`, 'x'.repeat(600_000));
+
+      expect(getCachedEntries('not-cached')).toBeUndefined();
+
+      expect(store.has(`${ENTRY_PREFIX}huge`)).toBe(false);
+      expect(setItemCalls).toBe(0);
+    });
+
     it('evicts older transcripts before writing when the store is at quota', () => {
       // Mirrors a real profile left at the WebKit quota by the old
       // 4 MiB-per-process policy: six ~500K transcripts and no headroom.
