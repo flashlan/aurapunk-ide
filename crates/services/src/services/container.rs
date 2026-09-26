@@ -1372,11 +1372,6 @@ pub trait ContainerService {
             // Stream normalized patches, deduplicating consecutive patches
             // that target the same path (only the final state matters for
             // historical replay). The Ready sentinel flushes the buffer.
-            enum PatchOrDone {
-                Patch(Patch),
-                Done,
-            }
-
             let stream = temp_store
                 .history_plus_stream()
                 .filter_map(|msg| async move {
@@ -1387,43 +1382,11 @@ pub trait ContainerService {
                     }
                 });
 
-            let deduped = futures::stream::unfold(
-                (stream.boxed(), None::<Patch>, HashSet::<String>::new()),
-                |(mut stream, buffered, mut sent_paths)| async move {
-                    match stream.next().await {
-                        Some(PatchOrDone::Patch(patch)) => {
-                            let Some(prev) = buffered else {
-                                // First patch — just buffer it
-                                return Some((None, (stream, Some(patch), sent_paths)));
-                            };
-                            if patch_entry_path(&patch) == patch_entry_path(&prev)
-                                && is_add_or_replace(&patch)
-                                && is_add_or_replace(&prev)
-                            {
-                                // Same path, both add/replace — replace buffer
-                                Some((None, (stream, Some(patch), sent_paths)))
-                            } else {
-                                // Different — emit prev, buffer new
-                                let prev = fix_patch_ops(prev, &mut sent_paths);
-                                Some((Some(prev), (stream, Some(patch), sent_paths)))
-                            }
-                        }
-                        Some(PatchOrDone::Done) | None => {
-                            // Sentinel or stream end: flush buffer and terminate
-                            if let Some(prev) = buffered {
-                                let prev = fix_patch_ops(prev, &mut sent_paths);
-                                return Some((Some(prev), (stream, None, sent_paths)));
-                            }
-                            None
-                        }
-                    }
-                },
-            )
-            .filter_map(|opt| async move { opt })
-            .map(|p| Ok::<_, std::io::Error>(LogMsg::JsonPatch(p)))
-            .chain(futures::stream::once(async {
-                Ok::<_, std::io::Error>(LogMsg::Finished)
-            }));
+            let deduped = dedup_until_ready(stream.boxed())
+                .map(|p| Ok::<_, std::io::Error>(LogMsg::JsonPatch(p)))
+                .chain(futures::stream::once(async {
+                    Ok::<_, std::io::Error>(LogMsg::Finished)
+                }));
 
             // Collect rather than stream back: the result is cached for the
             // next open, and a finished process has no live tail to get ahead
@@ -2081,6 +2044,127 @@ pub trait ContainerService {
 
         tracing::debug!("Started next action: {:?}", next_action);
         Ok(())
+    }
+}
+
+/// Item of a normalized-log source: a patch, or the Ready sentinel that marks
+/// the end of normalization.
+enum PatchOrDone {
+    Patch(Patch),
+    Done,
+}
+
+/// Collapse consecutive add/replace patches that target the same entry (only
+/// the final state matters for historical replay) and END at the Ready
+/// sentinel.
+///
+/// The source is normally `MsgStore::history_plus_stream`, whose live half
+/// never ends on its own, so termination must come from `Done`. Flushing the
+/// buffer on `Done` used to hand the source back and keep reading: with a patch
+/// still buffered (almost always), the next poll waited on the broadcast
+/// forever and the chat never finished loading.
+fn dedup_until_ready(
+    source: futures::stream::BoxStream<'static, PatchOrDone>,
+) -> impl futures::Stream<Item = Patch> {
+    futures::stream::unfold(
+        (Some(source), None::<Patch>, HashSet::<String>::new()),
+        |(stream, buffered, mut sent_paths)| async move {
+            let mut stream = stream?;
+            match stream.next().await {
+                Some(PatchOrDone::Patch(patch)) => {
+                    let Some(prev) = buffered else {
+                        // First patch — just buffer it
+                        return Some((None, (Some(stream), Some(patch), sent_paths)));
+                    };
+                    if patch_entry_path(&patch) == patch_entry_path(&prev)
+                        && is_add_or_replace(&patch)
+                        && is_add_or_replace(&prev)
+                    {
+                        // Same path, both add/replace — replace buffer
+                        Some((None, (Some(stream), Some(patch), sent_paths)))
+                    } else {
+                        // Different — emit prev, buffer new
+                        let prev = fix_patch_ops(prev, &mut sent_paths);
+                        Some((Some(prev), (Some(stream), Some(patch), sent_paths)))
+                    }
+                }
+                Some(PatchOrDone::Done) | None => {
+                    // Flush the buffer and drop the source so the next poll
+                    // returns None.
+                    let prev = buffered.map(|prev| fix_patch_ops(prev, &mut sent_paths));
+                    prev.map(|prev| (Some(prev), (None, None, sent_paths)))
+                }
+            }
+        },
+    )
+    .filter_map(|opt| async move { opt })
+}
+
+#[cfg(test)]
+mod dedup_until_ready_tests {
+    use std::time::Duration;
+
+    use futures::StreamExt;
+    use json_patch::Patch;
+
+    use super::{PatchOrDone, dedup_until_ready};
+
+    fn add(path: &str, text: &str) -> Patch {
+        serde_json::from_value(serde_json::json!([
+            { "op": "add", "path": path, "value": { "content": text } }
+        ]))
+        .unwrap()
+    }
+
+    /// Patches, then Ready, then a source that never ends — exactly what a
+    /// `history_plus_stream` subscription looks like after normalization.
+    fn source(items: Vec<PatchOrDone>) -> futures::stream::BoxStream<'static, PatchOrDone> {
+        futures::stream::iter(items)
+            .chain(futures::stream::pending())
+            .boxed()
+    }
+
+    #[tokio::test]
+    async fn terminates_at_ready_with_a_patch_still_buffered() {
+        let items = vec![
+            PatchOrDone::Patch(add("/entries/0", "a")),
+            PatchOrDone::Patch(add("/entries/1", "b")),
+            PatchOrDone::Done,
+        ];
+        let collected = tokio::time::timeout(
+            Duration::from_secs(2),
+            dedup_until_ready(source(items)).collect::<Vec<_>>(),
+        )
+        .await
+        .expect("dedup stream must end at Ready, not wait on the live source");
+        assert_eq!(collected.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn collapses_same_entry_updates_and_terminates() {
+        let items = vec![
+            PatchOrDone::Patch(add("/entries/0", "draft")),
+            PatchOrDone::Patch(add("/entries/0", "final")),
+            PatchOrDone::Done,
+        ];
+        let collected = tokio::time::timeout(
+            Duration::from_secs(2),
+            dedup_until_ready(source(items)).collect::<Vec<_>>(),
+        )
+        .await
+        .expect("dedup stream must end at Ready");
+        assert_eq!(collected.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn terminates_at_ready_with_nothing_buffered() {
+        let collected = tokio::time::timeout(
+            Duration::from_secs(2),
+            dedup_until_ready(source(vec![PatchOrDone::Done])).collect::<Vec<_>>(),
+        )
+        .await
+        .expect("dedup stream must end at Ready");
+        assert!(collected.is_empty());
     }
 }
 

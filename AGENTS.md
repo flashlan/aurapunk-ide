@@ -438,6 +438,17 @@ fixed them. Newest last.
 - **Verificação:** `cargo check` (services/server/local-deployment) limpo,
   `cargo test -p services` 182; web-core `tsc` limpo, vitest workspace-chat 63
   (2 testes novos do cache falham sem a correção), lint do local-web limpo.
+- **Regressão encontrada no teste real (e corrigida):** com o merge da `4a2c`,
+  NENHUM chat carregava ("só carregando"). O `unfold` de dedup em
+  `normalized_transcript` fazia flush no sentinel `Ready` e devolvia a fonte —
+  um `history_plus_stream`, cuja metade ao vivo nunca termina — então a coleta
+  esperava para sempre sempre que sobrava um patch no buffer. No v0.3.23 o mesmo
+  código só alimentava o WS e o bug ficava oculto; a coleta da `4a2c` o expôs.
+  Extraído para `dedup_until_ready` (termina no `Done`) com testes que travam
+  sem a correção. Diagnóstico: logs de etapa temporários no binário release.
+- **Medido após a correção (dados reais):** 3 históricos de 77/64/59 MB em
+  paralelo a frio → 5,6 s, pico 897 MB; reabertura com sidecar → 84 ms, CPU 9%.
+  Em aberto: RSS não volta após o pico (~900 MB) e já parte de ~627 MB.
 - **Pendente:** gravar o sidecar no fim do processo (cuidado: normalizadores
   ainda drenam linhas após `push_finished`), fixar a porta da UI, polling de
   fundo (diff stream a 1s, branch-status/agent-activity a 3–5s) e medir o pico
