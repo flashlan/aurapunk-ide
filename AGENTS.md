@@ -43,6 +43,7 @@ Rules:
 - [x] **Done** — Chat volta pro final ao rolar para cima durante streaming: bottom-lock libera em todo scroll do usuário e follow pausa até descer ao fim; seleção de sessão sticky (refresh/reorder/não-dados não remontam o chat) (`vk/3a4e-caht-da-uam-tr`)
 - [~] **In Progress** — Guardião do merge: explica o bloqueio, espera e recusa Done sem merge (`vk/2b51-agent-activity-n`)
 - [x] **Done** — Carregamento sob demanda + sync por diff: projeção `?minimal=1`, gate da sidebar, cache de transcript normalizado, janela de histórico, thinking sob demanda, WS kanban com deltas (`vk/4a2c-corrigir-ram`)
+- [~] **In Progress** — Erros de integração (Mem0/Laya/Jev) em balões na sidebar + transcript normalizado gravado no fim do processo (`vk/integration-errors`)
 - [x] **Done** — Perf RAM/CPU: chat cache/localStorage, normalização serializada, chats travados no `Ready`, índice git racy após worktree add, cota UTF-16 (Laya Cloud não salvava) (`vk/perf-ram-cpu`)
 
 ## Card Pipeline Protocol (MCP)
@@ -468,3 +469,26 @@ fixed them. Newest last.
   ainda drenam linhas após `push_finished`), fixar a porta da UI, polling de
   fundo (diff stream a 1s, branch-status/agent-activity a 3–5s) e medir o pico
   no app empacotado.
+
+### 2026-09-26 — Erros de integração visíveis + transcript normalizado na saída (vk/integration-errors)
+- **"Mem0 verde mas não grava":** o ponto do Mem0 refletia só o `/health`, que
+  valida o token mas não prova que gravações entram; o `memory_save` do MCP
+  devolvia `stored: false` por 5 motivos distintos (desligado, HTTP não-2xx,
+  rede, resposta ilegível, `queued=false`) sem dizer qual, com o motivo só num
+  `tracing::warn` invisível. As falhas observadas nesta sessão foram
+  intermitentes (reproduções diretas no gateway e no binário MCP gravaram).
+  Cuidado ao testar com curl no zsh: `${h:+-H "$h"}` vira UM argumento e gera
+  401 falso.
+- **Implementado:** log de erros de integração em memória no backend
+  (`services::integration_errors`, `GET/POST /api/integration-errors`),
+  alimentado pelo backend (proxy Jev, grafo de memória), pelo MCP (toda falha de
+  `memory_save`/`search`/`graph_traverse`/`check_staleness`; `memory_save`
+  ganhou o campo `error`) e pelo frontend (compactação Laya/Jev e o fallback
+  para o Cloud, antes engolido). Os indicadores Mem0 e RLCD (Laya · Jev) ficam
+  vermelhos e abrem um balão (`IntegrationErrorBalloon`) até o operador dispensar.
+- **Transcript na saída:** handles dos normalizadores de processos iniciados do
+  zero são registrados; na saída (3 caminhos em `local-deployment`), em
+  background, o sidecar é gravado do `MsgStore` vivo após os normalizadores
+  drenarem. Não grava para processo retomado (store sem as primeiras linhas),
+  normalizador que não drena em 60 s, ou `MsgStore` que descartou histórico
+  (novo `history_is_complete`).
