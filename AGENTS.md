@@ -45,6 +45,7 @@ Rules:
 - [x] **Done** — Carregamento sob demanda + sync por diff: projeção `?minimal=1`, gate da sidebar, cache de transcript normalizado, janela de histórico, thinking sob demanda, WS kanban com deltas (`vk/4a2c-corrigir-ram`)
 - [x] **Done** — Erros de integração (Mem0/Laya/Jev) em balões na sidebar + transcript normalizado gravado no fim do processo + descrição dos cards (delta WS por projeção) (`vk/integration-errors`)
 - [x] **Done** — RAM da interface: lazy-load (configurações, terminal, diffs), gaveta mobile só no mobile, logo reduzido, sem Noto Emoji, inspetor opcional (`vk/webview-memory`)
+- [x] **Done** — RLCD no backend: guardrails reais (toggles + semântico em comandos), portão de memória do Mem0, auto-compactação compactando o agente (`vk/rlcd-backend`)
 - [x] **Done** — Perf RAM/CPU: chat cache/localStorage, normalização serializada, chats travados no `Ready`, índice git racy após worktree add, cota UTF-16 (Laya Cloud não salvava) (`vk/perf-ram-cpu`)
 
 ## Card Pipeline Protocol (MCP)
@@ -553,3 +554,28 @@ fixed them. Newest last.
   404 em loop, "Failed to send: Not Found"). `WorkspaceProvider` agora sai para
   a raiz quando o workspace some da lista viva ou `GET /api/workspaces/:id`
   dá 404 (URL antiga). Verificado nos dois caminhos.
+
+### 2026-09-26 — RLCD (Laya / Jev) no backend (vk/rlcd-backend)
+- **Levantamento:** Jev/Laya só tinham uso real na compactação do chat. Os
+  toggles de guardrail de Settings eram lidos só pela tela de Settings; o
+  "Abide via Laya" do backend eram regras fixas em Rust, sempre ligadas e sem
+  `Write`/`MultiEdit`; a auto-compactação só gerava um marcador local (o
+  agente não compactava); o plugin `fast-jev-compaction` nunca rodava (caminho
+  `Resources/plugins` vs `Resources/resources/plugins`, variável sem leitor,
+  hook inexistente); o indicador Cloud gastava cota com `/predict`.
+- **Feito:** Settings espelha motor, endpoints, token Cloud, chave Jev e
+  toggles em `~/.vibe-kanban/rlcd.toml` (`PUT /api/rlcd/config`,
+  `useRlcdConfigSync`). `services::rlcd` chama Laya (`POST {url}/predict`) /
+  Jev (`POST {url}` com `{model,state,questions}`), timeout curto, fail-open,
+  falhas no balão. Guardrails obedecem aos toggles e à ação block/warn e
+  ganharam checagem semântica de comandos de shell; `memory_save` do MCP passa
+  por `POST /api/rlcd/classify-memory` (a conclusão de card nunca é
+  bloqueada); auto-compactação envia `/compact` ao agente antes do Fast Jev.
+- **Medido com a API real (Jev, ~0,4 s por chamada):** portão de memória —
+  fato durável gravado (0,76 durável); log de build (0,96 volátil), segredo
+  (0,98) e estado em andamento (0,95 volátil) recusados. Guardrail —
+  `rm -rf ~/` (0,89 destrutivo) e envio de `~/.ssh/id_rsa` (0,96 exfiltração)
+  bloqueados; `cargo test` e `rm -rf target/` permitidos.
+- **Rede:** uma das conexões do operador não alcança `api.typesafe.ai`; nesse
+  caso o portão grava mesmo assim e a falha aparece no balão do RLCD. Com o
+  motor `jev` não há fallback para o Laya — use `adaptive` para ter.
