@@ -633,7 +633,13 @@ fn create_window<R: tauri::Runtime, M: tauri::Manager<R>>(
         .min_inner_size(800.0, 600.0)
         .resizable(true)
         .zoom_hotkeys_enabled(false)
-        .disable_drag_drop_handler();
+        .disable_drag_drop_handler()
+        // Opt-in Web Inspector for diagnosing release builds (memory, CPU):
+        // launch with AURAPUNK_DEVTOOLS=1, then Safari → Develop → Aurapunk IDE.
+        .devtools(
+            cfg!(debug_assertions)
+                || std::env::var("AURAPUNK_DEVTOOLS").is_ok_and(|value| value == "1"),
+        );
 
     let window = builder
         .on_new_window(move |url, _features| {
