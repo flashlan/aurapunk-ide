@@ -505,6 +505,12 @@ fixed them. Newest last.
   execução (checksum só no download). Para testar um MCP novo, troque a
   entrada `aurapunk-mcp` dentro desse zip (original salvo como
   `aurapunk.zip.orig-v0.3.23`); vale até a próxima versão publicada.
+  **Nunca sobrescreva no lugar** (`cp` por cima) um executável que já rodou:
+  o kernel do macOS mantém a assinatura em cache e a próxima execução daquele
+  arquivo morre com `SIGKILL (Code Signature Invalid)` — aconteceu nesta
+  sessão (relatórios `aurapunk-mcp-*.ips` em `~/Library/Logs/DiagnosticReports`).
+  Apague e copie (`rm` + `cp`, novo inode). O mesmo vale para o `.app`: use
+  `rm -rf` + `ditto`.
 
 ### 2026-09-26 — RAM da interface (WebContent) (vk/webview-memory)
 - **Onde estava:** ~300 MB estável e picos de ~475–514 MB na abertura. Heap JS
