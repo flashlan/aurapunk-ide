@@ -63,10 +63,12 @@ import {
 } from '@/shared/stores/useUiPreferencesStore';
 import { useAutoCompaction } from '../model/hooks/useAutoCompaction';
 import {
+  compactionService,
   executeSessionCompaction,
   prepareCloudPromptWithIsolation,
   buildCompactionNotice,
 } from '../model/sessionCompactor';
+import { reportIntegrationError } from '@/shared/lib/integrationErrors';
 import { useInspectModeStore } from '../model/store/useInspectModeStore';
 import { Actions } from '@/shared/actions';
 import {
@@ -649,6 +651,11 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
           // If the configured endpoint is unreachable but this Desktop is signed
           // into AuraPunk Cloud, retry through the hosted Laya gateway.
           if (token && layaMode !== 'cloud') {
+            void reportIntegrationError(
+              compactionService(compactorEngine),
+              `compaction (${layaMode}, retrying on cloud)`,
+              firstErr
+            );
             result = await runCompaction('cloud', token);
           } else {
             throw firstErr;
@@ -657,6 +664,11 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
         setEntries([...entries, result.markerPatch]);
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err);
+        void reportIntegrationError(
+          compactionService(compactorEngine),
+          'compaction',
+          err
+        );
         if (forwardedToAgent) {
           // The agent-side compaction already ran; don't alarm the user with a
           // client-side isolation failure on top of it.

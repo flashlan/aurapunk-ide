@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DatabaseIcon } from '@phosphor-icons/react';
+import type { IntegrationService } from 'shared/types';
 import { makeRequest, handleApiResponse } from '@/shared/lib/api';
 import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { Tooltip } from '@vibe/ui/components/Tooltip';
+import { useIntegrationErrors } from '@/shared/hooks/useIntegrationErrors';
+import { IntegrationErrorBalloon } from '@/shared/components/IntegrationErrorBalloon';
 
 type Mem0Level = 'green' | 'yellow' | 'orange' | 'red' | 'disabled';
 
@@ -45,6 +48,7 @@ const LEVEL_LABEL: Record<Mem0Level, string> = {
 };
 
 const POLL_INTERVAL_MS = 30_000;
+const MEM0_SERVICES: IntegrationService[] = ['mem0'];
 
 function componentLine(label: string, ok: boolean): string {
   return `${ok ? '✓' : '⚠'} ${label}`;
@@ -103,9 +107,17 @@ export function Mem0StatusIndicator() {
     };
   }, [poll]);
 
+  const { errors, dismiss } = useIntegrationErrors(MEM0_SERVICES);
   const level: Mem0Level = status?.level ?? 'green';
   const components = status?.components;
-  const color = status ? LEVEL_COLOR[level] : '#9ca3af';
+  // A passing health probe does not mean writes land: recent operation
+  // failures override the probe color until they are dismissed.
+  const color =
+    errors.length > 0
+      ? LEVEL_COLOR.red
+      : status
+        ? LEVEL_COLOR[level]
+        : '#9ca3af';
   const isAuraPunkCloudGateway = status?.connection?.url
     ?.replace(/\/$/, '')
     .endsWith('/api/memory/v1');
@@ -129,28 +141,33 @@ export function Mem0StatusIndicator() {
         componentLine('Mem0', components?.mem0 ?? false),
         componentLine('Embeddings', components?.embeddings ?? false),
         componentLine('Qdrant', components?.qdrant ?? false),
+        errors.length > 0
+          ? `\n⚠ ${errors.length} recent operation error${errors.length === 1 ? '' : 's'}`
+          : '',
         '',
         'Click to open Settings → Memory',
       ].join('\n')
     : 'Checking Mem0 status…';
 
   return (
-    <Tooltip content={tooltip} side="bottom" className="whitespace-pre-line">
-      <button
-        type="button"
-        onClick={() => SettingsDialog.show({ initialSection: 'memory' })}
-        aria-label="Mem0 status"
-        title="Mem0 status"
-        className="flex size-7 items-center justify-center rounded-sm text-low hover:text-normal"
-      >
-        <span className="relative flex items-center justify-center">
-          <DatabaseIcon className="size-icon-sm" weight="bold" />
-          <span
-            className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-1 ring-panel"
-            style={{ backgroundColor: color }}
-          />
-        </span>
-      </button>
-    </Tooltip>
+    <IntegrationErrorBalloon title="Mem0" errors={errors} onDismiss={dismiss}>
+      <Tooltip content={tooltip} side="bottom" className="whitespace-pre-line">
+        <button
+          type="button"
+          onClick={() => SettingsDialog.show({ initialSection: 'memory' })}
+          aria-label="Mem0 status"
+          title="Mem0 status"
+          className="flex size-7 items-center justify-center rounded-sm text-low hover:text-normal"
+        >
+          <span className="relative flex items-center justify-center">
+            <DatabaseIcon className="size-icon-sm" weight="bold" />
+            <span
+              className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-1 ring-panel"
+              style={{ backgroundColor: color }}
+            />
+          </span>
+        </button>
+      </Tooltip>
+    </IntegrationErrorBalloon>
   );
 }

@@ -752,6 +752,27 @@ export type DiffStats = { files_changed: number, lines_added: number, lines_remo
 
 export type DirectoryEntry = { name: string, path: string, is_directory: boolean, is_git_repo: boolean, last_modified: bigint | null, };
 
+export type IntegrationService = "mem0" | "laya" | "jev";
+
+export type IntegrationError = { 
+/**
+ * Monotonic id; clients remember the last one they have seen.
+ */
+seq: number, service: IntegrationService, 
+/**
+ * What was being attempted, e.g. `memory_save`, `compaction`.
+ */
+operation: string, message: string, at: string, };
+
+export type ReportIntegrationErrorRequest = { service: IntegrationService, operation: string, message: string, };
+
+export type IntegrationErrorsResponse = { errors: Array<IntegrationError>, 
+/**
+ * Highest `seq` recorded so far (0 when none), so a client with nothing
+ * new can still advance its cursor.
+ */
+latest_seq: number, };
+
 export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_path: string, };
 
 export type SearchMode = "taskform" | "settings";

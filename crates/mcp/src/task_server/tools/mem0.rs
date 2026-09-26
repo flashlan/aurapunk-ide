@@ -218,6 +218,10 @@ struct McpMemorySaveResult {
     /// now happens in a background worker after this call already returned.
     /// Kept as `stored` (rather than renamed to `queued`) for API stability.
     stored: bool,
+    /// Why the save was not queued, when it wasn't. Also reported to the
+    /// backend so the sidebar Mem0 indicator can show it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 /// Cap on `hops` a caller may request. mem0-vk's own `/graph/traverse` caps
@@ -479,9 +483,48 @@ impl McpServer {
         content: &str,
         user_id: &str,
     ) -> Result<bool, ErrorData> {
+        Ok(self.save_memory_detailed(content, user_id).await?.is_ok())
+    }
+
+    /// Record a Mem0 failure on the backend so it reaches the sidebar
+    /// indicator. Fire-and-forget: reporting must never slow down or fail the
+    /// tool call it describes.
+    pub(crate) fn report_mem0_failure(&self, operation: &str, message: &str) {
+        let url = self.url("/api/integration-errors");
+        let body = serde_json::json!({
+            "service": "mem0",
+            "operation": operation,
+            "message": message,
+        });
+        tokio::spawn(async move {
+            let client = match reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(3))
+                .build()
+            {
+                Ok(client) => client,
+                Err(_) => return,
+            };
+            if let Err(error) = client.post(&url).json(&body).send().await {
+                tracing::debug!(target: "mem0", %error, "could not report mem0 failure to backend");
+            }
+        });
+    }
+
+    /// Like [`Self::save_memory_for_completion`], but says why a save was not
+    /// queued. `Ok(Err(reason))` is a handled failure (already reported);
+    /// memory being disabled in Settings is not a failure and is not reported.
+    async fn save_memory_detailed(
+        &self,
+        content: &str,
+        user_id: &str,
+    ) -> Result<Result<(), String>, ErrorData> {
+        let failed = |reason: String| {
+            self.report_mem0_failure("memory_save", &reason);
+            Ok(Err(reason))
+        };
         if !memory_enabled() {
             tracing::debug!(target: "mem0", user_id, "memory_save skipped because memory is disabled");
-            return Ok(false);
+            return Ok(Err("memory is disabled in Settings".to_string()));
         }
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
@@ -529,24 +572,26 @@ impl McpServer {
         {
             Ok(response) if response.status().is_success() => response,
             Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
                 tracing::warn!(
                     target: "mem0",
                     user_id,
-                    status = %response.status(),
+                    status = %status,
                     "memory_save: mem0 responded with a non-success status"
                 );
-                return Ok(false);
+                return failed(format!("{url} returned HTTP {status}: {}", body.trim()));
             }
             Err(error) => {
                 note_mem0_unreachable("memory_save", user_id, &error.to_string());
-                return Ok(false);
+                return failed(format!("{url} unreachable: {error}"));
             }
         };
 
         if using_mem0_platform() {
             // Mem0 Platform queues extraction and returns an event_id. A 2xx
             // response is the durable acknowledgement available to this tool.
-            return Ok(true);
+            return Ok(Ok(()));
         }
 
         let parsed: Mem0SaveResponse = match resp.json().await {
@@ -558,15 +603,18 @@ impl McpServer {
                     error = %error,
                     "memory_save: unparseable mem0 response"
                 );
-                return Ok(false);
+                return failed(format!("unparseable response from {url}: {error}"));
             }
         };
         let stored = parsed.queued.unwrap_or(false) || parsed.vector_only.unwrap_or(false);
         let success = parsed.ok.unwrap_or(true);
         if !(success && stored) {
             tracing::warn!(target: "mem0", user_id, success, stored, "memory_save was not queued");
+            return failed(format!(
+                "{url} accepted the request but did not queue it (ok={success}, queued={stored})"
+            ));
         }
-        Ok(success && stored)
+        Ok(Ok(()))
     }
 
     /// Best-effort resolution of the calling workspace's current HEAD commit
@@ -735,10 +783,15 @@ impl McpServer {
                     status = %r.status(),
                     "memory_search: mem0 responded with a non-success status; degrading to empty results"
                 );
+                self.report_mem0_failure(
+                    "memory_search",
+                    &format!("{url} returned HTTP {}", r.status()),
+                );
                 return McpServer::success(&McpMemorySearchResult { memories: vec![] });
             }
             Err(e) => {
                 note_mem0_unreachable("memory_search", &user_id, &e.to_string());
+                self.report_mem0_failure("memory_search", &format!("mem0 unreachable: {e}"));
                 return McpServer::success(&McpMemorySearchResult { memories: vec![] });
             }
         };
@@ -762,6 +815,10 @@ impl McpServer {
                         error = %e,
                         "memory_search: unparseable Mem0 Platform response; degrading to empty results"
                     );
+                    self.report_mem0_failure(
+                        "memory_search",
+                        &format!("unparseable response from {url}: {e}"),
+                    );
                     return McpServer::success(&McpMemorySearchResult { memories: vec![] });
                 }
             }
@@ -774,6 +831,10 @@ impl McpServer {
                         user_id = %user_id,
                         error = %e,
                         "memory_search: unparseable mem0 response; degrading to empty results"
+                    );
+                    self.report_mem0_failure(
+                        "memory_search",
+                        &format!("unparseable response from {url}: {e}"),
                     );
                     return McpServer::success(&McpMemorySearchResult { memories: vec![] });
                 }
@@ -865,9 +926,13 @@ impl McpServer {
         &self,
         Parameters(McpMemorySaveRequest { content, user_id }): Parameters<McpMemorySaveRequest>,
     ) -> Result<CallToolResult, ErrorData> {
-        let stored = self.save_memory_for_completion(&content, &user_id).await?;
-        let success = stored;
-        McpServer::success(&McpMemorySaveResult { success, stored })
+        let outcome = self.save_memory_detailed(&content, &user_id).await?;
+        let stored = outcome.is_ok();
+        McpServer::success(&McpMemorySaveResult {
+            success: stored,
+            stored,
+            error: outcome.err(),
+        })
     }
 
     /// Multi-hop traversal of the project's mem0 knowledge graph from a
@@ -927,10 +992,18 @@ impl McpServer {
                     status = %r.status(),
                     "memory_graph_traverse: mem0 responded with a non-success status; degrading to empty result"
                 );
+                self.report_mem0_failure(
+                    "memory_graph_traverse",
+                    &format!("{url} returned HTTP {}", r.status()),
+                );
                 return McpServer::success(&McpGraphTraverseResult::empty());
             }
             Err(e) => {
                 note_mem0_unreachable("memory_graph_traverse", &user_id, &e.to_string());
+                self.report_mem0_failure(
+                    "memory_graph_traverse",
+                    &format!("mem0 unreachable: {e}"),
+                );
                 return McpServer::success(&McpGraphTraverseResult::empty());
             }
         };
@@ -943,6 +1016,10 @@ impl McpServer {
                     user_id = %user_id,
                     error = %e,
                     "memory_graph_traverse: unparseable mem0 response; degrading to empty result"
+                );
+                self.report_mem0_failure(
+                    "memory_graph_traverse",
+                    &format!("unparseable response from {url}: {e}"),
                 );
                 return McpServer::success(&McpGraphTraverseResult::empty());
             }
@@ -1057,10 +1134,18 @@ impl McpServer {
                     status = %r.status(),
                     "memory_check_staleness: graph traverse lookup failed; degrading to checked=false"
                 );
+                self.report_mem0_failure(
+                    "memory_check_staleness",
+                    &format!("graph lookup returned HTTP {}", r.status()),
+                );
                 return McpServer::success(&McpCheckStalenessResult::not_checked());
             }
             Err(e) => {
                 note_mem0_unreachable("memory_check_staleness", &user_id, &e.to_string());
+                self.report_mem0_failure(
+                    "memory_check_staleness",
+                    &format!("mem0 unreachable: {e}"),
+                );
                 return McpServer::success(&McpCheckStalenessResult::not_checked());
             }
         };

@@ -11,7 +11,11 @@ import {
   useJevTypesafeUrl,
   readCloudAccessToken,
 } from '@/shared/stores/useUiPreferencesStore';
-import { executeSessionCompaction } from '../sessionCompactor';
+import {
+  compactionService,
+  executeSessionCompaction,
+} from '../sessionCompactor';
+import { reportIntegrationError } from '@/shared/lib/integrationErrors';
 
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 min cooldown between automatic compactions
 const HYSTERESIS_PCT = 10; // Must drop 10% below threshold before re-arming
@@ -210,7 +214,16 @@ export function useAutoCompaction({
         const result = await withTimeout(
           run(latest.layaMode).catch((firstErr) => {
             // Fall back to the hosted Laya gateway when this Desktop is signed in.
-            if (token && latest.layaMode !== 'cloud') return run('cloud');
+            if (token && latest.layaMode !== 'cloud') {
+              // The fallback may succeed, but the configured engine failed —
+              // surface that instead of hiding it behind the retry.
+              void reportIntegrationError(
+                compactionService(latest.engine),
+                `auto-compaction (${latest.layaMode}, retrying on cloud)`,
+                firstErr
+              );
+              return run('cloud');
+            }
             throw firstErr;
           }),
           COMPACTION_TIMEOUT_MS,
@@ -222,7 +235,11 @@ export function useAutoCompaction({
         setEntries([...latestRef.current.entries, result.markerPatch]);
         lastCompactAtRef.current.set(sessionId, Date.now());
       } catch (err) {
-        console.warn('[auto-compact] Failed to execute auto-compaction:', err);
+        void reportIntegrationError(
+          compactionService(latestRef.current.engine),
+          'auto-compaction',
+          err
+        );
         armedRef.current.set(armedKey, true);
       } finally {
         inFlightRef.current = false;

@@ -16,8 +16,11 @@ use deployment::Deployment;
 use executors::provider_usage::ProviderQuotaSnapshot;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use services::services::mem0_relevance::Mem0RelevanceSummary;
 use services::services::token_telemetry::TokenTelemetrySummary;
+use services::services::{
+    integration_errors::{self, IntegrationService},
+    mem0_relevance::Mem0RelevanceSummary,
+};
 use sqlx::FromRow;
 use ts_rs::TS;
 use utils::{
@@ -1058,23 +1061,28 @@ async fn memory_graph_overview(
         {
             Ok(response) if response.status().is_success() => break response,
             Ok(response) => {
-                return ResponseJson(ApiResponse::error(&format!(
-                    "memory graph returned status {}",
-                    response.status()
-                )));
+                let message = format!("memory graph returned status {}", response.status());
+                integration_errors::record(IntegrationService::Mem0, "graph", &message);
+                return ResponseJson(ApiResponse::error(&message));
             }
             Err(error) if attempt < 2 => {
                 tracing::warn!(%error, attempt, "memory graph request failed; retrying");
                 tokio::time::sleep(Duration::from_millis(400)).await;
             }
             Err(error) => {
-                return ResponseJson(ApiResponse::error(&describe_transport_error(&error)));
+                let message = describe_transport_error(&error);
+                integration_errors::record(IntegrationService::Mem0, "graph", &message);
+                return ResponseJson(ApiResponse::error(&message));
             }
         }
     };
     match response.json::<MemoryGraphOverview>().await {
         Ok(graph) => ResponseJson(ApiResponse::success(graph)),
-        Err(_) => ResponseJson(ApiResponse::error("failed to parse memory graph response")),
+        Err(error) => {
+            let message = format!("failed to parse memory graph response: {error}");
+            integration_errors::record(IntegrationService::Mem0, "graph", &message);
+            ResponseJson(ApiResponse::error(&message))
+        }
     }
 }
 

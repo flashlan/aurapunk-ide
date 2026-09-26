@@ -11,6 +11,7 @@ pub mod file_ranker;
 pub mod file_search;
 pub mod filesystem;
 pub mod filesystem_watcher;
+pub mod integration_errors;
 pub mod mem0_relevance;
 pub mod normalized_transcript;
 pub mod notification;

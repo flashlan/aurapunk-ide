@@ -9,6 +9,9 @@ import {
   useLayaMode,
 } from '@/shared/stores/useUiPreferencesStore';
 import { testLayaConnection } from '@/shared/lib/decisionEngineTests';
+import { useIntegrationErrors } from '@/shared/hooks/useIntegrationErrors';
+import { IntegrationErrorBalloon } from '@/shared/components/IntegrationErrorBalloon';
+import type { IntegrationService } from 'shared/types';
 import {
   LAYA_PROBE_COLORS,
   buildLayaTooltip,
@@ -18,6 +21,8 @@ import {
 } from './layaStatus';
 
 const POLL_INTERVAL_MS = 60_000;
+/** RLCD runs on Laya or Jev; both report under this indicator. */
+const RLCD_SERVICES: IntegrationService[] = ['laya', 'jev'];
 
 interface LayaProbeResult {
   state: LayaProbeState;
@@ -93,8 +98,13 @@ export function LayaStatusIndicator() {
     return () => clearInterval(timer);
   }, [runProbe, mode]);
 
+  const { errors, dismiss } = useIntegrationErrors(RLCD_SERVICES);
   const ModeIcon = mode === 'cloud' ? CloudIcon : CubeIcon;
-  const color = LAYA_PROBE_COLORS[probe.state];
+  // Recent Laya/Jev failures override a passing probe until dismissed.
+  const color =
+    errors.length > 0
+      ? LAYA_PROBE_COLORS.offline
+      : LAYA_PROBE_COLORS[probe.state];
   const tooltip = buildLayaTooltip({
     mode,
     state: probe.state,
@@ -105,22 +115,28 @@ export function LayaStatusIndicator() {
   const label = `Laya status — ${layaModeLabel(mode)}`;
 
   return (
-    <Tooltip content={tooltip} side="bottom" className="whitespace-pre-line">
-      <button
-        type="button"
-        onClick={() => SettingsDialog.show({ initialSection: 'usage' })}
-        aria-label={label}
-        title={label}
-        className="flex size-7 items-center justify-center rounded-sm text-low hover:text-normal"
-      >
-        <span className="relative flex items-center justify-center">
-          <ModeIcon className="size-icon-sm" weight="bold" />
-          <span
-            className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-1 ring-panel"
-            style={{ backgroundColor: color }}
-          />
-        </span>
-      </button>
-    </Tooltip>
+    <IntegrationErrorBalloon
+      title="RLCD (Laya · Jev)"
+      errors={errors}
+      onDismiss={dismiss}
+    >
+      <Tooltip content={tooltip} side="bottom" className="whitespace-pre-line">
+        <button
+          type="button"
+          onClick={() => SettingsDialog.show({ initialSection: 'usage' })}
+          aria-label={label}
+          title={label}
+          className="flex size-7 items-center justify-center rounded-sm text-low hover:text-normal"
+        >
+          <span className="relative flex items-center justify-center">
+            <ModeIcon className="size-icon-sm" weight="bold" />
+            <span
+              className="absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-1 ring-panel"
+              style={{ backgroundColor: color }}
+            />
+          </span>
+        </button>
+      </Tooltip>
+    </IntegrationErrorBalloon>
   );
 }

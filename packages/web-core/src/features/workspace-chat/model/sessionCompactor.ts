@@ -9,6 +9,7 @@ import {
   type Message,
 } from '@aurapunk/jev-plugin';
 import type { CompactorEngineType } from '@/shared/stores/useUiPreferencesStore';
+import type { IntegrationService } from 'shared/types';
 import { jevProxyUrl } from '@/shared/lib/jevProxy';
 
 /**
@@ -150,6 +151,13 @@ export function resolveLayaEndpoint(
   const url = layaMode === 'cloud' ? layaCloudUrl : layaDockerUrl;
   const trimmed = url?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+/** Which integration a compaction failure belongs to, for error reporting. */
+export function compactionService(
+  engine: CompactorEngineType
+): IntegrationService {
+  return engine === 'jev' ? 'jev' : 'laya';
 }
 
 export interface CompactionExecutionResult {

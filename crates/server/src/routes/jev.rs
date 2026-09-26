@@ -17,6 +17,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::Value;
+use services::services::integration_errors::{self, IntegrationService};
 
 use crate::DeploymentImpl;
 
@@ -60,12 +61,10 @@ async fn evaluate(
         .build()
     {
         Ok(client) => client,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "failed to build Jev proxy client",
-            )
-                .into_response();
+        Err(error) => {
+            let message = format!("failed to build Jev proxy client: {error}");
+            integration_errors::record(IntegrationService::Jev, "evaluate", &message);
+            return (StatusCode::INTERNAL_SERVER_ERROR, message).into_response();
         }
     };
 
@@ -80,7 +79,22 @@ async fn evaluate(
         Ok(upstream) => {
             let status =
                 StatusCode::from_u16(upstream.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-            let bytes = upstream.bytes().await.unwrap_or_default();
+            let bytes = match upstream.bytes().await {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    let message = format!("reading the Jev response failed: {error}");
+                    integration_errors::record(IntegrationService::Jev, "evaluate", &message);
+                    return (StatusCode::BAD_GATEWAY, message).into_response();
+                }
+            };
+            if !status.is_success() {
+                let body = String::from_utf8_lossy(&bytes);
+                integration_errors::record(
+                    IntegrationService::Jev,
+                    "evaluate",
+                    &format!("Jev API returned HTTP {status}: {body}"),
+                );
+            }
             let mut response = Response::new(axum::body::Body::from(bytes));
             *response.status_mut() = status;
             response.headers_mut().insert(
@@ -89,10 +103,10 @@ async fn evaluate(
             );
             response
         }
-        Err(error) => (
-            StatusCode::BAD_GATEWAY,
-            format!("jev proxy request failed: {error}"),
-        )
-            .into_response(),
+        Err(error) => {
+            let message = format!("jev proxy request failed: {error}");
+            integration_errors::record(IntegrationService::Jev, "evaluate", &message);
+            (StatusCode::BAD_GATEWAY, message).into_response()
+        }
     }
 }
