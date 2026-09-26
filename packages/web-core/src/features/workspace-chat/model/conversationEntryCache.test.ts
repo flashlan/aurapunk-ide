@@ -134,6 +134,28 @@ describe('conversationEntryCache', () => {
       expect(setItemCalls).toBe(0);
     });
 
+    it('prunes oversized and over-budget leftovers on the first read, without any write', () => {
+      installStorage(10 * 1024 * 1024);
+      // An oversized slot left by the old 4 MiB-per-process policy...
+      store.set(`${ENTRY_PREFIX}huge`, 'x'.repeat(600_000));
+      // ...plus enough ordinary slots to exceed the 3 MiB total budget.
+      for (let i = 0; i < 8; i += 1) {
+        store.set(`${ENTRY_PREFIX}old-${i}`, 'x'.repeat(500_000));
+      }
+      const entries = makeEntries('recent', 2);
+      store.set(`${ENTRY_PREFIX}recent`, JSON.stringify(entries));
+
+      expect(getCachedEntries('recent')).toEqual(entries);
+
+      expect(store.has(`${ENTRY_PREFIX}huge`)).toBe(false);
+      const total = [...store.entries()]
+        .filter(([k]) => k.startsWith(ENTRY_PREFIX))
+        .reduce((sum, [, v]) => sum + v.length, 0);
+      expect(total).toBeLessThanOrEqual(3 * 1024 * 1024);
+      expect(store.has(`${ENTRY_PREFIX}recent`)).toBe(true);
+      expect(setItemCalls).toBe(0);
+    });
+
     it('evicts older transcripts before writing when the store is at quota', () => {
       // Mirrors a real profile left at the WebKit quota by the old
       // 4 MiB-per-process policy: six ~500K transcripts and no headroom.

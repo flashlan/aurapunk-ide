@@ -89,6 +89,17 @@ function seedStorageBudget(): void {
   } catch {
     // Storage unavailable — budgets stay at zero and nothing is persisted.
   }
+
+  // Prune what older builds left behind (4 MiB-per-process slots, no total
+  // cap) right away. The current history flow only writes small, complete
+  // transcripts, so waiting for a write to trigger eviction could leave a
+  // quota-full store in place indefinitely.
+  for (const id of [...storageOrder]) {
+    if ((storageBytes.get(id) ?? 0) > MAX_PROCESS_STORAGE_BYTES) {
+      dropStorageKey(id);
+    }
+  }
+  enforceStorageBudget();
 }
 
 function removeFromStorageOrder(id: string): void {
