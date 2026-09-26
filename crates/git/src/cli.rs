@@ -104,6 +104,15 @@ impl GitCli {
         // Non-fatal if it fails or not configured.
         let _ = self.git(worktree_path, ["sparse-checkout", "reapply"]);
 
+        // Persist a refreshed index now, while no agent runs in the worktree.
+        // A fresh checkout leaves every entry "racily clean" (mtime == index
+        // mtime), so each `git status` re-hashes the whole tree — and the
+        // periodic status polls run with `--no-optional-locks`, which never
+        // writes the refreshed index back. Measured on this repo: ~0.25s of CPU
+        // per status, every poll, forever; after one refresh ~0.01s.
+        // Non-fatal: `-q` tolerates entries that genuinely need updating.
+        let _ = self.git(worktree_path, ["update-index", "-q", "--refresh"]);
+
         Ok(())
     }
 
