@@ -73,13 +73,19 @@ struct ClientMsg {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ServerMsg {
+    // Every frame names its projection: one socket carries a project's full
+    // AND minimal `issues` subscriptions (board vs sidebar), and a client that
+    // routed by table alone applied minimal rows — no `description` — to the
+    // board's collection, blanking card descriptions.
     Snapshot {
         table: String,
+        minimal: bool,
         rows: Vec<Value>,
     },
     Event {
         seq: u64,
         table: String,
+        minimal: bool,
         op: KanbanOp,
         id: Uuid,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -87,6 +93,7 @@ enum ServerMsg {
     },
     Ready {
         table: String,
+        minimal: bool,
     },
 }
 
@@ -183,6 +190,7 @@ async fn send_snapshot(
         socket,
         &ServerMsg::Snapshot {
             table: table.to_string(),
+            minimal,
             rows,
         },
     )
@@ -191,6 +199,7 @@ async fn send_snapshot(
         socket,
         &ServerMsg::Ready {
             table: table.to_string(),
+            minimal,
         },
     )
     .await?;
@@ -244,6 +253,7 @@ async fn forward_event(
             &ServerMsg::Event {
                 seq: event.seq,
                 table: event.table.to_string(),
+                minimal: *minimal,
                 op,
                 id: event.id,
                 row,
@@ -334,4 +344,38 @@ async fn handle_kanban_ws(
 
 pub(super) fn router() -> axum::Router<DeploymentImpl> {
     axum::Router::new().route("/kanban/stream/ws", get(stream_kanban_ws))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The client routes frames by (table, minimal); a frame without the
+    // projection would be applied to the board's full `issues` collection.
+    #[test]
+    fn every_frame_names_its_projection() {
+        let frames = [
+            ServerMsg::Snapshot {
+                table: "issues".into(),
+                minimal: true,
+                rows: vec![],
+            },
+            ServerMsg::Event {
+                seq: 1,
+                table: "issues".into(),
+                minimal: true,
+                op: KanbanOp::Delete,
+                id: Uuid::nil(),
+                row: None,
+            },
+            ServerMsg::Ready {
+                table: "issues".into(),
+                minimal: true,
+            },
+        ];
+        for frame in frames {
+            let json = serde_json::to_value(&frame).unwrap();
+            assert_eq!(json["minimal"], Value::Bool(true), "{json}");
+        }
+    }
 }

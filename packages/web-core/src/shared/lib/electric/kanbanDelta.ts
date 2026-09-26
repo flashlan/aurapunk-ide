@@ -37,16 +37,17 @@ export interface KanbanDeltaSubscription {
 }
 
 type ServerMsg =
-  | { type: 'snapshot'; table: string; rows: KanbanRow[] }
+  | { type: 'snapshot'; table: string; minimal?: boolean; rows: KanbanRow[] }
   | {
       type: 'event';
       seq: number;
       table: string;
+      minimal?: boolean;
       op: 'upsert' | 'delete';
       id: string;
       row?: KanbanRow;
     }
-  | { type: 'ready'; table: string };
+  | { type: 'ready'; table: string; minimal?: boolean };
 
 /** Tables the backend streams. Anything else keeps the plain poll. */
 const DELTA_TABLES = new Set([
@@ -102,19 +103,35 @@ function scheduleRetry(conn: Connection): void {
   }, delay);
 }
 
+/**
+ * Whether a server frame belongs to a subscription. One socket carries a
+ * project's full AND minimal `issues` subscriptions (board vs sidebar), so a
+ * frame must match the projection as well as the table — otherwise minimal
+ * rows (no `description`) overwrite the board's issues and card descriptions
+ * go blank. Frames without `minimal` come from older servers: full rows.
+ */
+export function frameTargetsSubscription(
+  msg: { table: string; minimal?: boolean },
+  sub: Pick<KanbanDeltaSubscription, 'table' | 'minimal'>
+): boolean {
+  return msg.table === sub.table && Boolean(msg.minimal) === sub.minimal;
+}
+
 function handleMessage(conn: Connection, raw: unknown): void {
   if (typeof raw !== 'string') return;
   let msg: ServerMsg;
   try {
     msg = JSON.parse(raw) as ServerMsg;
-  } catch {
+  } catch (error) {
+    console.warn('[kanban-delta] ignoring malformed frame:', error);
     return;
   }
 
   for (const sub of conn.subscriptions) {
-    if (msg.type === 'snapshot' && msg.table === sub.table) {
+    if (!frameTargetsSubscription(msg, sub)) continue;
+    if (msg.type === 'snapshot') {
       sub.onSnapshot(msg.rows);
-    } else if (msg.type === 'event' && msg.table === sub.table) {
+    } else if (msg.type === 'event') {
       sub.onEvent(msg.op, msg.row ?? null, msg.id);
     }
     // `ready` carries no data — the snapshot it follows already replaced the
