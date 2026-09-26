@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useProjectContext } from '@/shared/hooks/useProjectContext';
 import { useTerminal } from '@/shared/hooks/useTerminal';
 import { TerminalPanel } from '@vibe/ui/components/TerminalPanel';
-import { XTermInstance } from './XTermInstance';
+import { XTermInstance } from './LazyXTermInstance';
 import { repoApi } from '@/shared/lib/api';
 import { getProjectRepoDefaults } from '@/shared/hooks/useProjectRepoDefaults';
 import type { Repo } from 'shared/types';

@@ -27,7 +27,7 @@ import {
   type WorkspacesMainContainerHandle,
 } from './WorkspacesMainContainer';
 import { RightSidebar } from './RightSidebar';
-import { ChangesPanelContainer } from './ChangesPanelContainer';
+import { ChangesPanelContainer } from './LazyChangesPanelContainer';
 import { CreateChatBoxContainer } from '@/shared/components/CreateChatBoxContainer';
 import { PreviewBrowserContainer } from './PreviewBrowserContainer';
 import { AndroidMirrorContainer } from './AndroidMirrorContainer';

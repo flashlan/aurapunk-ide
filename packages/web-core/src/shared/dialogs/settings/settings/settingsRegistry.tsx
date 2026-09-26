@@ -14,19 +14,76 @@ import {
   ColumnsIcon,
 } from '@phosphor-icons/react';
 import type { Icon } from '@phosphor-icons/react';
-import { GeneralSettingsSection } from './GeneralSettingsSection';
-import { AppearanceSettingsSection } from './AppearanceSettingsSection';
-import { PipelineSettingsSection } from './PipelineSettingsSection';
-import { RecurrentSettingsSection } from './RecurrentSettingsSection';
-import { ReposSettingsSection } from './ReposSettingsSection';
-import { AgentsSettingsSection } from './AgentsSettingsSection';
-import { McpSettingsSection } from './McpSettingsSection';
-import { TelegramSettingsSection } from './TelegramSettingsSection';
-import { UsageSettingsSection } from './UsageSettingsSection';
-import { MemorySettingsSection } from './MemorySettingsSection';
-import { BackupSettingsSection } from './BackupSettingsSection';
-import { AddonsSettingsSection } from './AddonsSettingsSection';
-import { StatusesSettingsSection } from './StatusesSettingsSection';
+import { lazy, Suspense } from 'react';
+
+// Sections load on demand: the dialog shell and its navigation stay in the
+// main bundle, but each section (and what it pulls in — JSON-schema forms,
+// charts, the memory graph) is fetched only when opened.
+const GeneralSettingsSection = lazy(() =>
+  import('./GeneralSettingsSection').then((m) => ({
+    default: m.GeneralSettingsSection,
+  }))
+);
+const AppearanceSettingsSection = lazy(() =>
+  import('./AppearanceSettingsSection').then((m) => ({
+    default: m.AppearanceSettingsSection,
+  }))
+);
+const PipelineSettingsSection = lazy(() =>
+  import('./PipelineSettingsSection').then((m) => ({
+    default: m.PipelineSettingsSection,
+  }))
+);
+const RecurrentSettingsSection = lazy(() =>
+  import('./RecurrentSettingsSection').then((m) => ({
+    default: m.RecurrentSettingsSection,
+  }))
+);
+const ReposSettingsSection = lazy(() =>
+  import('./ReposSettingsSection').then((m) => ({
+    default: m.ReposSettingsSection,
+  }))
+);
+const AgentsSettingsSection = lazy(() =>
+  import('./AgentsSettingsSection').then((m) => ({
+    default: m.AgentsSettingsSection,
+  }))
+);
+const McpSettingsSection = lazy(() =>
+  import('./McpSettingsSection').then((m) => ({
+    default: m.McpSettingsSection,
+  }))
+);
+const TelegramSettingsSection = lazy(() =>
+  import('./TelegramSettingsSection').then((m) => ({
+    default: m.TelegramSettingsSection,
+  }))
+);
+const UsageSettingsSection = lazy(() =>
+  import('./UsageSettingsSection').then((m) => ({
+    default: m.UsageSettingsSection,
+  }))
+);
+const MemorySettingsSection = lazy(() =>
+  import('./MemorySettingsSection').then((m) => ({
+    default: m.MemorySettingsSection,
+  }))
+);
+const BackupSettingsSection = lazy(() =>
+  import('./BackupSettingsSection').then((m) => ({
+    default: m.BackupSettingsSection,
+  }))
+);
+const AddonsSettingsSection = lazy(() =>
+  import('./AddonsSettingsSection').then((m) => ({
+    default: m.AddonsSettingsSection,
+  }))
+);
+const StatusesSettingsSection = lazy(() =>
+  import('./StatusesSettingsSection').then((m) => ({
+    default: m.StatusesSettingsSection,
+  }))
+);
 
 // ADR-018 — `organizations` and `remote-projects` sections are gone.
 // Only host-scoped sections remain; the `universal` group is empty.
@@ -95,6 +152,22 @@ export function isHostSpecificSettingsSection(
 }
 
 export function renderSettingsSection(
+  type: SettingsSectionType,
+  initialState?: SettingsSectionInitialState[SettingsSectionType],
+  onClose?: () => void
+) {
+  return (
+    <Suspense fallback={<SettingsSectionLoading />}>
+      {renderSettingsSectionContent(type, initialState, onClose)}
+    </Suspense>
+  );
+}
+
+function SettingsSectionLoading() {
+  return <div className="p-base text-sm text-low">Loading…</div>;
+}
+
+function renderSettingsSectionContent(
   type: SettingsSectionType,
   initialState?: SettingsSectionInitialState[SettingsSectionType],
   onClose?: () => void

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import { useTerminal } from '@/shared/hooks/useTerminal';
-import { XTermInstance } from '@/shared/components/XTermInstance';
+import { XTermInstance } from '@/shared/components/LazyXTermInstance';
 
 interface HeadedTerminalViewProps {
   /** The running headed coding-agent execution process to attach to. */

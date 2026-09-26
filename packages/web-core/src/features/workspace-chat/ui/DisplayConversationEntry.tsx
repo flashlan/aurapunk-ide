@@ -1,4 +1,12 @@
-import { useMemo, useCallback, useLayoutEffect, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useMemo,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
@@ -54,12 +62,7 @@ import { ChatAggregatedDiffEntries } from '@vibe/ui/components/ChatAggregatedDif
 import { ChatCollapsedThinking } from '@vibe/ui/components/ChatCollapsedThinking';
 import { ChatCompactionMarker } from '@vibe/ui/components/ChatCompactionMarker';
 import { ChatMarkdown } from '@vibe/ui/components/ChatMarkdown';
-import {
-  DiffViewBody,
-  useDiffData,
-} from '@vibe/ui/components/PierreConversationDiff';
 import { inIframe, openFileInVSCode } from '@/integrations/vscode/bridge';
-import { useDiffViewMode } from '@/shared/stores/useDiffViewStore';
 import type {
   AggregatedPatchGroup,
   AggregatedDiffGroup,
@@ -458,33 +461,32 @@ function DisplayConversationEntry(props: Props) {
   }
 }
 
-/**
- * File edit entry with expandable diff
- */
-function FileEntryDiffBody({
+// The expanded diff body pulls in the diff stack; load it on first expand.
+const FileEntryDiffBody = lazy(() => import('./FileEntryDiffBody'));
+
+function LazyFileEntryDiffBody({
   diffContent,
 }: {
   diffContent: ChatFileEntryDiffInput;
 }) {
-  const { theme } = useTheme();
-  const actualTheme = getActualTheme(theme);
-  const diffMode = useDiffViewMode();
-  const diffData = useDiffData(diffContent);
-
-  if (!diffData.isValid) {
-    return null;
-  }
-
   return (
-    <DiffViewBody
-      fileDiffMetadata={diffData.fileDiffMetadata}
-      unifiedDiff={diffData.unifiedDiff}
-      isValid={diffData.isValid}
-      hideLineNumbers={diffData.hideLineNumbers}
-      theme={actualTheme}
-      diffMode={diffMode}
-    />
+    <Suspense fallback={null}>
+      <FileEntryDiffBody diffContent={diffContent} />
+    </Suspense>
   );
+}
+
+/**
+ * Cheap stand-in for parsing the diff just to learn whether it is renderable.
+ * Every collapsed edit entry in a chat used to run the full diff parser on
+ * mount; the real parse now happens only when an entry is expanded (and an
+ * unparseable diff simply renders an empty body there).
+ */
+function hasRenderableDiff(input: ChatFileEntryDiffInput): boolean {
+  if (input.type === 'content') {
+    return (input.oldContent ?? '') !== (input.newContent ?? '');
+  }
+  return input.unifiedDiff.trim().length > 0;
 }
 
 function AppChatMarkdown({
@@ -582,10 +584,7 @@ function FileEditEntry({
     }
     return undefined;
   }, [change, path]);
-  const diffPreviewData = useDiffData(
-    diffContent ?? { type: 'unified', path, unifiedDiff: '' }
-  );
-  const hasDiffContent = Boolean(diffContent && diffPreviewData.isValid);
+  const hasDiffContent = Boolean(diffContent && hasRenderableDiff(diffContent));
 
   // Only show "open in changes" button if the file exists in current diffs
   const handleOpenInChanges = useCallback(() => {
@@ -611,7 +610,7 @@ function FileEditEntry({
       renderDiffBody={
         hasDiffContent
           ? (entryDiffContent) => (
-              <FileEntryDiffBody diffContent={entryDiffContent} />
+              <LazyFileEntryDiffBody diffContent={entryDiffContent} />
             )
           : undefined
       }

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
 import { useTerminal } from '@/shared/hooks/useTerminal';
 import { TerminalPanel } from '@vibe/ui/components/TerminalPanel';
-import { XTermInstance } from './XTermInstance';
+import { XTermInstance } from './LazyXTermInstance';
 
 export function TerminalPanelContainer() {
   const { workspace } = useWorkspaceContext();

@@ -41,32 +41,32 @@ export const UI_FONT_OPTIONS: {
   {
     value: 'ibm-plex-sans',
     label: 'IBM Plex Sans (Default)',
-    family: '"IBM Plex Sans", "Noto Emoji", sans-serif',
+    family: '"IBM Plex Sans", sans-serif',
   },
   {
     value: 'inter',
     label: 'Inter',
-    family: '"Inter", "Noto Emoji", sans-serif',
+    family: '"Inter", sans-serif',
   },
   {
     value: 'geist-sans',
     label: 'Geist Sans',
-    family: '"Geist", "Noto Emoji", sans-serif',
+    family: '"Geist", sans-serif',
   },
   {
     value: 'plus-jakarta-sans',
     label: 'Plus Jakarta Sans',
-    family: '"Plus Jakarta Sans", "Noto Emoji", sans-serif',
+    family: '"Plus Jakarta Sans", sans-serif',
   },
   {
     value: 'fira-sans',
     label: 'Fira Sans',
-    family: '"Fira Sans", "Noto Emoji", sans-serif',
+    family: '"Fira Sans", sans-serif',
   },
   {
     value: 'roboto',
     label: 'Roboto',
-    family: '"Roboto", "Noto Emoji", sans-serif',
+    family: '"Roboto", sans-serif',
   },
   {
     value: 'system',
