@@ -293,6 +293,16 @@ function writeProcessStorage(
   }
 }
 
+/**
+ * Bring the persisted transcript cache within budget. Called once at app
+ * startup: localStorage is one shared quota per origin, and a store left full
+ * by older builds makes every other `setItem` (UI preferences such as the Laya
+ * execution mode) fail silently, so settings appear to revert on restart.
+ */
+export function pruneConversationEntryStorage(): void {
+  seedStorageBudget();
+}
+
 export function getCachedEntries(
   processId: string
 ): PatchTypeWithKey[] | undefined {

@@ -8,6 +8,7 @@ import '@/shared/types/modals';
 import { queryClient } from '@/shared/lib/queryClient';
 import { isTauriApp } from '@/shared/lib/platform';
 import { initZoom, zoomIn, zoomOut, zoomReset } from '@/shared/lib/zoom';
+import { pruneConversationEntryStorage } from '@/features/workspace-chat/model/conversationEntryCache';
 
 // In the Tauri desktop app, implement custom zoom (Cmd/Ctrl + =/–/0) via root
 // font-size scaling and block trackpad/touchpad pinch-to-zoom.
@@ -40,6 +41,9 @@ if (isTauriApp()) {
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('gesturechange', (e) => e.preventDefault());
 }
+
+// Free the shared localStorage quota before any component writes to it.
+pruneConversationEntryStorage();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
