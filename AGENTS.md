@@ -44,6 +44,7 @@ Rules:
 - [~] **In Progress** — Guardião do merge: explica o bloqueio, espera e recusa Done sem merge (`vk/2b51-agent-activity-n`)
 - [x] **Done** — Carregamento sob demanda + sync por diff: projeção `?minimal=1`, gate da sidebar, cache de transcript normalizado, janela de histórico, thinking sob demanda, WS kanban com deltas (`vk/4a2c-corrigir-ram`)
 - [x] **Done** — Erros de integração (Mem0/Laya/Jev) em balões na sidebar + transcript normalizado gravado no fim do processo + descrição dos cards (delta WS por projeção) (`vk/integration-errors`)
+- [x] **Done** — RAM da interface: lazy-load (configurações, terminal, diffs), gaveta mobile só no mobile, logo reduzido, sem Noto Emoji, inspetor opcional (`vk/webview-memory`)
 - [x] **Done** — Perf RAM/CPU: chat cache/localStorage, normalização serializada, chats travados no `Ready`, índice git racy após worktree add, cota UTF-16 (Laya Cloud não salvava) (`vk/perf-ram-cpu`)
 
 ## Card Pipeline Protocol (MCP)
@@ -504,3 +505,23 @@ fixed them. Newest last.
   execução (checksum só no download). Para testar um MCP novo, troque a
   entrada `aurapunk-mcp` dentro desse zip (original salvo como
   `aurapunk.zip.orig-v0.3.23`); vale até a próxima versão publicada.
+
+### 2026-09-26 — RAM da interface (WebContent) (vk/webview-memory)
+- **Onde estava:** ~300 MB estável e picos de ~475–514 MB na abertura. Heap JS
+  só ~55–60 MB (medido no Chrome contra o backend instalado); o resto é heap
+  nativo do WebKit (~220 MB) e camadas gráficas (~56 MB). Sem vazamento ao
+  trocar entre os maiores chats. O maior bloco do heap JS era o próprio bundle
+  (5,3 MB carregado inteiro: fonte em UTF-16 + código compilado ≈ 25 MB).
+- **Feito:** seções de Settings, terminal xterm (+WebGL), painel Changes e o
+  diff expandido do chat viram chunks sob demanda (bundle principal 5,33 →
+  3,81 MB); entradas de edição recolhidas não parseiam mais o diff só para
+  validar; `MobileDrawer` montado só no mobile (no desktop renderizava uma
+  segunda sidebar escondida + overlay de tela cheia); logo do topo 2372→880 px;
+  Noto Emoji removida (8 subconjuntos, ~1,1 MB do Google Fonts por abertura →
+  emoji nativo, agora colorido).
+- **Medido (footprint do WebContent, 2 aberturas):** pico 475–514 → 429–452 MB;
+  estável ~300 → ~250 MB.
+- **Diagnóstico:** `AURAPUNK_DEVTOOLS=1` habilita o Web Inspector do Safari no
+  build de release (app normal continua sem). Para medir a UI, prefira
+  `vmmap --summary <pid> | grep "Physical footprint"` ao RSS, que oscila com a
+  compressão de memória do macOS.
