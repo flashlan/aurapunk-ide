@@ -43,7 +43,7 @@ Rules:
 - [x] **Done** — Chat volta pro final ao rolar para cima durante streaming: bottom-lock libera em todo scroll do usuário e follow pausa até descer ao fim; seleção de sessão sticky (refresh/reorder/não-dados não remontam o chat) (`vk/3a4e-caht-da-uam-tr`)
 - [~] **In Progress** — Guardião do merge: explica o bloqueio, espera e recusa Done sem merge (`vk/2b51-agent-activity-n`)
 - [x] **Done** — Carregamento sob demanda + sync por diff: projeção `?minimal=1`, gate da sidebar, cache de transcript normalizado, janela de histórico, thinking sob demanda, WS kanban com deltas (`vk/4a2c-corrigir-ram`)
-- [~] **In Progress** — Erros de integração (Mem0/Laya/Jev) em balões na sidebar + transcript normalizado gravado no fim do processo (`vk/integration-errors`)
+- [x] **Done** — Erros de integração (Mem0/Laya/Jev) em balões na sidebar + transcript normalizado gravado no fim do processo + descrição dos cards (delta WS por projeção) (`vk/integration-errors`)
 - [x] **Done** — Perf RAM/CPU: chat cache/localStorage, normalização serializada, chats travados no `Ready`, índice git racy após worktree add, cota UTF-16 (Laya Cloud não salvava) (`vk/perf-ram-cpu`)
 
 ## Card Pipeline Protocol (MCP)
@@ -492,3 +492,15 @@ fixed them. Newest last.
   drenarem. Não grava para processo retomado (store sem as primeiras linhas),
   normalizador que não drena em 60 s, ou `MsgStore` que descartou histórico
   (novo `history_is_complete`).
+- **Regressão da 4a2c — descrição dos cards em branco:** um socket do kanban
+  por projeto carrega as assinaturas `issues` completa (board) e minimal
+  (sidebar), mas os frames `snapshot`/`event`/`ready` só diziam a tabela; o
+  cliente aplicava as linhas minimal (sem `description`) na coleção do board.
+  Frames agora levam `minimal` e o cliente casa (tabela, minimal)
+  (`frameTargetsSubscription`). Verificado no app instalado: completa 19/19 com
+  descrição, minimal 0/19.
+- **MCP local sem publicar:** o `npx aurapunk-ide --mcp` re-extrai o binário do
+  `aurapunk.zip` em `~/.aurapunk-ide/bin/<versão>/macos-arm64/` a cada
+  execução (checksum só no download). Para testar um MCP novo, troque a
+  entrada `aurapunk-mcp` dentro desse zip (original salvo como
+  `aurapunk.zip.orig-v0.3.23`); vale até a próxima versão publicada.
