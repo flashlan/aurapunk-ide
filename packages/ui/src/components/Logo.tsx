@@ -76,7 +76,10 @@ export function BrandWordmark({ className }: { className?: string }) {
 export function BrandLockup({ className }: { className?: string }) {
   return (
     <img
-      src="/aurapunk-ide-logo.png"
+      // 880px wide: 4x the ~220px max display width (sharp on Retina with
+      // zoom). The 2372px original decoded to ~4 MB of bitmap for a 32px-tall
+      // top-bar logo.
+      src="/aurapunk-ide-logo-bar.png"
       alt="AuraPunk IDE"
       className={cn(
         'block h-8 w-auto max-w-[220px] object-contain object-left',
