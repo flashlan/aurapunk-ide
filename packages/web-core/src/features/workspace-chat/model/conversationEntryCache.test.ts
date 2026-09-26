@@ -156,6 +156,25 @@ describe('conversationEntryCache', () => {
       expect(setItemCalls).toBe(0);
     });
 
+    it('budgets in UTF-16 bytes, the unit of the WebKit quota', () => {
+      installStorage(10 * 1024 * 1024);
+      // 300K code units is ~600 KB on disk: under a code-unit count of the
+      // 512 KB per-transcript cap, over it in real bytes. Seven 250K slots are
+      // ~3.5 MB on disk, over the 3 MB total budget.
+      store.set(`${ENTRY_PREFIX}real-600kb`, 'x'.repeat(300_000));
+      for (let i = 0; i < 7; i += 1) {
+        store.set(`${ENTRY_PREFIX}slot-${i}`, 'x'.repeat(250_000));
+      }
+
+      expect(getCachedEntries('not-cached')).toBeUndefined();
+
+      expect(store.has(`${ENTRY_PREFIX}real-600kb`)).toBe(false);
+      const bytes = [...store.entries()]
+        .filter(([k]) => k.startsWith(ENTRY_PREFIX))
+        .reduce((sum, [, v]) => sum + v.length * 2, 0);
+      expect(bytes).toBeLessThanOrEqual(3 * 1024 * 1024);
+    });
+
     it('prunes leftovers on the first lookup even when it misses', () => {
       installStorage(10 * 1024 * 1024);
       store.set(`${ENTRY_PREFIX}huge`, 'x'.repeat(600_000));

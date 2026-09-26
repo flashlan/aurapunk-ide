@@ -64,10 +64,12 @@ function storageKey(prefix: string, id: string): string {
 }
 
 function byteLength(text: string): number {
-  // Sizes are a budget, not a billing meter: UTF-16 code units are close
-  // enough to UTF-8 bytes for latin-heavy transcripts and cost nothing to
-  // count versus TextEncoder on every write.
-  return text.length;
+  // WebKit persists localStorage as UTF-16 and counts its ~5 MB per-origin
+  // quota in those bytes, so a string costs two bytes per code unit. Counting
+  // code units alone let a store sit at the real quota while this budget
+  // believed it was at half of it — and every other setItem on the origin
+  // (UI preferences) then failed silently.
+  return text.length * 2;
 }
 
 /** Walk the entry keys once so eviction decisions have real sizes. */
