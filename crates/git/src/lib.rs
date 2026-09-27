@@ -733,6 +733,24 @@ impl GitService {
         let task_repo = self.open_repo(task_worktree_path)?;
         let base_repo = self.open_repo(base_worktree_path)?;
 
+        // Detect conflicts in memory first. A conflicted squash in the base
+        // checkout would leave unmerged files on the target branch and block
+        // every other integration into the repository until someone resolved
+        // them there; conflicts belong on the task branch instead.
+        if let Ok(Some(conflicted_files)) = GitCli::new().merge_tree_conflicts(
+            base_worktree_path,
+            base_branch_name,
+            task_branch_name,
+        ) {
+            return Err(GitServiceError::MergeConflicts {
+                message: format!(
+                    "Merging '{task_branch_name}' into '{base_branch_name}' would conflict in {} file(s); '{base_branch_name}' was not touched. Resolve on the task branch: in the task workspace run `git merge {base_branch_name}`, fix the conflicts, commit, then retry the merge.",
+                    conflicted_files.len()
+                ),
+                conflicted_files,
+            });
+        }
+
         // Check where base branch is checked out (if anywhere)
         match self.find_checkout_path_for_branch(base_worktree_path, base_branch_name)? {
             Some(base_checkout_path) => {
@@ -764,6 +782,11 @@ impl GitService {
                     .map_err(|e| {
                         let text = e.to_string();
                         if Self::cli_output_reports_conflicts(&text) {
+                            // Fallback when the in-memory check could not run:
+                            // never leave the target checkout conflicted.
+                            if let Err(abort_error) = git_cli.abort_squash(&base_checkout_path) {
+                                tracing::warn!(%abort_error, "could not undo the conflicted squash");
+                            }
                             return GitServiceError::MergeConflicts {
                                 message: format!(
                                     "Merge of '{task_branch_name}' into '{base_branch_name}' hit textual conflicts. Resolve them or delegate the resolution before retrying."

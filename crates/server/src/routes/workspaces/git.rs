@@ -736,14 +736,37 @@ pub async fn delegate_merge_block(
     let repo = Repo::find_by_id(pool, workspace_repo.repo_id)
         .await?
         .ok_or(RepoError::NotFound)?;
+    let conflict_mode = request.note.as_deref() == Some("merge-conflict");
     let cleanliness = deployment
         .git()
         .worktree_cleanliness(&repo.path, &workspace_repo.target_branch)?;
-    if cleanliness.modified.is_empty() {
+    // Conflicts are resolved on the task branch (the target is never left
+    // conflicted), so they are recomputed in memory rather than read from a
+    // dirty target checkout.
+    let conflicted_files = if conflict_mode {
+        git::GitCli::new()
+            .merge_tree_conflicts(&repo.path, &workspace_repo.target_branch, &workspace.branch)
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let nothing_to_do = if conflict_mode {
+        conflicted_files.is_empty()
+    } else {
+        cleanliness.modified.is_empty()
+    };
+    if nothing_to_do {
         return Ok(ResponseJson(ApiResponse::success(
             DelegateMergeBlockResponse {
                 delegated: false,
-                reason: "already_clean".to_string(),
+                reason: if conflict_mode {
+                    "no_conflicts"
+                } else {
+                    "already_clean"
+                }
+                .to_string(),
                 session_id: None,
             },
         )));
@@ -801,16 +824,19 @@ pub async fn delegate_merge_block(
         }
         format!("{}, +{} more", files[..max].join(", "), files.len() - max)
     }
-    let mut message = if request.note.as_deref() == Some("merge-conflict") {
+    let mut message = if conflict_mode {
         format!(
-            "Integration Guard delegated conflict resolution: merging into '{}' hit textual conflicts in: {}. \
-Plan: 1) open each file and resolve the conflict markers, keeping the intended behavior of both sides; \
-2) `git add` the resolved files and COMMIT the result on '{}' with a clear message (this completes the integration; the user retries afterwards for the idempotent success path); \
-3) never commit generated junk (db.v2.sqlite, installer-output/, *.log) — gitignore when missing; \
-4) report exactly what was resolved. Do NOT push. Ask the user before anything destructive or ambiguous.",
-            workspace_repo.target_branch,
-            summarize(&cleanliness.modified, 20),
-            workspace_repo.target_branch,
+            "Integration Guard delegated conflict resolution: merging this workspace's branch '{branch}' into '{target}' \
+would conflict in: {files}. '{target}' was NOT touched — resolve on YOUR branch, in this workspace. \
+Plan: 1) run `git merge {target}` here; 2) open each conflicted file and resolve the markers, keeping the intended \
+behavior of both sides (regenerate lockfiles and generated files instead of hand-merging them); 3) run the checks/tests; \
+4) `git add` and COMMIT the merge on '{branch}'; 5) retry the integration (`complete_workspace_card` or \
+`merge_workspace`) — it now merges cleanly. Never commit generated junk (db.v2.sqlite, installer-output/, *.log). \
+Do NOT push. If a conflict changes logic on both sides, explain your resolution and ask the operator to review it \
+before completing the card.",
+            branch = workspace.branch,
+            target = workspace_repo.target_branch,
+            files = summarize(&conflicted_files, 20),
         )
     } else {
         format!(

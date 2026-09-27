@@ -226,10 +226,11 @@ impl McpServer {
                 "Stash, commit or delegate the listed files, then call this tool again."
             }
             "merge_conflicts" => {
-                "Resolve (or delegate) the listed files, then call this tool again. Follow the \
-                 `classification.guidance` in the blocker detail: trivial conflicts can be resolved \
-                 directly; semantic ones need the operator to review the resolution before you \
-                 complete the card."
+                "The target branch was NOT touched. Resolve on your branch, in this workspace: run \
+                 `git merge <target>` (target in the blocker detail), fix the listed files (regenerate \
+                 lockfiles and generated files), run the checks, commit, then call this tool again. \
+                 Follow `classification.guidance`: semantic conflicts need the operator to review your \
+                 resolution before you complete the card."
             }
             _ => "Resolve the blocker reported above, then call this tool again.",
         };

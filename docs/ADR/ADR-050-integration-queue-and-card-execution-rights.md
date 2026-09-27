@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted — the integration queue and conflict classification are
-implemented (2026-09-27); execution rights are Proposed.
+Accepted — the integration queue, conflict classification and branch-side
+conflict resolution are implemented (2026-09-27); execution rights are
+Proposed.
 
 ## Date
 
@@ -79,11 +80,32 @@ work on one board:
   independent — including an unreachable classifier — is semantic. The result
   rides on `GitOperationError::MergeConflicts.classification` with guidance,
   so the MCP tool, the integration queue message and the UI all receive it.
-- Observed while testing: a conflicting squash leaves the unmerged files in
-  the target checkout (`UU` + `SQUASH_MSG`), by design of the existing
-  delegate flow (resolve on the target). Until resolved, every merge into
-  that repository is blocked as `dirty_worktree`. Aborting the squash and
-  resolving on the task branch instead is an open decision.
+
+### 4. Conflicts are resolved on the task branch; the target is never left conflicted (implemented)
+
+- Previously a conflicting squash ran in the target checkout and left the
+  unmerged files there (`UU` + `SQUASH_MSG`); until someone resolved them on
+  the target, every merge into that repository was blocked as
+  `dirty_worktree`, and the delegate flow asked an agent to resolve on the
+  target, outside its worktree and its tests.
+- `merge_changes` now simulates the merge in memory first
+  (`git merge-tree --write-tree --name-only`, Git ≥ 2.38) and returns
+  `MergeConflicts` without touching any checkout, index or ref. As a safety
+  net, a squash that still conflicts (older Git) is undone with
+  `git reset --merge` (unrelated local changes kept) and the pending
+  `SQUASH_MSG` removed.
+- Resolution happens where the context and tests are: the agent runs
+  `git merge <target>` in its own workspace, resolves (regenerating lockfiles
+  and generated files), runs the checks, commits on its branch and retries —
+  the retry integrates cleanly. The MCP next step, the integration-queue
+  message, the delegate prompt (which recomputes the conflicts in memory
+  instead of reading a dirty target) and the merge dialog all say so; the
+  classification decides whether the operator reviews the resolution.
+- Verified: `conflicting_merge_leaves_the_target_checkout_clean` and
+  `merge_tree_check_reports_clean_merges` (git crate, all 31 safety tests
+  green); end to end on a real repository — the conflict left `main` with 0
+  changes, the branch-side resolution then merged cleanly with the resolved
+  content on `main`.
 
 ## Consequences
 

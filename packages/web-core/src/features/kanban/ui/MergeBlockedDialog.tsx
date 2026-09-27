@@ -107,9 +107,10 @@ export interface MergeBlockedDialogProps {
   untracked: string[];
   message: string;
   /**
-   * Conflict mode: the tree holds unresolved merge markers, so stashing
-   * would hide the conflict state — the stash action is hidden and the
-   * delegate action carries conflict-resolution instructions instead.
+   * Conflict mode: the merge would conflict. The target branch is left
+   * untouched (conflicts are detected in memory, ADR-050), so there is
+   * nothing to stash; the delegate action asks the card's agent to merge
+   * the target into its own branch and resolve there.
    */
   mode?: 'dirty' | 'conflicts';
 }
@@ -161,10 +162,17 @@ const MergeBlockedDialogImpl = create<MergeBlockedDialogProps>((props) => {
           <DialogTitle className="flex items-center gap-2">
             <ShieldAlert className="h-5 w-5 text-warning" />
             {isConflict
-              ? `Merge conflicts in ${branch}`
+              ? `Merge would conflict with ${branch}`
               : `Merge blocked — dirty ${branch}`}
           </DialogTitle>
           <DialogDescription>{message}</DialogDescription>
+          {isConflict && (
+            <p className="text-xs text-low">
+              {branch} was not changed. Delegating asks the card&apos;s agent to
+              merge {branch} into its own branch, resolve the conflicts there
+              and retry.
+            </p>
+          )}
         </DialogHeader>
         <FileList
           title={isConflict ? 'Conflicted files' : 'Uncommitted tracked files'}

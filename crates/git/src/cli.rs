@@ -713,6 +713,73 @@ impl GitCli {
         Ok(sha)
     }
 
+    /// Simulate merging `from_branch` into `base_branch` entirely in memory
+    /// (`git merge-tree --write-tree`, Git ≥ 2.38): no checkout, index or ref
+    /// is touched. `Ok(None)` when the merge is clean, `Ok(Some(files))` with
+    /// the conflicted paths otherwise; `Err` when the check cannot run (older
+    /// Git), in which case callers fall back to the real merge.
+    pub fn merge_tree_conflicts(
+        &self,
+        repo_path: &Path,
+        base_branch: &str,
+        from_branch: &str,
+    ) -> Result<Option<Vec<String>>, GitCliError> {
+        self.ensure_available()?;
+        let git = resolve_executable_path_blocking("git").ok_or(GitCliError::NotAvailable)?;
+        use utils::command_ext::NoWindowExt;
+        let out = Command::new(&git)
+            .arg("-C")
+            .arg(repo_path)
+            .args([
+                "merge-tree",
+                "--write-tree",
+                "--name-only",
+                "--no-messages",
+                base_branch,
+                from_branch,
+            ])
+            .stdin(Stdio::null())
+            .no_window()
+            .output()
+            .map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
+        match out.status.code() {
+            Some(0) => Ok(None),
+            // Exit 1: conflicts. stdout is the tree id, then one conflicted
+            // path per line.
+            Some(1) => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let mut files: Vec<String> = stdout
+                    .lines()
+                    .skip(1)
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                files.dedup();
+                Ok(Some(files))
+            }
+            _ => Err(GitCliError::CommandFailed(
+                String::from_utf8_lossy(&out.stderr).trim().to_string(),
+            )),
+        }
+    }
+
+    /// Undo a conflicted `merge --squash` in a checkout: restore the files the
+    /// merge touched (`git reset --merge` keeps unrelated local changes) and
+    /// drop the pending squash message, so the branch is left as it was.
+    pub fn abort_squash(&self, repo_path: &Path) -> Result<(), GitCliError> {
+        self.git(repo_path, ["reset", "--merge"])?;
+        let squash_msg = self.git(repo_path, ["rev-parse", "--git-path", "SQUASH_MSG"])?;
+        let squash_msg = Path::new(squash_msg.trim());
+        let squash_msg = if squash_msg.is_absolute() {
+            squash_msg.to_path_buf()
+        } else {
+            repo_path.join(squash_msg)
+        };
+        let _ = std::fs::remove_file(squash_msg);
+        Ok(())
+    }
+
     /// Update a ref to a specific sha in the repo.
     pub fn update_ref(
         &self,

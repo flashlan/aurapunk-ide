@@ -785,3 +785,14 @@ fixed them. Newest last.
   nada do RLCD tem resposta real; o Laya Cloud responde (200). A Cloudflare
   bloqueia só o UA `Python-urllib` (erro 1010) — nos testes em Python, mande
   um `User-Agent`; o backend (reqwest, sem UA) passa.
+
+### 2026-09-27 — Conflito nunca fica no alvo (ADR-050 §4)
+- **Antes:** o squash rodava no checkout do alvo e, com conflito, deixava
+  `UU` + `SQUASH_MSG` no `main` → todo merge do repo travava em
+  `dirty_worktree`; o "delegar" mandava resolver no alvo.
+- **Agora:** `merge_changes` simula antes com `git merge-tree --write-tree
+  --name-only` (nada é tocado); rede de segurança `git reset --merge` +
+  remove `SQUASH_MSG`. O agente resolve NA BRANCH (`git merge <alvo>` no
+  worktree, resolve, testa, commita) e tenta de novo — entra limpo.
+  Delegate/MCP/fila/diálogo atualizados. Testado ponta a ponta (alvo com 0
+  mudanças; resolução na branch integrou limpo).

@@ -1366,3 +1366,61 @@ fn merge_base_ahead_of_task_merges_disjoint_changes() {
     assert!(repo_path.join("main_advance2.txt").exists());
     assert!(repo_path.join("feature.txt").exists());
 }
+
+/// A conflicting merge must leave the checked-out target branch untouched:
+/// no unmerged files, no pending squash message, ref unchanged. Conflicts are
+/// resolved on the task branch (ADR-050).
+#[test]
+fn conflicting_merge_leaves_the_target_checkout_clean() {
+    let td = TempDir::new().unwrap();
+    let (repo_path, worktree_path) = setup_repo_with_worktree(&td);
+    let main_repo = Repository::open(&repo_path).unwrap();
+    checkout_branch(&main_repo, "main");
+
+    write_file(&worktree_path, "common.txt", "from feature\n");
+    let wt_repo = Repository::open(&worktree_path).unwrap();
+    commit_all(&wt_repo, "feature edits common.txt");
+    write_file(&repo_path, "common.txt", "from main\n");
+    commit_all(&main_repo, "main edits common.txt");
+
+    let service = GitService::new();
+    let before = service.get_branch_oid(&repo_path, "main").unwrap();
+    let res = service.merge_changes(&repo_path, &worktree_path, "feature", "main", "squash");
+    match res {
+        Err(git::GitServiceError::MergeConflicts {
+            conflicted_files, ..
+        }) => assert_eq!(conflicted_files, vec!["common.txt".to_string()]),
+        other => panic!("expected MergeConflicts, got {other:?}"),
+    }
+
+    assert_eq!(service.get_branch_oid(&repo_path, "main").unwrap(), before);
+    let status = std::process::Command::new("git")
+        .args(["-C", repo_path.to_str().unwrap(), "status", "--porcelain"])
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8_lossy(&status.stdout).trim().is_empty(),
+        "target checkout must stay clean"
+    );
+    assert!(!repo_path.join(".git").join("SQUASH_MSG").exists());
+    assert_eq!(
+        std::fs::read_to_string(repo_path.join("common.txt")).unwrap(),
+        "from main\n"
+    );
+}
+
+/// The in-memory check reports a clean merge as such (no false conflicts).
+#[test]
+fn merge_tree_check_reports_clean_merges() {
+    let td = TempDir::new().unwrap();
+    let (repo_path, worktree_path) = setup_repo_with_worktree(&td);
+    write_file(&worktree_path, "feature_only.txt", "x\n");
+    let wt_repo = Repository::open(&worktree_path).unwrap();
+    commit_all(&wt_repo, "feature adds a file");
+    assert_eq!(
+        git::GitCli::new()
+            .merge_tree_conflicts(&repo_path, "main", "feature")
+            .unwrap(),
+        None
+    );
+}
