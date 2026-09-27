@@ -629,3 +629,26 @@ fixed them. Newest last.
 - **Cuidado ao validar o Cloud:** `timeout` não existe no macOS — um
   `timeout 300 tsc | grep -c` "passa" com 0 erros sem ter rodado. O `HEAD` do
   `aurapunk-cloud` já tinha 39 erros de `tsc` pré-existentes.
+
+### 2026-09-27 — Publisher do Cloud no backend (ADR-047 fase 2) + ADR-048 (times)
+- **Antes:** a webview exportava o banco inteiro (`/api/mobile/context`, com
+  todos os turnos de chat) a cada mensagem do stream de workspaces e reenviava
+  tudo ao Cloud; sem janela aberta não havia sync. Produção tinha 91.500
+  eventos para 1.081 registros.
+- **Agora:** triggers SQLite gravam em `cloud_sync_outbox` qual entidade mudou
+  (só com conta vinculada — `cloud_sync_state.enabled`); `routes::cloud_sync`
+  drena em lotes, coalesce por entidade, monta o payload da linha atual (linha
+  sumida → delete), empurra em blocos de 100 e reconhece por `seq`. Bootstrap
+  único por conta; catálogo (instância/pipelines/executores) a cada 15 min. A
+  UI só chama `PUT /api/cloud-sync/account` (login/boot) e `account: null` no
+  logout. Payloads de `workspace_context`/chat/issue agora vêm de funções
+  compartilhadas com `/api/mobile/context` (mesmo formato).
+- **Testado de ponta a ponta** com servidor de debug + Cloud falso: bootstrap
+  bateu com as contagens do banco (221 registros, 4 requests ≤100); duas
+  escritas no mesmo card → 1 push; insert+delete de coluna → 1 tombstone;
+  Cloud fora do ar → fila retida e drenada em 1 s ao voltar; desvincular →
+  captura desligada e fila limpa; `cloud-sync.json` com 0600.
+- **Cuidado:** subir o servidor de debug roda a limpeza periódica e apagou 2
+  workspaces expirados de `dev_assets` — comportamento normal do `pnpm run dev`.
+- **ADR-048 (Proposed):** núcleo open source continua individual; times no
+  Cloud; integração por PR; papéis como etapas da pipeline; roadmap T0–T5.

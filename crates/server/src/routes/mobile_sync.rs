@@ -730,6 +730,185 @@ pub async fn get_kanban_context(
     })))
 }
 
+/// Chat records are coding agent turns of non-dropped executions.
+pub(crate) const CHAT_RECORD_SELECT: &str = r#"SELECT cat.id, s.workspace_id, cat.prompt, cat.summary, cat.seen,
+                      cat.agent_session_id, cat.agent_message_id,
+                      cat.created_at, cat.updated_at
+               FROM coding_agent_turns cat
+               JOIN execution_processes ep ON ep.id = cat.execution_process_id
+               JOIN sessions s ON s.id = ep.session_id
+               WHERE ep.dropped = FALSE"#;
+
+pub(crate) fn chat_record_payload(row: &sqlx::sqlite::SqliteRow) -> Result<Value, ApiError> {
+    Ok(serde_json::json!({
+        "id": row.try_get::<Uuid, _>("id")?,
+        "workspace_id": row.try_get::<Uuid, _>("workspace_id")?,
+        "prompt": row.try_get::<Option<String>, _>("prompt")?,
+        "summary": row.try_get::<Option<String>, _>("summary")?,
+        "agent_session_id": row.try_get::<Option<String>, _>("agent_session_id")?,
+        "agent_message_id": row.try_get::<Option<String>, _>("agent_message_id")?,
+        "seen": row.try_get::<bool, _>("seen")?,
+        "created_at": row.try_get::<chrono::DateTime<chrono::Utc>, _>("created_at")?,
+        "updated_at": row.try_get::<chrono::DateTime<chrono::Utc>, _>("updated_at")?,
+    }))
+}
+
+/// Issue record; older Mobile builds read the linked workspace from the
+/// issue payload itself, so it is embedded next to the issue fields.
+pub(crate) fn issue_record_payload(
+    issue: &Issue,
+    linked_workspace: Option<Uuid>,
+) -> Result<Value, ApiError> {
+    let mut payload =
+        serde_json::to_value(issue).map_err(|error| ApiError::BadRequest(error.to_string()))?;
+    if let Some(workspace_id) = linked_workspace
+        && let Some(object) = payload.as_object_mut()
+    {
+        object.insert("workspace_id".to_string(), serde_json::json!(workspace_id));
+    }
+    Ok(payload)
+}
+
+/// Per-workspace detail published for Mobile (and the Cloud sync outbox).
+///
+/// Keep the board record small, but publish the detail needed when a
+/// Mobile user opens a workspace: sessions/agents, execution state,
+/// repository branches, notes and the turn identifiers used to join
+/// the compact chat stream. This is deliberately one bounded record
+/// per workspace instead of copying the full local database.
+pub(crate) async fn workspace_context_payload(
+    pool: &sqlx::SqlitePool,
+    workspace_id: Uuid,
+    branch: &str,
+) -> Result<Value, ApiError> {
+    const MAX_WORKSPACE_CONTEXT_EXECUTIONS: usize = 24;
+
+    let sessions = Session::find_by_workspace_id(pool, workspace_id).await?;
+    let mut workspace_processes = Vec::new();
+    for session in &sessions {
+        workspace_processes
+            .extend(ExecutionProcess::find_by_session_id(pool, session.id, false).await?);
+    }
+    workspace_processes.sort_by_key(|process| process.created_at);
+    let workspace_processes = workspace_processes
+        .into_iter()
+        .rev()
+        .take(MAX_WORKSPACE_CONTEXT_EXECUTIONS)
+        .collect::<Vec<_>>();
+    let mut executions = Vec::new();
+    let mut turns = Vec::new();
+    for process in workspace_processes.into_iter().rev() {
+        // Full prompts and summaries remain in individual chat records.
+        // The context payload only needs stable join identifiers and must
+        // stay safely below the Cloud operation size limit.
+        if let Some(turn) = CodingAgentTurn::find_by_execution_process_id(pool, process.id).await? {
+            turns.push(serde_json::json!({
+                "id": turn.id,
+                "execution_process_id": turn.execution_process_id,
+                "agent_session_id": turn.agent_session_id,
+                "agent_message_id": turn.agent_message_id,
+                "seen": turn.seen,
+                "created_at": turn.created_at,
+                "updated_at": turn.updated_at,
+            }));
+        }
+        executions.push(serde_json::json!({
+            "id": process.id,
+            "session_id": process.session_id,
+            "run_reason": process.run_reason,
+            "status": process.status,
+            "exit_code": process.exit_code,
+            "started_at": process.started_at,
+            "completed_at": process.completed_at,
+            "created_at": process.created_at,
+            "updated_at": process.updated_at,
+        }));
+    }
+    let workspace_repos =
+        WorkspaceRepo::find_repos_with_target_branch_for_workspace(pool, workspace_id).await?;
+    let repositories = workspace_repos
+        .iter()
+        .map(|repo| {
+            serde_json::json!({
+                "id": repo.repo.id,
+                "name": repo.repo.name,
+                "display_name": repo.repo.display_name,
+                "target_branch": repo.target_branch,
+            })
+        })
+        .collect::<Vec<_>>();
+    let notes = Scratch::find_by_id(pool, workspace_id, &ScratchType::WorkspaceNotes)
+        .await?
+        .and_then(|scratch| match scratch.payload {
+            ScratchPayload::WorkspaceNotes(notes) => Some(notes.content),
+            _ => None,
+        });
+    // Default chat config do workspace (executor/modelo/effort/...),
+    // salva pelo app ou Mobile e aplicada nos follow-ups.
+    let chat_config: Option<WorkspaceChatConfigData> =
+        Scratch::find_by_id(pool, workspace_id, &ScratchType::WorkspaceChatConfig)
+            .await?
+            .and_then(|scratch| match scratch.payload {
+                ScratchPayload::WorkspaceChatConfig(config) => Some(config),
+                _ => None,
+            });
+    // Latest model context usage for this workspace (same numbers as the
+    // Desktop context gauge: used vs window + prompt-cache hit rate).
+    let context_usage: Option<Value> = sqlx::query(
+        r#"SELECT total_tokens, model_context_window, input_tokens, output_tokens,
+                  cache_read_tokens, cache_creation_tokens, agent, provider, model
+           FROM token_usage_records
+           WHERE workspace_id = ?
+           ORDER BY observed_at DESC
+           LIMIT 1"#,
+    )
+    .bind(workspace_id)
+    .fetch_optional(pool)
+    .await?
+    .map(|row| {
+        serde_json::json!({
+            "total_tokens": row.try_get::<i64, _>("total_tokens").unwrap_or(0),
+            "model_context_window": row.try_get::<i64, _>("model_context_window").unwrap_or(0),
+            "input_tokens": row.try_get::<i64, _>("input_tokens").unwrap_or(0),
+            "output_tokens": row.try_get::<i64, _>("output_tokens").unwrap_or(0),
+            "cache_read_tokens": row.try_get::<i64, _>("cache_read_tokens").unwrap_or(0),
+            "cache_creation_tokens": row.try_get::<i64, _>("cache_creation_tokens").unwrap_or(0),
+            "agent": row.try_get::<String, _>("agent").ok(),
+            "provider": row.try_get::<Option<String>, _>("provider").unwrap_or(None),
+            "model": row.try_get::<Option<String>, _>("model").unwrap_or(None),
+        })
+    });
+    let session_payload = sessions
+        .iter()
+        .map(|session| {
+            serde_json::json!({
+                "id": session.id,
+                "workspace_id": session.workspace_id,
+                "name": session.name,
+                "executor": session.executor,
+                "agent_working_dir": session.agent_working_dir,
+                "created_at": session.created_at,
+                "updated_at": session.updated_at,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({
+        "workspace_id": workspace_id,
+        "branch": branch,
+        "sessions": session_payload,
+        "executions": executions,
+        "turns": turns,
+        "repositories": repositories,
+        "git": {
+            "branch": branch,
+            "repositories": repositories,
+        },
+        "notes": notes,
+        "context_usage": context_usage,
+        "chat_config": chat_config,
+    }))
+}
+
 /// Export the current local context in the same record shape accepted by the
 /// Cloud `/api/sync` endpoint. The endpoint does not mutate the local DB.
 pub async fn get_context(
@@ -742,8 +921,6 @@ async fn get_context_for(
     deployment: &DeploymentImpl,
     include_chat: bool,
 ) -> Result<ResponseJson<ApiResponse<MobileContextResponse>>, ApiError> {
-    const MAX_WORKSPACE_CONTEXT_EXECUTIONS: usize = 24;
-
     let pool = &deployment.db().pool;
     let mut records = Vec::new();
     let node = instance::describe(deployment);
@@ -783,141 +960,11 @@ async fn get_context_for(
                 .map_err(|error| ApiError::BadRequest(error.to_string()))?,
         });
 
-        // Keep the board record small, but publish the detail needed when a
-        // Mobile user opens a workspace: sessions/agents, execution state,
-        // repository branches, notes and the turn identifiers used to join
-        // the compact chat stream. This is deliberately one bounded record
-        // per workspace instead of copying the full local database.
-        let sessions = Session::find_by_workspace_id(pool, workspace.id).await?;
-        let mut workspace_processes = Vec::new();
-        for session in &sessions {
-            workspace_processes
-                .extend(ExecutionProcess::find_by_session_id(pool, session.id, false).await?);
-        }
-        workspace_processes.sort_by_key(|process| process.created_at);
-        let workspace_processes = workspace_processes
-            .into_iter()
-            .rev()
-            .take(MAX_WORKSPACE_CONTEXT_EXECUTIONS)
-            .collect::<Vec<_>>();
-        let mut executions = Vec::new();
-        let mut turns = Vec::new();
-        for process in workspace_processes.into_iter().rev() {
-            // Full prompts and summaries remain in individual chat records.
-            // The context payload only needs stable join identifiers and must
-            // stay safely below the Cloud operation size limit.
-            if let Some(turn) =
-                CodingAgentTurn::find_by_execution_process_id(pool, process.id).await?
-            {
-                turns.push(serde_json::json!({
-                    "id": turn.id,
-                    "execution_process_id": turn.execution_process_id,
-                    "agent_session_id": turn.agent_session_id,
-                    "agent_message_id": turn.agent_message_id,
-                    "seen": turn.seen,
-                    "created_at": turn.created_at,
-                    "updated_at": turn.updated_at,
-                }));
-            }
-            executions.push(serde_json::json!({
-                "id": process.id,
-                "session_id": process.session_id,
-                "run_reason": process.run_reason,
-                "status": process.status,
-                "exit_code": process.exit_code,
-                "started_at": process.started_at,
-                "completed_at": process.completed_at,
-                "created_at": process.created_at,
-                "updated_at": process.updated_at,
-            }));
-        }
-        let workspace_repos =
-            WorkspaceRepo::find_repos_with_target_branch_for_workspace(pool, workspace.id).await?;
-        let repositories = workspace_repos
-            .iter()
-            .map(|repo| {
-                serde_json::json!({
-                    "id": repo.repo.id,
-                    "name": repo.repo.name,
-                    "display_name": repo.repo.display_name,
-                    "target_branch": repo.target_branch,
-                })
-            })
-            .collect::<Vec<_>>();
-        let notes = Scratch::find_by_id(pool, workspace.id, &ScratchType::WorkspaceNotes)
-            .await?
-            .and_then(|scratch| match scratch.payload {
-                ScratchPayload::WorkspaceNotes(notes) => Some(notes.content),
-                _ => None,
-            });
-        // Default chat config do workspace (executor/modelo/effort/...),
-        // salva pelo app ou Mobile e aplicada nos follow-ups.
-        let chat_config: Option<WorkspaceChatConfigData> =
-            Scratch::find_by_id(pool, workspace.id, &ScratchType::WorkspaceChatConfig)
-                .await?
-                .and_then(|scratch| match scratch.payload {
-                    ScratchPayload::WorkspaceChatConfig(config) => Some(config),
-                    _ => None,
-                });
-        // Latest model context usage for this workspace (same numbers as the
-        // Desktop context gauge: used vs window + prompt-cache hit rate).
-        let context_usage: Option<Value> = sqlx::query(
-            r#"SELECT total_tokens, model_context_window, input_tokens, output_tokens,
-                      cache_read_tokens, cache_creation_tokens, agent, provider, model
-               FROM token_usage_records
-               WHERE workspace_id = ?
-               ORDER BY observed_at DESC
-               LIMIT 1"#,
-        )
-        .bind(workspace.id)
-        .fetch_optional(pool)
-        .await?
-        .map(|row| {
-            serde_json::json!({
-                "total_tokens": row.try_get::<i64, _>("total_tokens").unwrap_or(0),
-                "model_context_window": row.try_get::<i64, _>("model_context_window").unwrap_or(0),
-                "input_tokens": row.try_get::<i64, _>("input_tokens").unwrap_or(0),
-                "output_tokens": row.try_get::<i64, _>("output_tokens").unwrap_or(0),
-                "cache_read_tokens": row.try_get::<i64, _>("cache_read_tokens").unwrap_or(0),
-                "cache_creation_tokens": row.try_get::<i64, _>("cache_creation_tokens").unwrap_or(0),
-                "agent": row.try_get::<String, _>("agent").ok(),
-                "provider": row.try_get::<Option<String>, _>("provider").unwrap_or(None),
-                "model": row.try_get::<Option<String>, _>("model").unwrap_or(None),
-            })
-        });
-        let session_payload = sessions
-            .iter()
-            .map(|session| {
-                serde_json::json!({
-                    "id": session.id,
-                    "workspace_id": session.workspace_id,
-                    "name": session.name,
-                    "executor": session.executor,
-                    "agent_working_dir": session.agent_working_dir,
-                    "created_at": session.created_at,
-                    "updated_at": session.updated_at,
-                })
-            })
-            .collect::<Vec<_>>();
         records.push(MobileSyncRecord {
             entity_type: "workspace_context",
             entity_id: workspace.id.to_string(),
             operation: "upsert",
-            payload: serde_json::json!({
-                "workspace_id": workspace.id,
-                "branch": workspace.branch,
-                "sessions": session_payload,
-                "executions": executions,
-                "turns": turns,
-                "repositories": repositories,
-                "git": {
-                    "branch": workspace.branch,
-                    "repositories": repositories,
-                },
-                "notes": notes,
-                "context_usage": context_usage,
-                "chat_config": chat_config,
-            }),
+            payload: workspace_context_payload(pool, workspace.id, &workspace.branch).await?,
         });
     }
 
@@ -941,19 +988,11 @@ async fn get_context_for(
         }
 
         for issue in Issue::list_by_project(pool, project.id).await? {
-            let mut payload = serde_json::to_value(&issue)
-                .map_err(|error| ApiError::BadRequest(error.to_string()))?;
-            if let Some(link) = issue_workspace_links
+            let linked_workspace = issue_workspace_links
                 .iter()
                 .find(|link| link.issue_id == issue.id)
-                && let Some(object) = payload.as_object_mut()
-            {
-                object.insert(
-                    "workspace_id".to_string(),
-                    serde_json::to_value(link.workspace_id)
-                        .map_err(|error| ApiError::BadRequest(error.to_string()))?,
-                );
-            }
+                .map(|link| link.workspace_id);
+            let payload = issue_record_payload(&issue, linked_workspace)?;
             records.push(MobileSyncRecord {
                 entity_type: "issue",
                 entity_id: issue.id.to_string(),
@@ -980,32 +1019,13 @@ async fn get_context_for(
     }
 
     if include_chat {
-        let chat_rows = sqlx::query(
-            r#"SELECT cat.id, s.workspace_id, cat.prompt, cat.summary, cat.seen,
-                      cat.agent_session_id, cat.agent_message_id,
-                      cat.created_at, cat.updated_at
-               FROM coding_agent_turns cat
-               JOIN execution_processes ep ON ep.id = cat.execution_process_id
-               JOIN sessions s ON s.id = ep.session_id
-               WHERE ep.dropped = FALSE
-               ORDER BY cat.created_at ASC"#,
-        )
-        .fetch_all(pool)
-        .await?;
+        let chat_rows = sqlx::query(&format!("{CHAT_RECORD_SELECT} ORDER BY cat.created_at ASC"))
+            .fetch_all(pool)
+            .await?;
 
         for row in chat_rows {
             let id: Uuid = row.try_get("id")?;
-            let payload = serde_json::json!({
-                "id": id,
-                "workspace_id": row.try_get::<Uuid, _>("workspace_id")?,
-                "prompt": row.try_get::<Option<String>, _>("prompt")?,
-                "summary": row.try_get::<Option<String>, _>("summary")?,
-                "agent_session_id": row.try_get::<Option<String>, _>("agent_session_id")?,
-                "agent_message_id": row.try_get::<Option<String>, _>("agent_message_id")?,
-                "seen": row.try_get::<bool, _>("seen")?,
-                "created_at": row.try_get::<chrono::DateTime<chrono::Utc>, _>("created_at")?,
-                "updated_at": row.try_get::<chrono::DateTime<chrono::Utc>, _>("updated_at")?,
-            });
+            let payload = chat_record_payload(&row)?;
             records.push(MobileSyncRecord {
                 entity_type: "chat",
                 entity_id: id.to_string(),

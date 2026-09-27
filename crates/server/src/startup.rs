@@ -410,6 +410,9 @@ pub async fn initialize_deployment(
         .await
         .map_err(DeploymentError::from)?;
 
+    // Publish local changes to AuraPunk Cloud when an account is linked.
+    crate::routes::cloud_sync::spawn(deployment.clone());
+
     // Preload global executor options cache for all executors with DEFAULT presets
     tokio::spawn(async move {
         executors::executors::utils::preload_global_executor_options_cache().await;

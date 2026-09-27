@@ -12,10 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@vibe/ui/components/Dropdown';
 import { useCloudUrl, useIsCloudMode } from '@/shared/hooks/useAppMode';
-import {
-  makeLocalApiRequest,
-  openLocalApiWebSocket,
-} from '@/shared/lib/localApiTransport';
+import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 import { makeRequest } from '@/shared/lib/remoteApi';
 import { CloudMemoryDialog } from '@/shared/dialogs/auth/CloudMemoryDialog';
 import { CloudAuthDialog } from '@/shared/dialogs/auth/CloudAuthDialog';
@@ -126,164 +123,28 @@ export function CloudAuthActions() {
     [persistAccount, syncMem0Account]
   );
 
-  const syncCloudContext = useCallback(
-    async (nextAccount: CloudAccount) => {
-      if (!nextAccount.accessToken) return;
-
+  // The backend publishes local changes to Cloud from its own outbox
+  // (ADR-047 phase 2); the UI only hands over the account to publish as.
+  const linkCloudSync = useCallback(
+    async (nextAccount: CloudAccount | null) => {
       try {
-        const localResponse = await makeLocalApiRequest('/api/mobile/context', {
-          headers: { Accept: 'application/json' },
-          cache: 'no-store',
-        });
-        if (!localResponse.ok) return;
-        const localBody = (await localResponse.json()) as {
-          success?: boolean;
-          data?: { records?: CloudSyncRecord[] };
-        };
-        const records = localBody.data?.records ?? [];
-        // Older Desktop context exporters may include the relationship only
-        // inside the issue payload. Publish the normalized relation as well so
-        // Mobile can open an existing workspace instead of offering to create
-        // a duplicate one.
-        const derivedRelations = records.flatMap((record) => {
-          if (record.entity_type !== 'issue' || record.operation !== 'upsert') {
-            return [];
-          }
-          const payload = record.payload as {
-            workspace_id?: unknown;
-            project_id?: unknown;
-          };
-          if (
-            typeof payload.workspace_id !== 'string' ||
-            payload.workspace_id.length === 0
-          ) {
-            return [];
-          }
-          return [
-            {
-              entity_type: 'issue_workspace' as const,
-              entity_id: `${record.entity_id}:${payload.workspace_id}`,
-              operation: 'upsert' as const,
-              payload: {
-                issue_id: record.entity_id,
-                workspace_id: payload.workspace_id,
-                ...(typeof payload.project_id === 'string'
-                  ? { project_id: payload.project_id }
-                  : {}),
-              },
-            },
-          ];
-        });
-        const publishedRecords = [...records, ...derivedRelations].filter(
-          (record, index, all) =>
-            all.findIndex(
-              (candidate) =>
-                candidate.entity_type === record.entity_type &&
-                candidate.entity_id === record.entity_id
-            ) === index
-        );
-
-        const publish = async (operations: CloudSyncRecord[]) => {
-          let lastError: Error | null = null;
-          for (let attempt = 0; attempt < 3; attempt += 1) {
-            try {
-              const response = await fetch(
-                `${cloudUrl.replace(/\/$/, '')}/api/sync`,
-                {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${nextAccount.accessToken}`,
-                    'Content-Type': 'application/json',
-                  },
-                  body: JSON.stringify({
-                    source: 'desktop',
-                    operations: operations.map((record) => ({
-                      entityType: record.entity_type,
-                      entityId: record.entity_id,
-                      operation: record.operation,
-                      payload: record.payload,
-                    })),
-                  }),
+        const response = await makeRequest('/api/cloud-sync/account', {
+          method: 'PUT',
+          body: JSON.stringify({
+            account: nextAccount?.accessToken
+              ? {
+                  cloud_url: cloudUrl.replace(/\/$/, ''),
+                  access_token: nextAccount.accessToken,
+                  user_id: nextAccount.userId,
                 }
-              );
-              if (response.ok) return;
-              lastError = new Error(
-                `Cloud sync returned HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`
-              );
-            } catch (error) {
-              lastError =
-                error instanceof Error ? error : new Error(String(error));
-            }
-            if (attempt < 2) {
-              await new Promise((resolve) =>
-                window.setTimeout(resolve, 500 * (attempt + 1))
-              );
-            }
-          }
-          throw lastError ?? new Error('Cloud sync failed');
-        };
-
-        // The catalog is independently useful to Mobile. Do not let a stale
-        // board record or a transient Cloud failure prevent models/pipelines
-        // from being published, and do not let a catalog failure hide cards.
-        const catalogRecords = publishedRecords.filter(
-          (record) =>
-            record.entity_type === 'pipeline' ||
-            record.entity_type === 'executor_options'
-        );
-        const boardRecords = publishedRecords.filter(
-          (record) =>
-            record.entity_type !== 'pipeline' &&
-            record.entity_type !== 'executor_options'
-        );
-        try {
-          for (let index = 0; index < boardRecords.length; index += 100) {
-            await publish(boardRecords.slice(index, index + 100));
-          }
-        } catch (error) {
-          console.warn('AuraPunk Cloud board sync failed', error);
-        }
-        try {
-          for (let index = 0; index < catalogRecords.length; index += 100) {
-            await publish(catalogRecords.slice(index, index + 100));
-          }
-        } catch (error) {
-          console.warn('AuraPunk Cloud catalog sync failed', error);
-        }
-
-        // Keep the same discovered model catalog available to Mobile. The
-        // mobile client cannot open the Desktop's localhost WebSocket, so the
-        // Desktop publishes the catalog through the existing Cloud context
-        // channel. It is intentionally best-effort: sending a message still
-        // works with the executor default when discovery is unavailable.
-        const modelResponse = await makeLocalApiRequest(
-          '/api/agents/models?executor=codex',
-          { headers: { Accept: 'application/json' }, cache: 'no-store' }
-        );
-        if (modelResponse.ok) {
-          const modelBody = (await modelResponse.json()) as {
-            data?: Array<{
-              id: string;
-              name: string;
-              provider?: string;
-            }>;
-          };
-          const models = modelBody.data ?? [];
-          if (models.length > 0) {
-            await publish([
-              {
-                entity_type: 'executor_options',
-                entity_id: 'CODEX',
-                operation: 'upsert',
-                payload: { executor: 'CODEX', models },
-              },
-            ]);
-          }
+              : null,
+          }),
+        });
+        if (!response.ok) {
+          console.warn('AuraPunk Cloud sync link failed', response.status);
         }
       } catch (error) {
-        console.warn('AuraPunk Cloud context sync failed', error);
-        // Cloud sync is deliberately best-effort. The local database remains
-        // authoritative while the network or Cloud service is unavailable.
+        console.warn('AuraPunk Cloud sync link failed', error);
       }
     },
     [cloudUrl]
@@ -697,7 +558,6 @@ export function CloudAuthActions() {
               }
             }
           }
-          void syncCloudContext(parsed);
         }
       } catch {
         // Ignore malformed or unavailable device-local account state.
@@ -712,7 +572,6 @@ export function CloudAuthActions() {
     isCloudMode,
     offerCloudMemory,
     persistAccount,
-    syncCloudContext,
     syncCloudSnapshot,
     syncMem0Account,
   ]);
@@ -721,67 +580,12 @@ export function CloudAuthActions() {
     if (!account?.accessToken) return;
     const controller = new AbortController();
     void watchCloudCommands(account, controller.signal);
-    let socket: WebSocket | null = null;
-    let reconnectTimer: number | null = null;
-    let cancelled = false;
-    let contextSync: Promise<void> | null = null;
-    let contextSyncQueued = false;
-
-    const pushContext = () => {
-      if (cancelled) return;
-      if (contextSync) {
-        contextSyncQueued = true;
-        return;
-      }
-
-      contextSync = syncCloudContext(account).finally(() => {
-        contextSync = null;
-        if (contextSyncQueued) {
-          contextSyncQueued = false;
-          pushContext();
-        }
-      });
-    };
-
-    const connectToLocalEvents = async () => {
-      if (cancelled) return;
-      try {
-        socket = await openLocalApiWebSocket('/api/workspaces/streams/ws');
-        if (cancelled) {
-          socket.close();
-          return;
-        }
-        socket.onmessage = pushContext;
-        socket.onerror = () => socket?.close();
-        socket.onclose = () => {
-          socket = null;
-          if (!cancelled) {
-            reconnectTimer = window.setTimeout(() => {
-              void connectToLocalEvents();
-            }, 3000);
-          }
-        };
-      } catch {
-        if (!cancelled) {
-          reconnectTimer = window.setTimeout(() => {
-            void connectToLocalEvents();
-          }, 3000);
-        }
-      }
-    };
-
-    // Initial snapshot, then only local event notifications. The 3s delay is
-    // reconnect backoff, not a UI polling interval.
-    pushContext();
-    void connectToLocalEvents();
+    void linkCloudSync(account);
 
     return () => {
-      cancelled = true;
       controller.abort();
-      if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
-      socket?.close();
     };
-  }, [account, syncCloudContext, watchCloudCommands]);
+  }, [account, linkCloudSync, watchCloudCommands]);
 
   const openExternal = useCallback(async (url: string) => {
     if ('__TAURI_INTERNALS__' in window) {
@@ -828,7 +632,6 @@ export function CloudAuthActions() {
           } catch (error) {
             console.warn('Could not open AuraPunk Cloud memory prompt', error);
           }
-          void syncCloudContext(result.account);
           break;
         }
       } catch (error) {
@@ -867,7 +670,8 @@ export function CloudAuthActions() {
     setAccount(null);
     window.dispatchEvent(new Event('aurapunk-cloud-account-changed'));
     void syncMem0Account(null);
-  }, [clearPersistedAccount, syncMem0Account]);
+    void linkCloudSync(null);
+  }, [clearPersistedAccount, linkCloudSync, syncMem0Account]);
 
   return (
     <>
@@ -949,25 +753,6 @@ const CLOUD_MEMORY_PREFERENCE_PREFIX = 'aurapunk-cloud-memory';
 type DesktopAuthStatus =
   | { status: 'pending' }
   | { status: 'complete'; account: CloudAccount };
-
-type CloudSyncRecord = {
-  entity_type:
-    | 'project'
-    | 'status'
-    | 'workspace'
-    | 'workspace_request'
-    | 'issue_workspace'
-    | 'chat'
-    | 'chat_command'
-    | 'issue'
-    | 'job'
-    | 'executor_options'
-    | 'pipeline'
-    | 'instance';
-  entity_id: string;
-  operation: 'upsert' | 'delete';
-  payload: unknown;
-};
 
 type CloudSyncEvent = {
   entityType?: string;

@@ -33,6 +33,7 @@ pub mod app_mode;
 pub mod approvals;
 pub mod attachments;
 pub mod backup;
+pub mod cloud_sync;
 pub mod config;
 pub mod containers;
 pub mod events;
@@ -98,6 +99,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(rlcd::router())
         .merge(memory_migration::router())
         .merge(mobile_sync::router())
+        .merge(cloud_sync::router())
         .merge(mobile_sync::tailcat_router())
         .merge(instance::router())
         .nest("/attachments", attachments::routes())

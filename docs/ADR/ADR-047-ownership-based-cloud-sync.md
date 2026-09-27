@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — phase 1 implemented (2026-09-26)
+Proposed — phase 1 implemented (2026-09-26), phase 2 implemented (2026-09-27)
 
 ## Date
 
@@ -64,11 +64,20 @@ ownership transfer via lease (ADR-042 compute), not a DB copy.
    each relayed command run once (`command_id` = Cloud event id). Android:
    stream starts at `latest`, board events trigger a debounced refresh, Cloud
    workspace requests use `upsert` and a unique id.
-2. **Desktop publisher in Rust.** Move publishing out of the webview into a
+2. **Desktop publisher in Rust (done).** Move publishing out of the webview into a
    backend `cloud_sync` service fed by the existing `HookTables`/`KanbanEvent`
    bus through a `sync_outbox` (idempotency key `(instance_id, local_seq)`),
    publishing changed rows and tombstones only; transcripts on turn
    completion. Remove the full export from the steady state.
+   Implemented as SQLite triggers → `cloud_sync_outbox` (capture only while
+   an account is linked, `cloud_sync_state.enabled`), the
+   `routes::cloud_sync` publisher (coalesce per entity, payload from the
+   current row, missing row → tombstone, chunks of 100, oversized/rejected
+   records dropped instead of wedging the queue, backoff up to 5 min), a
+   one-time bootstrap per linked account, the execution catalog every 15 min,
+   and `PUT /api/cloud-sync/account` / `GET /api/cloud-sync/status`. The
+   webview only hands over the account; commands are still polled there
+   until phase 3.
 3. **Command queue.** Dedicated Cloud table (`pending → claimed → done/failed`,
    lease, `command_id`) instead of commands inside the event log.
 4. **Push and retention.** `LISTEN/NOTIFY` (or Supabase Realtime) over SSE/WS
