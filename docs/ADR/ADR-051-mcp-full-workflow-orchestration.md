@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — step 1 implemented (2026-09-27)
+Proposed — steps 1 and 2 implemented (2026-09-27)
 
 ## Date
 
@@ -36,9 +36,15 @@ and integrate the results.
      the same records Mobile receives): models, providers, agent modes,
      permissions, default model, presets.
    Both are in the global and orchestrator routers.
-2. **Pipelines over MCP.** `list_pipelines`, `create_pipeline` /
-   `update_pipeline` (the `~/.aurapunk/pipelines/*.toml` definitions), and
-   choosing a pipeline when creating or updating a card.
+2. **Pipelines over MCP (done).** `list_pipelines` (stage prompts omitted),
+   `get_pipeline_definition` (full TOML), `save_pipeline` (validated before
+   writing; errors with line/column), `delete_pipeline`, and
+   `set_issue_pipeline`, backed by `PUT /api/issues/{id}/pipeline`, which
+   writes the same `vk:pipeline` pointer block + metadata as the create-card
+   dialogs (shared `pipeline_pointer`), replaces an existing block instead of
+   duplicating it, refuses unknown pipelines, defaults enabled stages to each
+   stage's `default_enabled`, and clears with an empty list (metadata set to
+   `null`, since issue updates merge metadata).
 3. **`route_task` with RLCD scores.** Given a task description, the
    configured classifier scores short, single-concept questions — needs
    exploration? needs a plan? mechanical change? needs review? fits one

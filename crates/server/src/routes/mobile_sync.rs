@@ -2224,6 +2224,10 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/mobile/chat", post(post_chat_command))
         .route("/mobile/workspace", post(post_workspace_request))
         .route("/mobile/issues", post(mobile_create_issue))
+        .route(
+            "/issues/{id}/pipeline",
+            axum::routing::put(put_issue_pipeline),
+        )
         .route("/mobile/push-tokens", post(mobile_register_push_token))
         .route(
             "/mobile/workspaces/{workspace_id}/chat-config",
@@ -2478,10 +2482,141 @@ async fn tailcat_workspace(
     post_workspace_request(State(deployment), Json(request)).await
 }
 
+const PIPELINE_BLOCK_START: &str = "<!-- vk:pipeline:start -->";
+const PIPELINE_BLOCK_END: &str = "<!-- vk:pipeline:end -->";
+
+/// The card's `vk:pipeline` description block and extension metadata for a
+/// pipeline selection, or `None` when no pipeline is selected. The block is a
+/// compact pointer: agents fetch the stages with the `get_pipeline` MCP tool.
+pub(crate) fn pipeline_pointer(p: &MobileIssuePipeline) -> Option<(String, Value)> {
+    if p.pipeline_ids.is_empty() {
+        return None;
+    }
+    let mut block = format!("{PIPELINE_BLOCK_START}\n## Pipeline\n");
+    if let Some(exec) = p
+        .executor
+        .as_deref()
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+    {
+        block.push_str(&format!(
+            "- Run this card with the **{exec}** execution agent: pass `executor: \"{exec}\"` when starting the workspace.\n"
+        ));
+    }
+    block.push_str("This card has pipeline stages defined via `get_pipeline` — call that MCP tool BEFORE any code edits, execute the returned stages in order (do not add, skip, or reorder), and report each one via `report_pipeline_stage` as instructed in the tool's response.\n");
+    if let Some(custom) = p
+        .custom_text
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
+        block.push_str(custom);
+        block.push('\n');
+    }
+    block.push_str(PIPELINE_BLOCK_END);
+    Some((
+        block,
+        serde_json::json!({
+            "pipelineIds": p.pipeline_ids,
+            "enabledIds": p.enabled_ids,
+            "executor": p.executor,
+            "customText": p.custom_text,
+        }),
+    ))
+}
+
+/// `description` without any `vk:pipeline` block.
+pub(crate) fn without_pipeline_block(description: &str) -> String {
+    match (
+        description.find(PIPELINE_BLOCK_START),
+        description.find(PIPELINE_BLOCK_END),
+    ) {
+        (Some(start), Some(end)) if end > start => {
+            let after = &description[end + PIPELINE_BLOCK_END.len()..];
+            format!("{}{}", description[..start].trim_end(), after)
+                .trim()
+                .to_string()
+        }
+        _ => description.trim().to_string(),
+    }
+}
+
+/// `description` with its `vk:pipeline` block replaced by `block`.
+pub(crate) fn with_pipeline_block(description: &str, block: &str) -> String {
+    let base = without_pipeline_block(description);
+    if base.is_empty() {
+        block.to_string()
+    } else {
+        format!("{base}\n\n{block}")
+    }
+}
+
+/// `PUT /api/issues/{id}/pipeline`: set, replace or (with no pipeline ids)
+/// clear a card's pipeline pointer — description block and metadata.
+async fn put_issue_pipeline(
+    State(deployment): State<DeploymentImpl>,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+    Json(pipeline): Json<MobileIssuePipeline>,
+) -> Result<ResponseJson<ApiResponse<Value>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let issue = Issue::find_by_id(pool, id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("issue not found".to_string()))?;
+    let known: std::collections::HashSet<String> = load_pipelines(&pipelines_dir())
+        .into_iter()
+        .map(|pipeline| pipeline.id)
+        .collect();
+    if let Some(unknown) = pipeline.pipeline_ids.iter().find(|id| !known.contains(*id)) {
+        return Err(ApiError::BadRequest(format!(
+            "unknown pipeline `{unknown}`"
+        )));
+    }
+    let description = issue.description.clone().unwrap_or_default();
+    let mut metadata = match issue.extension_metadata.clone() {
+        Value::Object(map) => map,
+        _ => serde_json::Map::new(),
+    };
+    let description = match pipeline_pointer(&pipeline) {
+        Some((block, pointer)) => {
+            metadata.insert("pipeline".to_string(), pointer);
+            with_pipeline_block(&description, &block)
+        }
+        None => {
+            // Issue updates merge extension metadata, so a removed key would
+            // survive: clear it explicitly.
+            metadata.insert("pipeline".to_string(), Value::Null);
+            without_pipeline_block(&description)
+        }
+    };
+    let updated = crate::routes::local_kanban::merge_and_update_issue(
+        pool,
+        id,
+        UpdateIssueRequest {
+            allow_unmerged_done: None,
+            status_id: None,
+            title: None,
+            description: Some(Some(description)),
+            priority: None,
+            start_date: None,
+            target_date: None,
+            completed_at: None,
+            sort_order: None,
+            parent_issue_id: None,
+            parent_issue_sort_order: None,
+            extension_metadata: Some(Value::Object(metadata)),
+        },
+    )
+    .await?
+    .ok_or_else(|| ApiError::BadRequest("issue not found".to_string()))?;
+    Ok(ResponseJson(ApiResponse::success(
+        serde_json::to_value(updated).map_err(|error| ApiError::BadRequest(error.to_string()))?,
+    )))
+}
+
 /// Create a new card (issue) from Mobile, mirroring the Desktop
 /// create-card dialog: title, description, status, priority, tags and an
 /// optional pipeline pointer (extension metadata + `vk:pipeline` block).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct MobileIssuePipeline {
     #[serde(default)]
     pub pipeline_ids: Vec<String>,
@@ -2569,42 +2704,15 @@ async fn post_issue_create(
         .description
         .map(|d| d.trim().to_string())
         .filter(|d| !d.is_empty());
-    let extension_metadata = match &req.pipeline {
-        Some(p) if !p.pipeline_ids.is_empty() => {
-            let mut block = String::from("<!-- vk:pipeline:start -->\n## Pipeline\n");
-            if let Some(exec) = p
-                .executor
-                .as_deref()
-                .map(str::trim)
-                .filter(|e| !e.is_empty())
-            {
-                block.push_str(&format!(
-                    "- Run this card with the **{exec}** execution agent: pass `executor: \"{exec}\"` when starting the workspace.\n"
-                ));
-            }
-            block.push_str("This card has pipeline stages defined via `get_pipeline` — call that MCP tool BEFORE any code edits, execute the returned stages in order (do not add, skip, or reorder), and report each one via `report_pipeline_stage` as instructed in the tool's response.\n");
-            if let Some(custom) = p
-                .custom_text
-                .as_deref()
-                .map(str::trim)
-                .filter(|c| !c.is_empty())
-            {
-                block.push_str(custom);
-                block.push('\n');
-            }
-            block.push_str("<!-- vk:pipeline:end -->");
-            description = Some(match description {
-                Some(d) => format!("{d}\n\n{block}"),
-                None => block,
-            });
-            serde_json::json!({"pipeline": {
-                "pipelineIds": p.pipeline_ids,
-                "enabledIds": p.enabled_ids,
-                "executor": p.executor,
-                "customText": p.custom_text,
-            }})
+    let extension_metadata = match req.pipeline.as_ref().and_then(pipeline_pointer) {
+        Some((block, metadata)) => {
+            description = Some(with_pipeline_block(
+                description.as_deref().unwrap_or(""),
+                &block,
+            ));
+            serde_json::json!({ "pipeline": metadata })
         }
-        _ => serde_json::json!({}),
+        None => serde_json::json!({}),
     };
 
     let issue = crate::routes::local_kanban::create_issue_record(
@@ -2909,4 +3017,39 @@ fn authorize_tailcat(headers: &HeaderMap, deployment: &impl Deployment) -> Resul
         return Err(ApiError::Forbidden("invalid Tailcat instance token".into()));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod pipeline_block_tests {
+    use super::*;
+
+    fn pipeline(ids: &[&str]) -> MobileIssuePipeline {
+        MobileIssuePipeline {
+            pipeline_ids: ids.iter().map(|id| id.to_string()).collect(),
+            enabled_ids: vec!["plan".into()],
+            executor: Some("CODEX".into()),
+            custom_text: None,
+        }
+    }
+
+    #[test]
+    fn replacing_a_pipeline_never_duplicates_the_block() {
+        let (first, _) = pipeline_pointer(&pipeline(&["a"])).unwrap();
+        let once = with_pipeline_block("Fix the login bug.", &first);
+        let (second, metadata) = pipeline_pointer(&pipeline(&["b"])).unwrap();
+        let twice = with_pipeline_block(&once, &second);
+        assert_eq!(twice.matches(PIPELINE_BLOCK_START).count(), 1);
+        assert!(twice.starts_with("Fix the login bug.\n\n"));
+        assert!(twice.contains("**CODEX**"));
+        assert_eq!(metadata["pipelineIds"], serde_json::json!(["b"]));
+    }
+
+    #[test]
+    fn clearing_removes_only_the_block() {
+        let (block, _) = pipeline_pointer(&pipeline(&["a"])).unwrap();
+        let text = format!("Intro.\n\n{block}\n\nTrailing note.");
+        assert_eq!(without_pipeline_block(&text), "Intro.\n\nTrailing note.");
+        assert_eq!(without_pipeline_block("No block."), "No block.");
+        assert!(pipeline_pointer(&pipeline(&[])).is_none());
+    }
 }

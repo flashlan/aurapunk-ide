@@ -46,6 +46,7 @@ mod issues;
 mod mem0;
 mod orchestrator_prompt;
 mod pipeline;
+mod pipeline_admin;
 mod project_statuses;
 mod projects;
 mod repos;
@@ -70,6 +71,8 @@ impl McpServer {
             // the SDLC preset injection. Lets an agent shape a project's board
             // the same way the Settings → Card Statuses UI does.
             + Self::project_statuses_tools_router()
+            // ADR-051: pipeline authoring and attaching a pipeline to a card.
+            + Self::pipeline_admin_tools_router()
             + Self::issues_tools_router()
             + Self::issue_tags_tools_router()
             + Self::issue_relationships_tools_router()
@@ -612,6 +615,11 @@ mod tests {
             "update_project_status".to_string(),
             "update_session".to_string(),
             "update_setup_script".to_string(),
+            "delete_pipeline".to_string(),
+            "get_pipeline_definition".to_string(),
+            "list_pipelines".to_string(),
+            "save_pipeline".to_string(),
+            "set_issue_pipeline".to_string(),
             "update_workspace".to_string(),
             "wait_for_executions".to_string(),
         ]);
