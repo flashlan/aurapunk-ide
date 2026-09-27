@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.34] - 2026-09-27
+
+### Fixed
+
+- **Parallel agents no longer undo each other's conflict resolutions.** When
+  a card's merge conflicts, the files its branch changed are reserved while
+  its agent resolves them: other cards that touch those files wait in the
+  integration queue and merge automatically once the resolution lands, so the
+  main branch cannot change under the resolution again. Cards that touch other
+  files keep merging normally. Reservations are served in order of arrival,
+  stay alive while the agent is working, and lapse after 30 minutes if it
+  stops, so no card can hold the repository forever.
+
 ## [0.3.33] - 2026-09-27
 
 ### Fixed

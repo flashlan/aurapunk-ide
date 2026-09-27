@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted — the integration queue, conflict classification and branch-side
-conflict resolution are implemented (2026-09-27); execution rights are
-Proposed.
+Accepted — the integration queue, conflict classification, branch-side
+conflict resolution and resolution reservations are implemented
+(2026-09-27); execution rights are Proposed.
 
 ## Date
 
@@ -106,6 +106,44 @@ work on one board:
   green); end to end on a real repository — the conflict left `main` with 0
   changes, the branch-side resolution then merged cleanly with the resolved
   content on `main`.
+
+### 5. The target cannot move under a resolution: file reservations, first come first served (implemented)
+
+- Problem: while an agent merges the target into its branch and resolves,
+  other agents keep integrating. If one of them changes a file the resolving
+  branch also changed, the retry conflicts again — with many agents in
+  parallel a resolver could lose that race indefinitely.
+- On `MergeConflicts` (inside the Integration Guard lease, so no merge can
+  slip between the check and the reservation) the workspace gets an
+  `agent_work_declarations` row owned by `CONFLICT_RESOLUTION_OWNER`
+  (`merge-resolution`) listing every file its branch changed plus the
+  conflicted ones — exactly the files where a newer target commit could
+  produce a new conflict. The existing overlap check then refuses other
+  workspaces' merges touching them as `agent_work_conflict`, a transient
+  blocker: the MCP tools queue them and the queue worker merges them once the
+  reservation is gone. Merges touching other files are unaffected, so the
+  repository never stalls on one card.
+- Released when the workspace merges (`release_workspace`) or is archived;
+  30-minute lease renewed by every conflicting retry and, every worker pass,
+  while the workspace has a coding agent running. An abandoned resolution
+  frees the files within 30 minutes.
+- Deadlock-free ordering (`AgentWorkDeclaration::blocks_merge`): among
+  reservations the older one wins (the upsert keeps `created_at`, so renewals
+  keep the place in line); a workspace holding a reservation is not blocked by
+  ordinary advisory declarations — otherwise an agent waiting on the
+  reservation could block it back. There is therefore no wait cycle.
+- The waiting workspace may still conflict once the resolver lands (both
+  changed the same lines); it then takes its own reservation and resolves
+  once, against a target that already contains the first resolution.
+- Verified end to end with three workspaces on one repository (A and B edit
+  `lib.rs`, C edits `notes.txt`, `main` edits `lib.rs`): A conflicts and
+  reserves; B is refused and queued; C merges; A resolves on its branch and
+  merges, releasing the reservation; the worker retries B, which now
+  conflicts against A's result and holds its own reservation. `main` stayed
+  clean throughout. Unit tests: FIFO/cycle-free ordering, renewal keeping the
+  place, release on archive.
+- Not covered: commits made directly to the target outside the Integration
+  Guard (by hand, or pushes) bypass reservations.
 
 ## Consequences
 

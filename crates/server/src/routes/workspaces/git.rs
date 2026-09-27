@@ -11,7 +11,7 @@ use axum::{
     routing::{get, post},
 };
 use db::models::{
-    agent_work::AgentWorkDeclaration,
+    agent_work::{AgentWorkDeclaration, CONFLICT_RESOLUTION_OWNER},
     integration_guard::IntegrationGuardLease as DbIntegrationGuardLease,
     merge::{Merge, MergeStatus, PrMerge, PullRequestInfo},
     repo::{Repo, RepoError},
@@ -473,11 +473,16 @@ pub async fn merge_workspace(
         changed_dependencies.extend(declaration.dependencies.iter().cloned());
     }
     let changed_files = changed_files.into_iter().collect::<Vec<_>>();
+    let own_reservation = current_declarations
+        .iter()
+        .find(|declaration| declaration.owner_id == CONFLICT_RESOLUTION_OWNER)
+        .map(|declaration| declaration.created_at);
 
     let conflicts = AgentWorkDeclaration::list_active_for_repo(pool, repo.id)
         .await?
         .into_iter()
         .filter(|declaration| declaration.workspace_id != workspace.id)
+        .filter(|declaration| AgentWorkDeclaration::blocks_merge(declaration, own_reservation))
         .filter_map(|declaration| {
             AgentWorkDeclaration::conflict_with_scope(
                 &declaration,
@@ -493,9 +498,19 @@ pub async fn merge_workspace(
             .map(|conflict| conflict.agent_name.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        let message = format!(
-            "Merge blocked: active agent work overlaps this branch ({agents}). Review or release the conflicting declarations before integrating."
-        );
+        let message = if conflicts
+            .iter()
+            .all(|conflict| conflict.owner_id == CONFLICT_RESOLUTION_OWNER)
+        {
+            format!(
+                "Merge waits: another workspace is resolving merge conflicts in files this branch also changes, and it goes first so '{}' does not move under its resolution. The request waits in the integration queue and runs as soon as that resolution lands (or its reservation lapses); then this branch may need its own `git merge {}`.",
+                workspace_repo.target_branch, workspace_repo.target_branch
+            )
+        } else {
+            format!(
+                "Merge blocked: active agent work overlaps this branch ({agents}). Review or release the conflicting declarations before integrating."
+            )
+        };
         return Ok(ResponseJson(
             ApiResponse::error_with_data(GitOperationError::AgentWorkConflict {
                 message: message.clone(),
@@ -543,8 +558,39 @@ pub async fn merge_workspace(
                     .unwrap_or_default()
                 };
                 let classification = rlcd::classify_merge_conflict(sides).await;
+                // Hold the branch's files while its agent resolves: any file
+                // this branch changed is where a newer target commit could
+                // conflict again, so other merges touching them wait in the
+                // integration queue (ADR-050 §5). Released on merge; the
+                // lease frees the repository if the resolution is abandoned.
+                let mut reserved = changed_files.clone();
+                reserved.extend(conflicted_files.iter().cloned());
+                reserved.sort();
+                reserved.dedup();
+                let reservation = match AgentWorkDeclaration::reserve_for_conflict_resolution(
+                    pool,
+                    workspace.id,
+                    &workspace_repo.target_branch,
+                    reserved,
+                )
+                .await
+                {
+                    Ok(declaration) => format!(
+                        " These files stay reserved for this branch until {} (renewed on every retry): merges from other workspaces that touch them wait in the integration queue, so '{}' cannot move under your resolution.",
+                        declaration.lease_expires_at.format("%H:%M UTC"),
+                        workspace_repo.target_branch
+                    ),
+                    Err(error) => {
+                        tracing::warn!(
+                            workspace_id = %workspace.id,
+                            %error,
+                            "Could not reserve files for the conflict resolution"
+                        );
+                        String::new()
+                    }
+                };
                 let message = format!(
-                    "{message} Resolve the files below (or delegate the resolution) before retrying. {}",
+                    "{message} Resolve the files below (or delegate the resolution) before retrying.{reservation} {}",
                     classification.guidance
                 );
                 return Ok(ResponseJson(

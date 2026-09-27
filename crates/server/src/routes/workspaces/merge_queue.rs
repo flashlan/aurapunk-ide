@@ -21,6 +21,7 @@ use axum::{
     response::Json as ResponseJson,
 };
 use db::models::{
+    agent_work::AgentWorkDeclaration,
     execution_process::ExecutionProcess,
     integration_queue::IntegrationRequest,
     repo::Repo,
@@ -168,6 +169,9 @@ pub fn spawn(deployment: DeploymentImpl) {
 
 async fn drain(deployment: &DeploymentImpl) -> anyhow::Result<()> {
     let pool = &deployment.db().pool;
+    // Renew reservations whose agent is still resolving, release archived
+    // ones, before deciding which queued merges they hold back.
+    AgentWorkDeclaration::maintain_conflict_reservations(pool).await?;
     for request in IntegrationRequest::queued(pool).await? {
         if let Err(error) = attempt(deployment, &request).await {
             tracing::warn!(request_id = %request.id, error = %error, "queued integration attempt failed");

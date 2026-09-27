@@ -11,6 +11,18 @@ use uuid::Uuid;
 /// as active and another agent should be able to continue.
 pub const AGENT_WORK_LEASE_SECONDS: i64 = 10 * 60;
 
+/// Owner of the reservation a workspace holds while its agent resolves merge
+/// conflicts on its branch (ADR-050 §5). Other workspaces whose merge touches
+/// the reserved files are refused as `agent_work_conflict` and wait in the
+/// integration queue, so the target cannot move under the resolution again.
+pub const CONFLICT_RESOLUTION_OWNER: Uuid =
+    Uuid::from_u128(0x6d65_7267_655f_7265_736f_6c76_6500_0001);
+pub const CONFLICT_RESOLUTION_AGENT: &str = "merge-resolution";
+/// Long enough for an agent to merge the target, resolve and re-run checks;
+/// short enough that an abandoned resolution never blocks the repository for
+/// long. Every conflicting retry renews it; a successful merge releases it.
+pub const CONFLICT_RESOLUTION_LEASE_SECONDS: i64 = 30 * 60;
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct AgentWorkDeclaration {
     pub id: Uuid,
@@ -162,8 +174,92 @@ impl AgentWorkDeclaration {
         pool: &SqlitePool,
         input: &DeclareAgentWork,
     ) -> Result<AgentWorkDeclarationResult, sqlx::Error> {
+        Self::upsert(pool, input, AGENT_WORK_LEASE_SECONDS).await
+    }
+
+    /// Reserve `files` for the workspace's own conflict resolution against
+    /// `target_branch` (renewing an existing reservation). See
+    /// [`CONFLICT_RESOLUTION_OWNER`].
+    pub async fn reserve_for_conflict_resolution(
+        pool: &SqlitePool,
+        workspace_id: Uuid,
+        target_branch: &str,
+        files: Vec<String>,
+    ) -> Result<AgentWorkDeclaration, sqlx::Error> {
+        let input = DeclareAgentWork {
+            workspace_id,
+            owner_id: CONFLICT_RESOLUTION_OWNER,
+            execution_process_id: None,
+            agent_name: CONFLICT_RESOLUTION_AGENT.to_string(),
+            intent: format!(
+                "Resolving merge conflicts with '{target_branch}' on its branch; merges touching these files wait in the integration queue until it lands"
+            ),
+            files,
+            symbols: Vec::new(),
+            dependencies: Vec::new(),
+        };
+        Ok(
+            Self::upsert(pool, &input, CONFLICT_RESOLUTION_LEASE_SECONDS)
+                .await?
+                .declaration,
+        )
+    }
+
+    /// Keep conflict reservations tied to real work: renew the ones whose
+    /// workspace still has a coding agent running (a long resolution must not
+    /// lapse mid-way) and release the ones whose workspace was archived.
+    /// Anything else simply expires with its lease.
+    pub async fn maintain_conflict_reservations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         let now = Utc::now();
-        let lease_expires_at = now + Duration::seconds(AGENT_WORK_LEASE_SECONDS);
+        sqlx::query(
+            "UPDATE agent_work_declarations SET status = 'released', updated_at = ?, lease_expires_at = ? WHERE owner_id = ? AND status = 'active' AND EXISTS (SELECT 1 FROM workspaces w WHERE w.id = agent_work_declarations.workspace_id AND w.archived = 1)",
+        )
+        .bind(now)
+        .bind(now)
+        .bind(CONFLICT_RESOLUTION_OWNER)
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            "UPDATE agent_work_declarations SET lease_expires_at = ?, updated_at = ? WHERE owner_id = ? AND status = 'active' AND lease_expires_at > ? AND EXISTS (SELECT 1 FROM execution_processes ep JOIN sessions s ON s.id = ep.session_id WHERE s.workspace_id = agent_work_declarations.workspace_id AND ep.status = 'running' AND ep.run_reason = 'codingagent' AND ep.dropped = FALSE)",
+        )
+        .bind(now + Duration::seconds(CONFLICT_RESOLUTION_LEASE_SECONDS))
+        .bind(now)
+        .bind(CONFLICT_RESOLUTION_OWNER)
+        .bind(now)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Whether `other`'s declaration may block a merge from a workspace whose
+    /// own conflict reservation (if any) started at `own_reservation`.
+    ///
+    /// Deadlock-free ordering among many parallel agents:
+    /// - conflict reservations are served first-come first-served: an older
+    ///   reservation blocks, a younger one never does;
+    /// - a workspace holding a reservation is already first in line for its
+    ///   files, so ordinary (advisory) declarations do not block it — that
+    ///   would let an agent that is itself waiting on the reservation block
+    ///   it back.
+    pub fn blocks_merge(
+        other: &AgentWorkDeclaration,
+        own_reservation: Option<DateTime<Utc>>,
+    ) -> bool {
+        match (other.owner_id == CONFLICT_RESOLUTION_OWNER, own_reservation) {
+            (true, Some(own)) => other.created_at < own,
+            (true, None) => true,
+            (false, Some(_)) => false,
+            (false, None) => true,
+        }
+    }
+
+    async fn upsert(
+        pool: &SqlitePool,
+        input: &DeclareAgentWork,
+        lease_seconds: i64,
+    ) -> Result<AgentWorkDeclarationResult, sqlx::Error> {
+        let now = Utc::now();
+        let lease_expires_at = now + Duration::seconds(lease_seconds);
         let agent_name = input.agent_name.trim();
         let intent = input.intent.trim();
 
@@ -178,6 +274,8 @@ impl AgentWorkDeclaration {
         let conflicts = existing
             .iter()
             .filter(|other| other.owner_id != input.owner_id)
+            // The workspace's own conflict reservation is not a rival agent.
+            .filter(|other| other.owner_id != CONFLICT_RESOLUTION_OWNER)
             .filter_map(|other| Self::conflict(other, input))
             .collect();
 
@@ -605,6 +703,162 @@ mod tests {
                 .unwrap()
                 .len(),
             2
+        );
+    }
+
+    #[tokio::test]
+    async fn conflict_reservation_blocks_other_workspaces_until_released() {
+        let pool = pool().await;
+        let resolving = workspace(&pool).await;
+        let other = workspace(&pool).await;
+        let repo_id = repo_for_workspaces(&pool, &[resolving, other]).await;
+
+        let reservation = AgentWorkDeclaration::reserve_for_conflict_resolution(
+            &pool,
+            resolving,
+            "main",
+            vec!["crates/git/src/lib.rs".to_string()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(reservation.agent_name, CONFLICT_RESOLUTION_AGENT);
+        assert!(
+            reservation.lease_expires_at > Utc::now() + Duration::seconds(AGENT_WORK_LEASE_SECONDS)
+        );
+
+        // Another workspace's merge touching the file overlaps; one that
+        // does not is free to integrate.
+        let active = AgentWorkDeclaration::list_active_for_repo(&pool, repo_id)
+            .await
+            .unwrap();
+        let rival = active
+            .iter()
+            .find(|declaration| declaration.workspace_id == resolving)
+            .unwrap();
+        assert!(
+            AgentWorkDeclaration::conflict_with_scope(
+                rival,
+                &["crates/git/src/lib.rs".to_string()],
+                &[],
+                &[]
+            )
+            .is_some()
+        );
+        assert!(
+            AgentWorkDeclaration::conflict_with_scope(rival, &["README.md".to_string()], &[], &[])
+                .is_none()
+        );
+
+        // The resolving workspace's own agent does not see it as a rival.
+        let own =
+            AgentWorkDeclaration::declare(&pool, &declaration_input(resolving, Uuid::new_v4()))
+                .await
+                .unwrap();
+        assert!(own.conflicts.is_empty());
+
+        AgentWorkDeclaration::release_workspace(&pool, resolving)
+            .await
+            .unwrap();
+        assert!(
+            AgentWorkDeclaration::list_active_for_repo(&pool, repo_id)
+                .await
+                .unwrap()
+                .iter()
+                .all(|declaration| declaration.workspace_id != resolving)
+        );
+        let _ = other;
+    }
+
+    #[tokio::test]
+    async fn merge_blocking_is_first_come_first_served_and_cycle_free() {
+        let pool = pool().await;
+        let first = workspace(&pool).await;
+        let second = workspace(&pool).await;
+        let files = vec!["src/lib.rs".to_string()];
+        let older = AgentWorkDeclaration::reserve_for_conflict_resolution(
+            &pool,
+            first,
+            "main",
+            files.clone(),
+        )
+        .await
+        .unwrap();
+        let younger =
+            AgentWorkDeclaration::reserve_for_conflict_resolution(&pool, second, "main", files)
+                .await
+                .unwrap();
+        assert!(older.created_at < younger.created_at);
+
+        // Two resolutions on the same files: only the older one goes first.
+        assert!(AgentWorkDeclaration::blocks_merge(
+            &older,
+            Some(younger.created_at)
+        ));
+        assert!(!AgentWorkDeclaration::blocks_merge(
+            &younger,
+            Some(older.created_at)
+        ));
+        // Renewal keeps the place in line.
+        let renewed = AgentWorkDeclaration::reserve_for_conflict_resolution(
+            &pool,
+            first,
+            "main",
+            vec!["src/lib.rs".to_string()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(renewed.created_at, older.created_at);
+
+        // Ordinary declarations block ordinary merges, never a resolution.
+        let ordinary =
+            AgentWorkDeclaration::declare(&pool, &declaration_input(second, Uuid::new_v4()))
+                .await
+                .unwrap()
+                .declaration;
+        assert!(AgentWorkDeclaration::blocks_merge(&ordinary, None));
+        assert!(!AgentWorkDeclaration::blocks_merge(
+            &ordinary,
+            Some(older.created_at)
+        ));
+        // Any reservation blocks a workspace that holds none.
+        assert!(AgentWorkDeclaration::blocks_merge(&younger, None));
+    }
+
+    #[tokio::test]
+    async fn archived_workspaces_release_their_conflict_reservation() {
+        let pool = pool().await;
+        let workspace_id = workspace(&pool).await;
+        AgentWorkDeclaration::reserve_for_conflict_resolution(
+            &pool,
+            workspace_id,
+            "main",
+            vec!["a.rs".to_string()],
+        )
+        .await
+        .unwrap();
+        AgentWorkDeclaration::maintain_conflict_reservations(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            AgentWorkDeclaration::list_active(&pool, workspace_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        sqlx::query("UPDATE workspaces SET archived = 1 WHERE id = ?")
+            .bind(workspace_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        AgentWorkDeclaration::maintain_conflict_reservations(&pool)
+            .await
+            .unwrap();
+        assert!(
+            AgentWorkDeclaration::list_active(&pool, workspace_id)
+                .await
+                .unwrap()
+                .is_empty()
         );
     }
 

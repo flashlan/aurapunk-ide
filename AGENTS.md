@@ -796,3 +796,23 @@ fixed them. Newest last.
   worktree, resolve, testa, commita) e tenta de novo — entra limpo.
   Delegate/MCP/fila/diálogo atualizados. Testado ponta a ponta (alvo com 0
   mudanças; resolução na branch integrou limpo).
+
+### 2026-09-27 — Reserva de arquivos durante a resolução de conflito (ADR-050 §5)
+- **Pergunta do operador:** enquanto o agente faz `git merge main` na branch
+  e resolve, outro agente pode mudar o `main` de novo — com muitos agentes em
+  paralelo o resolvedor pode perder a corrida para sempre.
+- **Solução:** no `MergeConflicts` (dentro do lease do Integration Guard) o
+  workspace ganha uma declaração `merge-resolution`
+  (`CONFLICT_RESOLUTION_OWNER`) com todos os arquivos que a branch mudou.
+  Merges de outros workspaces que tocam esses arquivos viram
+  `agent_work_conflict` → fila de integração → entram sozinhos quando a
+  resolução é integrada. Quem não toca nesses arquivos integra normalmente.
+- **Sem impasse:** entre reservas vale a mais antiga (FIFO; renovar mantém o
+  `created_at`); quem tem reserva não é bloqueado por declarações comuns
+  (`AgentWorkDeclaration::blocks_merge`). Lease de 30 min renovado a cada
+  retry conflitante e, no worker da fila, enquanto houver agente rodando no
+  workspace; liberado no merge e no arquivamento.
+- **Verificado:** `cargo test -p db agent_work` (10), clippy limpo, cenário
+  real com 3 workspaces (roteiro `parallel-scenario.sh` no scratchpad da
+  sessão): A reserva, B espera na fila, C integra, A resolve e integra, B
+  retoma e reserva a própria resolução; `main` sempre limpo.
