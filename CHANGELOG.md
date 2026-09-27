@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.29] - 2026-09-27
+
+### Changed
+
+- **Settings folder renamed from `~/.vibe-kanban` to `~/.aurapunk`.** On
+  first start the app moves the folder (and `.vibe-kanban-workspaces` inside
+  a custom workspace directory, now `.aurapunk-workspaces`) and leaves a link
+  at the old name, so existing worktrees, scripts and tools that point at the
+  old path keep working. Workspace records are updated before any cleanup
+  runs, so no worktree is mistaken for an orphan. If both folders already
+  exist, files are merged and name clashes are left in the old folder with a
+  warning in the log.
+
 ## [0.3.28] - 2026-09-27
 
 ### Fixed
