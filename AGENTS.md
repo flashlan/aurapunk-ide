@@ -762,3 +762,26 @@ fixed them. Newest last.
 - **zsh:** `$G` com espaços não vira comando (sem word-split) — roteiros de
   teste com vários argumentos vão em arquivo `bash`.
 - **Disco:** `target/debug` chegou a 51 GB de novo (2,2 GB livres); apagado.
+
+### 2026-09-27 — MCP como orquestrador (ADR-051) + classificação de conflitos (ADR-050)
+- **MCP novo:** `wait_for_executions` (espera 1–32 execuções, volta cedo se
+  alguma pede aprovação), `list_agents` (`GET /api/agents/catalog`, o mesmo
+  catálogo do APK), `list_pipelines` / `get_pipeline_definition` /
+  `save_pipeline` / `delete_pipeline`, `set_issue_pipeline`
+  (`PUT /api/issues/{id}/pipeline`, mesmo bloco `vk:pipeline` dos diálogos),
+  `route_task` (`POST /api/rlcd/route-task`). Testados via stdio JSON-RPC
+  real contra um backend isolado.
+- **Pego no teste:** limpar pipeline deixava o metadata — updates de issue
+  MESCLAM `extension_metadata`; `null` remove a chave (há teste disso).
+- **Calibração do `route_task` no Laya:** só "Does this task touch several
+  components or systems?" separa tarefas mecânicas de transversais; as outras
+  perguntas e a adequação por pipeline erravam. Decisão = essa pergunta +
+  heurística de texto. Gabarito em `route_decisions_match_the_measured_benchmark`.
+- **Conflitos:** `rlcd::classify_merge_conflict` (lockfile/gerado/CHANGELOG
+  trivial por caminho; resto pelo classificador; na dúvida, semântico) em
+  `MergeConflicts.classification`. Observado: squash com conflito deixa `UU`
+  no checkout do alvo e trava merges do repo — decisão aberta (ADR-050).
+- **RLCD do operador:** `engine = "jev"` e o Jev não responde desta rede, então
+  nada do RLCD tem resposta real; o Laya Cloud responde (200). A Cloudflare
+  bloqueia só o UA `Python-urllib` (erro 1010) — nos testes em Python, mande
+  um `User-Agent`; o backend (reqwest, sem UA) passa.

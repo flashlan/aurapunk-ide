@@ -186,6 +186,7 @@ pub struct Question {
     pub instructions: &'static str,
 }
 
+#[cfg(test)]
 fn questions_json(questions: &[Question]) -> Value {
     let map: serde_json::Map<String, Value> = questions
         .iter()
@@ -201,6 +202,7 @@ fn questions_json(questions: &[Question]) -> Value {
 
 /// Probability that each question's answer is "yes", in [0, 1]. Accepts the
 /// shapes Laya and Jev use: a bare number, `{probability}` or `{noul}`.
+#[cfg(test)]
 fn parse_probabilities(body: &Value, questions: &[Question]) -> HashMap<&'static str, f64> {
     let answers = body.get("answers").unwrap_or(&Value::Null);
     questions
@@ -265,8 +267,36 @@ pub async fn evaluate(
     questions: &[Question],
     timeout: Duration,
 ) -> Result<HashMap<&'static str, f64>, RlcdError> {
+    let pairs: Vec<(String, String)> = questions
+        .iter()
+        .map(|q| (q.key.to_string(), q.instructions.to_string()))
+        .collect();
+    let answers = evaluate_pairs(operation, state, &pairs, timeout).await?;
+    Ok(questions
+        .iter()
+        .filter_map(|q| answers.get(q.key).map(|p| (q.key, *p)))
+        .collect())
+}
+
+/// [`evaluate`] for questions built at runtime (e.g. one per pipeline).
+pub async fn evaluate_pairs(
+    operation: &str,
+    state: &str,
+    questions: &[(String, String)],
+    timeout: Duration,
+) -> Result<HashMap<String, f64>, RlcdError> {
     let config = config();
-    let questions_value = questions_json(questions);
+    let questions_value = Value::Object(
+        questions
+            .iter()
+            .map(|(key, instructions)| {
+                (
+                    key.clone(),
+                    json!({ "type": "noul", "instructions": instructions }),
+                )
+            })
+            .collect(),
+    );
     let targets = targets(&config, state, &questions_value);
     if targets.is_empty() {
         return Err(RlcdError::NotConfigured);
@@ -286,7 +316,10 @@ pub async fn evaluate(
             Ok(response) if response.status().is_success() => {
                 match response.json::<Value>().await {
                     Ok(body) => {
-                        let probabilities = parse_probabilities(&body, questions);
+                        let probabilities = parse_probability_keys(
+                            &body,
+                            questions.iter().map(|(key, _)| key.as_str()),
+                        );
                         if probabilities.is_empty() {
                             Err(format!("{} returned no answers", target.url))
                         } else {
@@ -316,6 +349,22 @@ pub async fn evaluate(
         }
     }
     Err(RlcdError::Request(last_error))
+}
+
+fn parse_probability_keys<'a>(
+    body: &Value,
+    keys: impl Iterator<Item = &'a str>,
+) -> HashMap<String, f64> {
+    let answers = body.get("answers").unwrap_or(&Value::Null);
+    keys.filter_map(|key| {
+        let raw = answers.get(key)?;
+        let p = raw
+            .as_f64()
+            .or_else(|| raw.get("probability").and_then(Value::as_f64))
+            .or_else(|| raw.get("noul").and_then(Value::as_f64))?;
+        Some((key.to_string(), p.clamp(0.0, 1.0)))
+    })
+    .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -731,6 +780,164 @@ and ask the operator to review the resolution before completing the card."
     }
 }
 
+// ---------------------------------------------------------------------------
+// Task routing (ADR-051)
+// ---------------------------------------------------------------------------
+
+// Measured on 2026-09-27 against Laya Cloud with two mechanical tasks (rename,
+// version bump) and two cross-cutting ones (team sync scopes, OAuth across
+// three apps): only "several components or systems" separated them
+// (0.26 / 0.16 vs 0.89 / 0.94). "Complex?", "takes hours?", "one line?",
+// "risky?" and per-pipeline fit questions scored inconsistently (the rename got
+// the heaviest pipeline, the cross-cutting task the `quick` one), so they are
+// not asked. Size comes from deterministic features of the text.
+const ROUTE_QUESTION: (&str, &str) = (
+    "many_parts",
+    "Does this task touch several components or systems?",
+);
+
+const MECHANICAL_WORDS: &[&str] = &[
+    "rename", "typo", "bump", "version", "format", "lint", "comment", "spelling", "reword",
+];
+
+/// A pipeline the router may recommend.
+pub struct RouteCandidate {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct RouteRecommendation {
+    /// Suggested role sequence, e.g. `["explore", "plan", "build", "review"]`.
+    pub roles: Vec<String>,
+    /// Suggested pipeline id: `quick` for mechanical tasks when it exists;
+    /// otherwise none (choose with `list_pipelines`).
+    pub pipeline_id: Option<String>,
+    /// Split the task into subtasks (one session each) first.
+    pub split: bool,
+    /// `classifier` (with the heuristics) or `heuristic` (no classifier).
+    pub source: String,
+    pub reason: String,
+    /// Classifier and text-feature scores behind the decision.
+    #[ts(type = "Record<string, number>")]
+    pub scores: HashMap<String, f64>,
+}
+
+/// Size signals read from the text itself.
+fn text_features(task: &str) -> (usize, usize, bool) {
+    let lower = task.to_lowercase();
+    let words = lower.split_whitespace().count();
+    let clauses = lower.matches(" and ").count()
+        + lower.matches(',').count()
+        + lower.matches(';').count()
+        + lower
+            .lines()
+            .filter(|line| line.trim_start().starts_with(['-', '*']))
+            .count();
+    let mechanical_word = MECHANICAL_WORDS.iter().any(|word| lower.contains(word));
+    (words, clauses, mechanical_word)
+}
+
+/// Combine the classifier's `many_parts` score (when available) with text
+/// features. Advisory only: the calling agent decides.
+fn route_decision(
+    task: &str,
+    many_parts: Option<f64>,
+    candidates: &[RouteCandidate],
+) -> (Vec<String>, Option<String>, bool, String) {
+    let (words, clauses, mechanical_word) = text_features(task);
+    let parts = many_parts.unwrap_or(0.5);
+    let complex = parts >= 0.6 || words >= 40 || clauses >= 4;
+    let small = !complex && parts < 0.35 && words <= 25;
+    // Mechanical needs the wording too: a small behavior change (a spinner, a
+    // new field) still deserves a review.
+    let mechanical = small && mechanical_word;
+    let split = complex && (parts >= 0.85 || words >= 60 || clauses >= 5);
+    let roles: Vec<String> = if mechanical {
+        vec!["build".into()]
+    } else if small {
+        vec!["build".into(), "review".into()]
+    } else if complex {
+        vec![
+            "explore".into(),
+            "plan".into(),
+            "build".into(),
+            "review".into(),
+        ]
+    } else {
+        vec!["plan".into(), "build".into(), "review".into()]
+    };
+    let pipeline_id = mechanical
+        .then(|| candidates.iter().find(|candidate| candidate.id == "quick"))
+        .flatten()
+        .map(|candidate| candidate.id.clone());
+    let kind = if mechanical {
+        "mechanical"
+    } else if small {
+        "small"
+    } else if complex {
+        "cross-cutting"
+    } else {
+        "moderate"
+    };
+    let reason = format!(
+        "{kind}: {words} words, {clauses} clauses{}{}",
+        many_parts
+            .map(|p| format!(", several components {p:.2}"))
+            .unwrap_or_default(),
+        if mechanical_word {
+            ", mechanical wording"
+        } else {
+            ""
+        }
+    );
+    (roles, pipeline_id, split, reason)
+}
+
+/// Recommend roles, a pipeline and whether to split a task. Uses the
+/// classifier when it answers; otherwise the text heuristics alone.
+pub async fn route_task(task: &str, candidates: &[RouteCandidate]) -> RouteRecommendation {
+    let state: String = task.chars().take(4_000).collect();
+    let questions = [(ROUTE_QUESTION.0.to_string(), ROUTE_QUESTION.1.to_string())];
+    let answer = evaluate_pairs("route_task", &state, &questions, Duration::from_secs(8)).await;
+    let many_parts = answer
+        .as_ref()
+        .ok()
+        .and_then(|scores| scores.get(ROUTE_QUESTION.0).copied());
+    let (roles, pipeline_id, split, mut reason) = route_decision(task, many_parts, candidates);
+    if let Err(error) = &answer {
+        reason.push_str(&match error {
+            RlcdError::NotConfigured => "; no classifier configured".to_string(),
+            other => format!("; classifier unavailable: {other}"),
+        });
+    }
+    let (words, clauses, mechanical_word) = text_features(task);
+    let mut scores = HashMap::from([
+        ("words".to_string(), words as f64),
+        ("clauses".to_string(), clauses as f64),
+        (
+            "mechanical_wording".to_string(),
+            if mechanical_word { 1.0 } else { 0.0 },
+        ),
+    ]);
+    if let Some(parts) = many_parts {
+        scores.insert(ROUTE_QUESTION.0.to_string(), parts);
+    }
+    RouteRecommendation {
+        roles,
+        pipeline_id,
+        split,
+        source: if many_parts.is_some() {
+            "classifier".to_string()
+        } else {
+            "heuristic".to_string()
+        },
+        reason,
+        scores,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -975,5 +1182,61 @@ mod tests {
         }])
         .await;
         assert_eq!(result.kind, ConflictKind::Trivial);
+    }
+
+    fn candidates() -> Vec<RouteCandidate> {
+        ["basic", "quick"]
+            .into_iter()
+            .map(|id| RouteCandidate {
+                id: id.into(),
+                name: id.into(),
+                description: None,
+            })
+            .collect()
+    }
+
+    /// The four benchmark tasks with the `many_parts` scores Laya Cloud gave
+    /// them on 2026-09-27.
+    #[test]
+    fn route_decisions_match_the_measured_benchmark() {
+        let rename = "Rename the variable `cnt` to `count` in crates/utils/src/text.rs.";
+        let (roles, pipeline, split, _) = route_decision(rename, Some(0.26), &candidates());
+        assert_eq!(
+            (roles, pipeline.as_deref(), split),
+            (vec!["build".to_string()], Some("quick"), false)
+        );
+
+        let bump = "Bump the version in package.json from 0.3.30 to 0.3.31.";
+        assert_eq!(route_decision(bump, Some(0.16), &candidates()).0, ["build"]);
+
+        let teams = "Add team scopes to the sync system: partition data by team, enforce membership on every request, make the desktop publish and pull team projects, and resolve concurrent edits between members.";
+        let (roles, pipeline, split, _) = route_decision(teams, Some(0.89), &candidates());
+        assert_eq!(roles, ["explore", "plan", "build", "review"]);
+        assert_eq!((pipeline, split), (None, true));
+
+        let spinner = "Add a loading spinner to the settings page while the RLCD config is saving.";
+        let (roles, pipeline, _, _) = route_decision(spinner, Some(0.11), &candidates());
+        assert_eq!(
+            (roles, pipeline),
+            (vec!["build".to_string(), "review".to_string()], None)
+        );
+
+        let auth = "Replace the session-cookie login with OAuth device flow across the web app, the desktop app and the mobile app, migrating existing sessions.";
+        let (roles, _, split, _) = route_decision(auth, Some(0.94), &candidates());
+        assert_eq!(roles, ["explore", "plan", "build", "review"]);
+        assert!(split);
+    }
+
+    #[test]
+    fn heuristics_alone_stay_reasonable_without_a_classifier() {
+        let (roles, _, split, _) = route_decision("Fix a typo in the README.", None, &candidates());
+        assert_eq!(
+            roles,
+            ["plan", "build", "review"],
+            "unknown size is not called mechanical"
+        );
+        assert!(!split);
+        let long = "Rework the importer, and the exporter, and the scheduler, and the settings page, and the docs.";
+        assert_eq!(route_decision(long, None, &candidates()).0[0], "explore");
     }
 }

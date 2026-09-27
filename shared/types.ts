@@ -840,6 +840,29 @@ kind: ConflictKind, files: Array<ConflictFileClass>,
  */
 guidance: string, };
 
+export type RouteRecommendation = { 
+/**
+ * Suggested role sequence, e.g. `["explore", "plan", "build", "review"]`.
+ */
+roles: Array<string>, 
+/**
+ * Suggested pipeline id: `quick` for mechanical tasks when it exists;
+ * otherwise none (choose with `list_pipelines`).
+ */
+pipeline_id: string | null, 
+/**
+ * Split the task into subtasks (one session each) first.
+ */
+split: boolean, 
+/**
+ * `classifier` (with the heuristics) or `heuristic` (no classifier).
+ */
+source: string, reason: string, 
+/**
+ * Classifier and text-feature scores behind the decision.
+ */
+scores: Record<string, number>, };
+
 export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_path: string, };
 
 export type SearchMode = "taskform" | "settings";

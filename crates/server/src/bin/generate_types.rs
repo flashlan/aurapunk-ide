@@ -196,6 +196,7 @@ fn generate_types_content() -> String {
         services::services::rlcd::ConflictKind::decl(),
         services::services::rlcd::ConflictFileClass::decl(),
         services::services::rlcd::ConflictClassification::decl(),
+        services::services::rlcd::RouteRecommendation::decl(),
         services::services::filesystem::DirectoryListResponse::decl(),
         services::services::file_search::SearchMode::decl(),
         services::services::config::Config::decl(),

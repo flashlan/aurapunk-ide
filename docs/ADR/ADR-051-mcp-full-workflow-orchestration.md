@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — steps 1 and 2 implemented (2026-09-27)
+Accepted — steps 1, 2 and 3 implemented (2026-09-27)
 
 ## Date
 
@@ -45,14 +45,25 @@ and integrate the results.
    duplicating it, refuses unknown pipelines, defaults enabled stages to each
    stage's `default_enabled`, and clears with an empty list (metadata set to
    `null`, since issue updates merge metadata).
-3. **`route_task` with RLCD scores.** Given a task description, the
-   configured classifier scores short, single-concept questions — needs
-   exploration? needs a plan? mechanical change? needs review? fits one
-   session? — and each available pipeline's fit. The tool returns a
-   recommended role sequence (explore → plan → build → review), pipeline and
-   whether to split into subtasks, **with the scores**; the calling agent
-   decides. An unavailable classifier returns the default pipeline and no
-   split (conservative, as the memory gate and guardrails do).
+3. **`route_task` (done), calibrated against Laya.** A first version asked
+   five task questions plus one fit question per pipeline; measured on
+   2026-09-27 against Laya Cloud with four reference tasks (rename, version
+   bump, team sync scopes, OAuth across three apps) it was wrong in both
+   directions (a rename scored "needs a plan" 0.90; the cross-cutting task
+   scored low on everything; pipeline fit picked the heaviest pipeline for
+   the rename and `quick` for the cross-cutting task). Of eight phrasings only
+   "Does this task touch several components or systems?" separated the sets
+   (0.26 / 0.16 vs 0.89 / 0.94). The shipped router asks only that question
+   and combines it with text features (word count, clauses, mechanical
+   wording):
+   - cross-cutting (several parts ≥ 0.6, ≥ 40 words or ≥ 4 clauses) →
+     explore → plan → build → review, split when very large;
+   - small (< 0.35, ≤ 25 words) → build → review; with mechanical wording →
+     build only and the `quick` pipeline when it exists;
+   - otherwise plan → build → review.
+   No pipeline is inferred otherwise (the agent picks with `list_pipelines`).
+   Without a classifier the heuristics decide alone (`source: heuristic`).
+   `POST /api/rlcd/route-task` backs the MCP tool.
 
 ## Consequences
 
@@ -65,3 +76,5 @@ and integrate the results.
   `list_agents` listed 6 executors with models and presets;
   `wait_for_executions` returned two finished executions' final messages at
   once and rejected an empty list.
+- With the `adaptive` engine and Jev unreachable, each `route_task` waits for
+  the Jev timeout (~8.7 s) before Laya answers; the `laya` engine avoids it.

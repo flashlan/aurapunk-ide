@@ -17,6 +17,7 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/rlcd/config", get(get_config).put(put_config))
         .route("/rlcd/classify-memory", post(classify_memory))
         .route("/rlcd/classify-tool-call", post(classify_tool_call))
+        .route("/rlcd/route-task", post(route_task))
 }
 
 async fn get_config() -> ResponseJson<ApiResponse<RlcdConfigView>> {
@@ -70,4 +71,28 @@ async fn classify_tool_call(
         blocked: reason.is_some(),
         reason,
     }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RouteTaskRequest {
+    pub task: String,
+}
+
+/// `POST /api/rlcd/route-task` (ADR-051): recommend roles, a pipeline and
+/// whether to split a task, from classifier scores. Advisory only.
+async fn route_task(
+    Json(body): Json<RouteTaskRequest>,
+) -> ResponseJson<ApiResponse<rlcd::RouteRecommendation>> {
+    let candidates: Vec<rlcd::RouteCandidate> =
+        services::services::pipelines::load_pipelines(&utils::path::pipelines_dir())
+            .into_iter()
+            .map(|pipeline| rlcd::RouteCandidate {
+                id: pipeline.id,
+                name: pipeline.name,
+                description: pipeline.description,
+            })
+            .collect();
+    ResponseJson(ApiResponse::success(
+        rlcd::route_task(&body.task, &candidates).await,
+    ))
 }

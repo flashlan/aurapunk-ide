@@ -18,6 +18,12 @@ use uuid::Uuid;
 use super::{McpServer, ToolError};
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct RouteTaskRequest {
+    #[schemars(description = "The task to route, in plain words (what should change and why)")]
+    task: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct PipelineIdRequest {
     #[schemars(description = "Pipeline id (the TOML file stem, e.g. `async-claude-opus`)")]
     pipeline_id: String,
@@ -77,6 +83,31 @@ fn valid_pipeline_id(id: &str) -> bool {
 
 #[tool_router(router = pipeline_admin_tools_router, vis = "pub")]
 impl McpServer {
+    #[tool(
+        description = "Recommend how to run a task before creating cards or starting agents: a role sequence (explore / plan / build / review) and whether to split it into subtasks, from the RLCD classifier (Laya / Jev) plus text heuristics; `pipeline_id` is `quick` for mechanical tasks, otherwise choose one with list_pipelines. Advisory — you decide. `source: heuristic` means no classifier answered."
+    )]
+    async fn route_task(
+        &self,
+        Parameters(RouteTaskRequest { task }): Parameters<RouteTaskRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if task.trim().is_empty() {
+            return Ok(Self::tool_error(ToolError::message(
+                "task must describe the work",
+            )));
+        }
+        match self
+            .send_json::<Value>(
+                self.client
+                    .post(self.url("/api/rlcd/route-task"))
+                    .json(&serde_json::json!({ "task": task })),
+            )
+            .await
+        {
+            Ok(recommendation) => Self::success(&recommendation),
+            Err(error) => Ok(Self::tool_error(error)),
+        }
+    }
+
     #[tool(
         description = "List the available card pipelines: id, name, description and ordered stages (id, label, default_enabled, heavy). Stage prompts are omitted — use get_pipeline_definition for the full TOML."
     )]

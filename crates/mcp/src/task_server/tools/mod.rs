@@ -618,6 +618,7 @@ mod tests {
             "delete_pipeline".to_string(),
             "get_pipeline_definition".to_string(),
             "list_pipelines".to_string(),
+            "route_task".to_string(),
             "save_pipeline".to_string(),
             "set_issue_pipeline".to_string(),
             "update_workspace".to_string(),
