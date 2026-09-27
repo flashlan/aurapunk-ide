@@ -713,3 +713,16 @@ fixed them. Newest last.
   antigo nesse comentário.
 - **Fora do escopo:** `~/Library/Application Support/ai.bloop.vibe-kanban`
   (identificador do Tauri) e o `$TMPDIR/vibe-kanban` do app Swift legado.
+
+### 2026-09-27 — Escopos no Cloud (ADR-049 etapa 1, ADR-047 fase 5)
+- **0014 (`760a42c`):** `scope_id` nulo + backfill `user:<id>` + escrita dupla;
+  `baseRevision` → `conflicts` com o registro atual. Verificado em produção
+  via SSH (somente leitura, `DATABASE_URL` tirada do `/proc/<pid>/environ` do
+  processo do site — o `.env` lido como root não a tinha): 0 faltando/
+  divergentes; retenção já tinha levado o log de 91.500 → 5.483 eventos.
+- **0015 (`aa91574`):** `scope_id` vira a partição (PKs, cursores, fila,
+  retenção, NOTIFY); `X-AuraPunk-Scope` escolhe o escopo (membro de tenant ou
+  403); sem cabeçalho = pessoal, clientes atuais inalterados. A rota de
+  `scratch` fazia upsert com o alvo da PK antiga — teria quebrado.
+- **Próximo:** Desktop bidirecional (ADR-049 rollout 2): revisão base por
+  entidade, puller de board, merge de conflitos, fim do espelho da webview.

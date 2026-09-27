@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Proposed — rollout step 1 (Cloud) implemented 2026-09-27
 
 ## Date
 
@@ -61,9 +61,13 @@ AuraPunk Cloud already has `tenants` (plan `personal` | `enterprise`) and
 
 ### Rollout
 
-1. Cloud: add `scope_id` (nullable) + backfill + dual-write; switch primary
-   keys and queries once backfilled (two migrations, reversible until the
-   PK switch). Membership-checked scope resolution. `baseRevision` conflicts.
+1. **Cloud (done).** Migration 0014 added `scope_id` + backfill + dual-write
+   and `baseRevision` conflicts; after the backfill was verified in
+   production (0 rows missing or mismatched), 0015 made `scope_id` the
+   partition (primary keys, cursors, command queue, retention, NOTIFY).
+   `X-AuraPunk-Scope` selects the scope (personal by default, tenant scopes
+   for members only). Verified in production: new keys, continuous revision,
+   403 for a foreign tenant, command round trip.
 2. Desktop: `cloud_sync_remote`, base revisions on publish, board puller for
    shared scopes, conflict merge; remove the webview mirror.
 3. Product: open team creation (ADR-048 T1) and per-project "share with team".

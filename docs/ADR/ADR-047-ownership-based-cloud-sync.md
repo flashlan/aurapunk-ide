@@ -95,7 +95,7 @@ ownership transfer via lease (ADR-042 compute), not a DB copy.
    SSE/WS yet). Events are kept 7 days per account (pruned hourly at most);
    `min_revision` marks the oldest kept and a stale cursor gets `reset: true`
    to re-snapshot. Finished commands past retention are removed.
-5. **Teams.** Partition by `scope_id` (team/project) with membership ACL;
+5. **Teams (Cloud side done, see ADR-049).** Partition by `scope_id` (team/project) with membership ACL;
    board writes carry `base_revision` (optimistic concurrency) instead of
    wall-clock `updated_at` last-writer-wins.
 
