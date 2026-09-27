@@ -44,14 +44,14 @@ O conhecimento e contexto dos agentes são organizados em 4 camadas complementar
 * **O que colocar**: Diretrizes globais obrigatórias (estilo de código, comandos de build e testes como `cargo test`, `pnpm run check`, regras de branches).
 
 ### 3. Contexto da Tarefa (`SPEC.md` e `IMPLEMENTATION_PLAN.md`)
-* **Onde fica**: Na raiz do workspace do card (`~/.vibe-kanban/worktrees/<card_id>/`).
+* **Onde fica**: Na raiz do workspace do card (`~/.aurapunk/worktrees/<card_id>/`).
 * **O que editar**:
   * Gerado na Etapa 1 pelo agente Planner.
   * Você pode abrir e editar diretamente na aba de arquivos do workspace para ajustar regras ou requisitos antes que o Claude comece a codificar.
 
 ### 4. Prompts da Esteira (Pipelines)
 * **Onde editar na UI**: ⚙️ **Settings ➔ Pipelines**.
-* **Onde editar em arquivos**: `~/.vibe-kanban/pipelines/*.toml`.
+* **Onde editar em arquivos**: `~/.aurapunk/pipelines/*.toml`.
 * **O que colocar**: Prompts de persona, modelos atribuídos e flags de aprovação manual por etapa.
 
 ---

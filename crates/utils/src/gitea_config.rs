@@ -7,10 +7,10 @@
 //! versioned JSON.
 //!
 //! Resolution order for the token:
-//! 1. `$VIBE_KANBAN_GITEA_CONFIG` (or `~/.vibe-kanban/gitea.toml`) — `token = "..."`
+//! 1. `$VIBE_KANBAN_GITEA_CONFIG` (or `~/.aurapunk/gitea.toml`) — `token = "..."`
 //! 2. `GITEA_TOKEN` environment variable
 //!
-//! Example `~/.vibe-kanban/gitea.toml`:
+//! Example `~/.aurapunk/gitea.toml`:
 //! ```toml
 //! token = "my-gitea-personal-access-token"
 //! ```

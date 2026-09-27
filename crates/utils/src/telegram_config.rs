@@ -2,9 +2,9 @@
 //! status/test endpoints) and the `aurapunk-telegram-bridge` daemon.
 //!
 //! The file is the source of truth for the local Telegram integration. It lives
-//! at `~/.vibe-kanban/telegram.toml` (mirroring `projects.toml`), and is
+//! at `~/.aurapunk/telegram.toml` (mirroring `projects.toml`), and is
 //! hand-edited — there is no UI writer. Resolution honours
-//! `$VIBE_KANBAN_TELEGRAM_CONFIG`, then `~/.vibe-kanban/telegram.toml`, then
+//! `$VIBE_KANBAN_TELEGRAM_CONFIG`, then `~/.aurapunk/telegram.toml`, then
 //! `<asset_dir>/telegram.toml`.
 
 use std::path::PathBuf;

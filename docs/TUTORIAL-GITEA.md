@@ -31,11 +31,11 @@ Gitea e chega até o Pull Request — **usando só a interface do app**.
 O token **não** é digitado na tela. Ele fica em um arquivo, uma única vez:
 
 ```bash
-mkdir -p ~/.vibe-kanban
-cat > ~/.vibe-kanban/gitea.toml <<'EOF'
+mkdir -p ~/.aurapunk
+cat > ~/.aurapunk/gitea.toml <<'EOF'
 token = "cole-seu-token-aqui"
 EOF
-chmod 600 ~/.vibe-kanban/gitea.toml
+chmod 600 ~/.aurapunk/gitea.toml
 ```
 
 > Gere o token no Gitea: *Perfil → Settings → Applications → Generate New Token*

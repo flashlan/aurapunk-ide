@@ -389,7 +389,7 @@ fn orchestrator_executor_config(executor: BaseCodingAgent) -> ExecutorConfig {
 /// Spawn (or reuse) the singleton orchestrator.
 ///
 /// The orchestrator is repo-independent and runs from a fixed
-/// `~/.vibe-kanban/orchestrator` folder. There is at most one active
+/// `~/.aurapunk/orchestrator` folder. There is at most one active
 /// orchestrator workspace:
 /// - if one is already running, its live tmux session is reused (`reused: true`);
 /// - if one exists but is idle, a fresh session is started on it;

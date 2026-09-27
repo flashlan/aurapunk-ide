@@ -1,6 +1,6 @@
 //! File-based card pipelines.
 //!
-//! Each `~/.vibe-kanban/pipelines/*.toml` file defines one selectable pipeline:
+//! Each `~/.aurapunk/pipelines/*.toml` file defines one selectable pipeline:
 //! a `name`, an optional `description`, and an ordered list of `[[stage]]`
 //! tables. The file stem is the pipeline `id` (e.g. `basic.toml` → `basic`).
 //!
@@ -246,7 +246,7 @@ pub struct PipelineValidation {
     pub error: Option<PipelineParseError>,
 }
 
-/// Per-file status for every `~/.vibe-kanban/pipelines/*.toml` file, including
+/// Per-file status for every `~/.aurapunk/pipelines/*.toml` file, including
 /// ones that currently fail to parse (and are therefore invisible to
 /// `load_pipelines`/`GET /api/pipelines`).
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

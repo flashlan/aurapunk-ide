@@ -46,7 +46,7 @@ fn default_theme_variant() -> String {
 }
 
 /// A single per-card pipeline stage. Stages are defined in pipeline files
-/// (`~/.vibe-kanban/pipelines/*.toml`, loaded by `services::services::pipelines`
+/// (`~/.aurapunk/pipelines/*.toml`, loaded by `services::services::pipelines`
 /// into `Pipeline.stages`). The New Issue "Pipeline" control lets the operator
 /// pick a pipeline and tick which stages apply; the ticked `prompt_fragment`s
 /// are composed, in order, into a `## Pipeline` block on the card description.
@@ -79,7 +79,7 @@ pub struct PipelineStep {
 /// Non-secret Gitea (or any Forgejo-compatible) instance configuration,
 /// editable in the app Settings. The personal access token is a secret and is
 /// kept OUT of this config (and thus out of versioned JSON): it is resolved at
-/// runtime from `~/.vibe-kanban/gitea.toml` or the `GITEA_TOKEN` env var
+/// runtime from `~/.aurapunk/gitea.toml` or the `GITEA_TOKEN` env var
 /// (see `utils::gitea_config`).
 #[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
 pub struct GiteaConfig {
@@ -146,7 +146,7 @@ pub struct Config {
     #[serde(default)]
     pub allowed_origins: Vec<String>,
     /// Deprecated and ignored. Pipelines are now file-based
-    /// (`~/.vibe-kanban/pipelines/*.toml`, see `services::services::pipelines`);
+    /// (`~/.aurapunk/pipelines/*.toml`, see `services::services::pipelines`);
     /// this field is retained only so pre-existing configs still deserialise. It
     /// is no longer read or written by the UI.
     #[serde(default)]

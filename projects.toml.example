@@ -14,7 +14,7 @@
 # Import is non-destructive: rows are matched by `id` (then by name/path),
 # existing rows are updated, new ones inserted, and nothing is ever deleted.
 # Default path when none is given: $VIBE_KANBAN_PROJECTS_CONFIG, else
-# ~/.vibe-kanban/projects.toml.
+# ~/.aurapunk/projects.toml.
 #
 # An export also includes a top-level `profiles_json = "..."` string holding your
 # executor profiles (agents); importing it restores those profile overrides.

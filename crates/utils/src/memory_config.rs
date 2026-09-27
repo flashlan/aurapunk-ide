@@ -1,7 +1,7 @@
 //! User-level configuration shared by the server and the MCP worker.
 //!
 //! Memory credentials must not be kept in the repository or returned to the
-//! browser. This file follows the same `~/.vibe-kanban` convention used by the
+//! browser. This file follows the same `~/.aurapunk` convention used by the
 //! other local integrations, but is written with restrictive permissions on
 //! Unix so a Settings change is available to newly spawned MCP processes.
 

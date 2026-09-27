@@ -6,7 +6,7 @@
 //! carries a machine-readable `‹vk …›` footer the PM agent parses to call the
 //! `respond_to_approval` MCP tool.
 //!
-//! With `per_worktree_topics` enabled (in `~/.vibe-kanban/telegram.toml`), each
+//! With `per_worktree_topics` enabled (in `~/.aurapunk/telegram.toml`), each
 //! Claude Code worktree gets its own forum topic and its escalations are routed
 //! there; everything else goes to the General area.
 //!

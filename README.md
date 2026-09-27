@@ -341,7 +341,7 @@ cargo run -p tui
 `aurapunk-telegram-bridge` is a send-only daemon that streams coding-agent escalations to a Telegram supergroup with topics, so a blocked agent can be unblocked remotely from your phone:
 
 ```toml
-# ~/.vibe-kanban/telegram.toml
+# ~/.aurapunk/telegram.toml
 enabled = true
 bot_token = "123456:ABC..."
 chat_id = "-1001234567890"
@@ -354,7 +354,7 @@ cargo run -p telegram-bridge
 
 ## Gitea and Forgejo Support
 
-Full REST API integration alongside GitHub: automatic routing (`github.com` remotes use the `gh` CLI; custom hosts use the Gitea REST API), secure token storage in `~/.vibe-kanban/gitea.toml` or `GITEA_TOKEN`, and unified comments/PR lifecycle management.
+Full REST API integration alongside GitHub: automatic routing (`github.com` remotes use the `gh` CLI; custom hosts use the Gitea REST API), secure token storage in `~/.aurapunk/gitea.toml` or `GITEA_TOKEN`, and unified comments/PR lifecycle management.
 
 ## Development Setup
 

@@ -1,6 +1,6 @@
 //! Bridge configuration.
 //!
-//! Source of truth is `~/.vibe-kanban/telegram.toml` (loaded via
+//! Source of truth is `~/.aurapunk/telegram.toml` (loaded via
 //! `utils::telegram_config`). For backwards compatibility the connection fields
 //! still fall back to the original environment variables (`VK_TG_CHAT_ID`,
 //! `VK_TG_GENERAL_THREAD_ID`, `TELEGRAM_BOT_TOKEN`), so existing env-driven

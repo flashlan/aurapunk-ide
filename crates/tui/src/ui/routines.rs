@@ -32,7 +32,7 @@ pub fn render(f: &mut Frame, app: &App, area: Rect) {
         Loadable::Ready(list) if list.is_empty() => {
             f.render_widget(
                 Paragraph::new(
-                    "  no routines configured (add a TOML file under ~/.vibe-kanban/recurrent/)",
+                    "  no routines configured (add a TOML file under ~/.aurapunk/recurrent/)",
                 )
                 .dim()
                 .block(block),

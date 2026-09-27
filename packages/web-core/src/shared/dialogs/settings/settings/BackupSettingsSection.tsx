@@ -30,7 +30,7 @@ const PARTS: { key: PartKey; labelKey: string; fallback: string }[] = [
   {
     key: 'home',
     labelKey: 'settings.backup.parts.home',
-    fallback: '~/.vibe-kanban folder (pipelines, routines, Gitea)',
+    fallback: '~/.aurapunk folder (pipelines, routines, Gitea)',
   },
 ];
 

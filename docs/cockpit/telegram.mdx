@@ -17,10 +17,10 @@ bot token, so it coexists with a Telegram listener without conflict.
 
 ## Configure
 
-Configuration lives in `~/.vibe-kanban/telegram.toml`. Copy the example from the
+Configuration lives in `~/.aurapunk/telegram.toml`. Copy the example from the
 repository (`automation/telegram.toml.example`) and edit it:
 
-```toml ~/.vibe-kanban/telegram.toml
+```toml ~/.aurapunk/telegram.toml
 # Master on/off. When false, the bridge exits cleanly.
 enabled = true
 
@@ -72,7 +72,7 @@ and, when an opted-in worktree starts, creates a forum topic named from
 else goes to the General area.
 
 The `workspace_id → message_thread_id` map is persisted in
-`~/.vibe-kanban/telegram-topics.json`, so restarting the bridge reuses existing
+`~/.aurapunk/telegram-topics.json`, so restarting the bridge reuses existing
 topics instead of creating duplicates.
 
 ## Settings panel

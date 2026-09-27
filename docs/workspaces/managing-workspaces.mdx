@@ -87,32 +87,32 @@ Each workspace creates a **git worktree** - a separate working directory with a 
 
 ### Where Worktrees Are Stored
 
-By default, worktrees are stored under your home directory at `~/.vibe-kanban/worktrees` on all platforms. This persistent location keeps worktrees safe from system temp-directory cleanup.
+By default, worktrees are stored under your home directory at `~/.aurapunk/worktrees` on all platforms. This persistent location keeps worktrees safe from system temp-directory cleanup.
 
 | Platform | Default Location |
 |----------|-----------------|
-| **macOS** | `~/.vibe-kanban/worktrees` |
-| **Linux** | `~/.vibe-kanban/worktrees` |
-| **Windows** | `%USERPROFILE%\.vibe-kanban\worktrees` |
+| **macOS** | `~/.aurapunk/worktrees` |
+| **Linux** | `~/.aurapunk/worktrees` |
+| **Windows** | `%USERPROFILE%\.aurapunk\worktrees` |
 
-You can configure a custom location in **Settings → General → Workspace Directory**. When set, worktrees are stored in `{your-path}/.vibe-kanban-workspaces`.
+You can configure a custom location in **Settings → General → Workspace Directory**. When set, worktrees are stored in `{your-path}/.aurapunk-workspaces`.
 
 ### Checking Disk Usage
 
 <Tabs>
 <Tab title="macOS">
 ```bash
-du -sh ~/.vibe-kanban/worktrees
+du -sh ~/.aurapunk/worktrees
 ```
 </Tab>
 <Tab title="Linux">
 ```bash
-du -sh ~/.vibe-kanban/worktrees
+du -sh ~/.aurapunk/worktrees
 ```
 </Tab>
 <Tab title="Windows">
 ```powershell
-Get-ChildItem "$env:USERPROFILE\.vibe-kanban\worktrees" -Recurse | Measure-Object -Property Length -Sum
+Get-ChildItem "$env:USERPROFILE\.aurapunk\worktrees" -Recurse | Measure-Object -Property Length -Sum
 ```
 </Tab>
 </Tabs>

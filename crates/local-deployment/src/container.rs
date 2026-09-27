@@ -2583,7 +2583,7 @@ impl ContainerService for LocalContainerService {
 
     async fn create(&self, workspace: &Workspace) -> Result<ContainerRef, ContainerError> {
         // No-worktree kinds (orchestrator, recurrent) are repo-independent: they run
-        // from a fixed, on-demand ~/.vibe-kanban/... folder (never a git worktree).
+        // from a fixed, on-demand ~/.aurapunk/... folder (never a git worktree).
         // Ensure the dir exists and point the container at it — no repos, no worktrees.
         if let Some(kind) = workspace.kind.filter(|k| k.is_no_worktree()) {
             let dir = Self::fixed_dir_for_kind(workspace, kind);

@@ -52,12 +52,12 @@ messaging in Telegram while the PM agent is up.
    ```
    Keys: `a` approvals inbox · `n` new task · `i` message an agent · `?` help.
 
-3. **Telegram bridge** — configured by `~/.vibe-kanban/telegram.toml` (the bot
+3. **Telegram bridge** — configured by `~/.aurapunk/telegram.toml` (the bot
    token still falls back to `$TELEGRAM_BOT_TOKEN` or
    `~/.claude/channels/telegram/.env`, the same file the sombrax-telegram
    listener uses):
    ```toml
-   # ~/.vibe-kanban/telegram.toml
+   # ~/.aurapunk/telegram.toml
    enabled = true
    bot_token = "123456:ABC..."        # optional; falls back to env / .env file
    chat_id = "-1001234567890"         # your supergroup (must have Topics enabled)
@@ -78,7 +78,7 @@ messaging in Telegram while the PM agent is up.
    topic named from `topic_name_template` and routes that worktree's escalations
    into it (everything else goes to the General area). The
    `workspace_id → message_thread_id` map is persisted in
-   `~/.vibe-kanban/telegram-topics.json` so restarts reuse existing topics.
+   `~/.aurapunk/telegram-topics.json` so restarts reuse existing topics.
 
    The app surfaces a **Settings → Telegram** panel (status + a "Send test
    message" button); it reads `telegram.toml` and the bridge's heartbeat file
@@ -125,14 +125,14 @@ Orchestrator, its tmux session is dead, or its transcript is unreadable, the
 watchdog no-ops silently (debug-level log at most) — it never crashes the
 server or acts on a dead session.
 
-Configured via a hand-edited `~/.vibe-kanban/orchestrator.toml`
-(`~/.vibe-kanban-dev` in debug builds), matching the `telegram.toml` /
+Configured via a hand-edited `~/.aurapunk/orchestrator.toml`
+(`~/.aurapunk-dev` in debug builds), matching the `telegram.toml` /
 recurrent-routine precedent — an absent file uses the defaults below with the
 feature **on**; an invalid or unreadable file warns once and falls back to
 defaults (never disabled silently, never a crash):
 
 ```toml
-# ~/.vibe-kanban/orchestrator.toml
+# ~/.aurapunk/orchestrator.toml
 [compact]
 enabled = true            # default true — file absent ⇒ feature on with defaults
 max_age = "1h"            # time-based trigger period

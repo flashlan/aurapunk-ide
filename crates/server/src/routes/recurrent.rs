@@ -1,5 +1,5 @@
 //! HTTP routes for the file-based recurrent task catalog
-//! (`~/.vibe-kanban/recurrent/*.toml`) and its run-now action. Parsing/
+//! (`~/.aurapunk/recurrent/*.toml`) and its run-now action. Parsing/
 //! validation/spawn logic lives in `services::services::recurrent`; these
 //! handlers map results to the standard `ApiResponse` envelope, mirroring
 //! `routes::pipelines`.

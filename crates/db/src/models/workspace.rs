@@ -37,7 +37,7 @@ pub enum WorkspaceKind {
     /// Headed Claude Code session driving the board via `/loop`.
     Orchestrator,
     /// Recurring/scheduled task session, repo-independent, running from a
-    /// fixed `~/.vibe-kanban/recurrent/<slug>` directory.
+    /// fixed `~/.aurapunk/recurrent/<slug>` directory.
     Recurrent,
 }
 
@@ -799,6 +799,29 @@ impl Workspace {
     }
 
     /// Count total workspaces across all projects
+    /// Rewrite `container_ref`s under `from` to live under `to` after an
+    /// app-owned directory was renamed (e.g. `.vibe-kanban-workspaces` →
+    /// `.aurapunk-workspaces`). Both prefixes are directory paths; only whole
+    /// path components match. Returns the number of rows changed.
+    pub async fn rewrite_container_ref_prefix(
+        pool: &SqlitePool,
+        from: &std::path::Path,
+        to: &std::path::Path,
+    ) -> Result<u64, sqlx::Error> {
+        let from = format!("{}/", from.to_string_lossy().trim_end_matches('/'));
+        let to = format!("{}/", to.to_string_lossy().trim_end_matches('/'));
+        let result = sqlx::query(
+            "UPDATE workspaces
+             SET container_ref = $2 || substr(container_ref, length($1) + 1)
+             WHERE substr(container_ref, 1, length($1)) = $1",
+        )
+        .bind(&from)
+        .bind(&to)
+        .execute(pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn find_by_id_with_status(
         pool: &SqlitePool,
         id: Uuid,
@@ -899,6 +922,47 @@ mod tests {
             .unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         pool
+    }
+
+    #[tokio::test]
+    async fn rewrite_container_ref_prefix_moves_only_whole_components() {
+        let pool = pool().await;
+        for (id, path) in [
+            (Uuid::new_v4(), "/w/.vibe-kanban-workspaces/a1"),
+            (Uuid::new_v4(), "/w/.vibe-kanban-workspaces-other/b1"),
+            (Uuid::new_v4(), "/elsewhere/c1"),
+        ] {
+            sqlx::query(
+                "INSERT INTO workspaces (id, branch, name, container_ref) VALUES (?, 'main', 't', ?)",
+            )
+            .bind(id)
+            .bind(path)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let changed = Workspace::rewrite_container_ref_prefix(
+            &pool,
+            std::path::Path::new("/w/.vibe-kanban-workspaces"),
+            std::path::Path::new("/w/.aurapunk-workspaces/"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(changed, 1);
+        let mut refs: Vec<String> =
+            sqlx::query_scalar("SELECT container_ref FROM workspaces ORDER BY container_ref")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        refs.sort();
+        assert_eq!(
+            refs,
+            vec![
+                "/elsewhere/c1",
+                "/w/.aurapunk-workspaces/a1",
+                "/w/.vibe-kanban-workspaces-other/b1",
+            ]
+        );
     }
 
     #[tokio::test]

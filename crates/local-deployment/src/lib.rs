@@ -61,6 +61,10 @@ pub struct LocalDeployment {
 #[async_trait]
 impl Deployment for LocalDeployment {
     async fn new(_shutdown: CancellationToken) -> Result<Self, DeploymentError> {
+        // Rename the pre-rename `~/.vibe-kanban` home before anything reads or
+        // seeds it (a symlink keeps old absolute paths resolving).
+        utils::path::migrate_legacy_home_dirs();
+
         // Run one-time process logs migration from DB to filesystem
         services::services::execution_process::migrate_execution_logs_to_files()
             .await
@@ -110,6 +114,7 @@ impl Deployment for LocalDeployment {
         if let Some(workspace_dir) = &raw_config.workspace_dir {
             let path = utils::path::expand_tilde(workspace_dir);
             WorktreeManager::set_workspace_dir_override(path);
+            WorktreeManager::migrate_legacy_workspace_subdir();
         }
 
         let config = Arc::new(RwLock::new(raw_config));
@@ -154,6 +159,26 @@ impl Deployment for LocalDeployment {
 
         let client_info = ClientInfo::new();
         let preview_proxy = PreviewProxyService::new();
+
+        // Point workspace records at the renamed directories BEFORE the
+        // container starts its orphan-worktree cleanup, which matches
+        // `container_ref` by exact path.
+        for (legacy, target) in utils::path::registered_migrated_prefixes() {
+            match db::models::workspace::Workspace::rewrite_container_ref_prefix(
+                &db.pool, &legacy, &target,
+            )
+            .await
+            {
+                Ok(0) => {}
+                Ok(changed) => tracing::info!(
+                    changed,
+                    from = %legacy.display(),
+                    to = %target.display(),
+                    "rewrote workspace paths after directory rename"
+                ),
+                Err(error) => tracing::warn!(%error, "could not rewrite workspace paths"),
+            }
+        }
 
         let workspace_manager = WorkspaceManager::new(db.clone());
         let container = LocalContainerService::new(

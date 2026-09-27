@@ -85,7 +85,7 @@ Unlike the pipeline pointer above, this one is **unconditional** — general pro
 
 ## Project Structure & Module Organization
 - `crates/`: Rust workspace crates — `server` (API + bins), `db` (SQLx models/migrations), `executors`, `services`, `utils`, `git` (Git operations), `api-types` (shared API types), `review` (PR review tool), `deployment`, `local-deployment`, `tui` (terminal cockpit, `aurapunk-tui` bin), `telegram-bridge` (send-only escalation daemon, `aurapunk-telegram-bridge` bin).
-- `automation/`: Automated-supervision layer (TUI + Telegram bridge + PM agent) — see [`automation/README.md`](automation/README.md). Telegram config lives in `~/.vibe-kanban/telegram.toml` (example: `automation/telegram.toml.example`).
+- `automation/`: Automated-supervision layer (TUI + Telegram bridge + PM agent) — see [`automation/README.md`](automation/README.md). Telegram config lives in `~/.aurapunk/telegram.toml` (legacy `~/.vibe-kanban`, migrated at startup) (example: `automation/telegram.toml.example`).
 - `packages/local-web/`: Local React + TypeScript app entrypoint (Vite, Tailwind). Shell source in `packages/local-web/src`.
 - `packages/web-core/`: Shared React + TypeScript frontend library used by local-web (`packages/web-core/src`).
 - `shared/`: Generated TypeScript types (`shared/types.ts`) and agent tool schemas (`shared/schemas/`). Do not edit generated files directly.
@@ -687,3 +687,29 @@ fixed them. Newest last.
 - **Pego no caminho:** o teste da fase 3 introduziu 1 erro de `tsc`
   (`JSON.parse` de campo nullable) que meu filtro não viu por olhar só
   `db/` e `app/` — filtre também `tests/`.
+
+### 2026-09-27 — `~/.vibe-kanban` → `~/.aurapunk` com migração
+- **Antes:** `utils::path` só *preferia* `~/.aurapunk` se já existisse e caía
+  no legado; nada criava a pasta nova, então tudo seguia em `~/.vibe-kanban`
+  (e `<workspace_dir>/.vibe-kanban-workspaces`, onde de fato vivem os
+  worktrees do operador — 62 `container_ref`).
+- **Armadilha evitada:** a limpeza de órfãos compara `container_ref` por texto
+  exato; renomear a pasta sem reescrever o banco faria TODO worktree parecer
+  órfão e ser apagado.
+- **Migração (início do `LocalDeployment::new`):** `migrate_legacy_dir`
+  renomeia (atômico) ou mescla, e deixa symlink no nome antigo (caminhos
+  absolutos no banco, no `.git/worktrees/*/gitdir` e em scripts externos como
+  `vk-mcp.sh` seguem válidos); `~/.vibe-kanban[-dev]` e
+  `.vibe-kanban-workspaces`. Conflito de nomes → legado mantido + aviso.
+  Windows não migra. Depois do banco abrir e ANTES da limpeza,
+  `Workspace::rewrite_container_ref_prefix` reescreve os caminhos; e a limpeza
+  ainda checa o caminho equivalente antigo (`legacy_aliases`) antes de apagar.
+- **Testado:** unidade (mover/mesclar/idempotência, reescrita só em
+  componentes inteiros, limpeza mantém worktree registrado com nome antigo e
+  apaga órfão real) + servidor de debug com `HOME` e pasta de workspaces
+  falsos (migrou, reescreveu 1 linha, 2ª inicialização sem ação).
+- **Cuidado:** comentário SQL dentro de `query!` faz parte do hash do cache
+  offline do sqlx — trocar texto ali quebra o build (`.sqlx`); ficou o nome
+  antigo nesse comentário.
+- **Fora do escopo:** `~/Library/Application Support/ai.bloop.vibe-kanban`
+  (identificador do Tauri) e o `$TMPDIR/vibe-kanban` do app Swift legado.

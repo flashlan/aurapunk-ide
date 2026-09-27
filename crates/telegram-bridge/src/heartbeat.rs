@@ -1,7 +1,7 @@
 //! Liveness heartbeat.
 //!
 //! The bridge runs as a separate process, so the server can't observe it
-//! directly. We drop a small status file under `~/.vibe-kanban` and refresh its
+//! directly. We drop a small status file under `~/.aurapunk` and refresh its
 //! `last_seen_at` periodically; the server's `/api/telegram/status` endpoint
 //! reads it to report whether the bridge is running.
 

@@ -3,7 +3,7 @@
 //! Export builds a single `.zip` with the selected parts: the SQLite database,
 //! app config/profiles, workspace conversation transcripts
 //! (`<asset_dir>/sessions/**`, the JSONL logs migrated out of SQLite), and the
-//! `~/.vibe-kanban` home dir (pipelines, recurrent, gitea.toml). Import
+//! `~/.aurapunk` home dir (pipelines, recurrent, gitea.toml). Import
 //! restores the selected parts found in the archive; when the database is
 //! restored the existing one is first backed up to `db.v2.sqlite.bak` and a
 //! restart is reported as required — SQLite can't hot-swap a file the server

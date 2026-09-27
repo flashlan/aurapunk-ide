@@ -9,7 +9,7 @@
 //! `exec → session → workspace` over the backend's local REST API; the daemon
 //! reaches these endpoints directly since the local backend is unauthenticated.
 //! The `workspace_id → message_thread_id` map is persisted under
-//! `~/.vibe-kanban` so a bridge restart reuses existing topics instead of
+//! `~/.aurapunk` so a bridge restart reuses existing topics instead of
 //! creating duplicates.
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};

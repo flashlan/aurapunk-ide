@@ -602,6 +602,7 @@ impl WorkspaceManager {
             let workspace_path_str = path.to_string_lossy().to_string();
             if let Ok(false) =
                 DbWorkspace::container_ref_exists(&self.db.pool, &workspace_path_str).await
+                && !self.referenced_under_legacy_name(&path).await
             {
                 info!("Found orphaned workspace: {}", workspace_path_str);
                 if let Err(e) = Self::cleanup_workspace_without_repos(&path).await {
@@ -617,6 +618,21 @@ impl WorkspaceManager {
                 }
             }
         }
+    }
+
+    /// Whether a record still points at `path` under a pre-rename directory
+    /// name (e.g. `.vibe-kanban-workspaces`). The startup rewrite normally
+    /// updates those records first; this keeps a missed or racing rewrite from
+    /// making a live worktree look orphaned and deleting it.
+    async fn referenced_under_legacy_name(&self, path: &Path) -> bool {
+        for alias in utils::path::legacy_aliases(path) {
+            if let Ok(true) =
+                DbWorkspace::container_ref_exists(&self.db.pool, &alias.to_string_lossy()).await
+            {
+                return true;
+            }
+        }
+        false
     }
 
     async fn cleanup_workspace_without_repos(workspace_dir: &Path) -> Result<(), WorkspaceError> {
@@ -714,6 +730,44 @@ fn fallback_branch_candidates(requested: &str, repo_default: Option<&str>) -> Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn orphan_cleanup_keeps_worktrees_recorded_under_a_legacy_name() {
+        use sqlx::sqlite::SqlitePoolOptions;
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("../db/migrations").run(&pool).await.unwrap();
+        let manager = WorkspaceManager::new(DBService { pool: pool.clone() });
+
+        let root = std::env::temp_dir().join(format!("aurapunk-orphans-{}", uuid::Uuid::new_v4()));
+        let legacy = root.join(".vibe-kanban-workspaces");
+        let current = root.join(".aurapunk-workspaces");
+        std::fs::create_dir_all(legacy.join("live")).unwrap();
+        std::fs::create_dir_all(legacy.join("orphan")).unwrap();
+        // The record still carries the pre-rename path (rewrite not run yet).
+        sqlx::query(
+            "INSERT INTO workspaces (id, branch, name, container_ref) VALUES (?, 'main', 't', ?)",
+        )
+        .bind(uuid::Uuid::new_v4())
+        .bind(legacy.join("live").to_string_lossy().to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+        let outcome = utils::path::migrate_legacy_dir(&legacy, &current).unwrap();
+        assert!(outcome.linked);
+        utils::path::register_migrated_prefix(legacy.clone(), current.clone());
+
+        manager.cleanup_orphans_in_directory(&current).await;
+
+        assert!(current.join("live").is_dir(), "a live worktree was deleted");
+        assert!(!current.join("orphan").exists(), "a real orphan was kept");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn candidates_start_with_requested() {

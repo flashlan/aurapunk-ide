@@ -24,8 +24,8 @@
 //! back to/under threshold on any tick resets the failure/escalation state
 //! (the episode is resolved).
 //!
-//! Configured via `~/.vibe-kanban/orchestrator.toml`'s `[compact]` table
-//! (`~/.vibe-kanban-dev` in debug builds). Absent file ⇒ defaults (feature
+//! Configured via `~/.aurapunk/orchestrator.toml`'s `[compact]` table
+//! (`~/.aurapunk-dev` in debug builds). Absent file ⇒ defaults (feature
 //! on); invalid/unreadable file ⇒ warn once and use defaults — never
 //! disabled silently, never a crash:
 //! ```toml

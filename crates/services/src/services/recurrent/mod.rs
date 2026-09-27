@@ -1,6 +1,6 @@
 //! File-based recurrent task ("routine") catalog.
 //!
-//! Each `~/.vibe-kanban/recurrent/*.toml` file defines one scheduled routine:
+//! Each `~/.aurapunk/recurrent/*.toml` file defines one scheduled routine:
 //! a `name`, `prompt`, optional `agent`/`executor_profile`/`max_runtime`, and
 //! exactly one schedule (`cron` or `every`). The file stem is the routine
 //! `id` (e.g. `inbox-triage.toml` → `inbox-triage`).

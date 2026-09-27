@@ -1394,7 +1394,7 @@ export const configApi = {
   },
 };
 
-// File-based card pipelines (`~/.vibe-kanban/pipelines/*.toml`).
+// File-based card pipelines (`~/.aurapunk/pipelines/*.toml`).
 export const pipelinesApi = {
   list: async (): Promise<Pipeline[]> => {
     const response = await makeRequest('/api/pipelines', { cache: 'no-store' });
@@ -1452,7 +1452,7 @@ export const pipelinesApi = {
   },
 };
 
-// File-based recurrent routines (`~/.vibe-kanban/recurrent/*.toml`).
+// File-based recurrent routines (`~/.aurapunk/recurrent/*.toml`).
 export const recurrentApi = {
   list: async (): Promise<Routine[]> => {
     const response = await makeRequest('/api/recurrent', { cache: 'no-store' });

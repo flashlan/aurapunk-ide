@@ -1,5 +1,5 @@
 //! HTTP routes for the file-based card pipelines
-//! (`~/.vibe-kanban/pipelines/*.toml`). These feed the New Issue pipeline
+//! (`~/.aurapunk/pipelines/*.toml`). These feed the New Issue pipeline
 //! picker and the Settings → Pipeline editor. Parsing/validation lives in
 //! `services::services::pipelines`; these handlers just map results to the
 //! standard `ApiResponse` envelope (matching `config.rs`).

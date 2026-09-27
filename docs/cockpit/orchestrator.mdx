@@ -16,7 +16,7 @@ end; the orchestrator only dispatches and reflects status.
 - **Singleton.** There is at most one active orchestrator at a time. Requesting a
   new one reuses the existing session rather than spawning a second.
 - **Repo-independent.** It does not belong to any one project. It runs from a
-  fixed `~/.vibe-kanban/orchestrator` folder, so it can reason across every
+  fixed `~/.aurapunk/orchestrator` folder, so it can reason across every
   project on the board.
 - **Headed.** It runs as an interactive Claude Code session (a detached tmux
   session), so you can attach to it, watch it think, and send it input — the same
@@ -43,7 +43,7 @@ launcher uses — so the behaviour survives context compaction over a days-long 
 </Note>
 
 <Note>
-Because it runs from `~/.vibe-kanban/orchestrator` rather than a project worktree,
+Because it runs from `~/.aurapunk/orchestrator` rather than a project worktree,
 the orchestrator has no working repository of its own. It acts on projects by
 calling MCP tools, not by editing files directly.
 </Note>

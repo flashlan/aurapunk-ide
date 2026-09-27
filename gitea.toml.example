@@ -1,8 +1,8 @@
 # Gitea credentials template
 #
-# Copy to ~/.vibe-kanban/gitea.toml and replace the placeholder.
+# Copy to ~/.aurapunk/gitea.toml and replace the placeholder.
 #
-#   cp gitea.toml.example ~/.vibe-kanban/gitea.toml
+#   cp gitea.toml.example ~/.aurapunk/gitea.toml
 #
 # Alternative: set GITEA_TOKEN env var instead of using this file.
 

@@ -7,9 +7,14 @@ use std::{
 
 static WORKSPACE_DIR_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
 
+/// App-owned subdirectory inside a custom workspace directory.
+const WORKSPACES_SUBDIR: &str = ".aurapunk-workspaces";
+/// Pre-rename name of [`WORKSPACES_SUBDIR`].
+const LEGACY_WORKSPACES_SUBDIR: &str = ".vibe-kanban-workspaces";
+
 use git::{GitService, GitServiceError};
 use thiserror::Error;
-use tracing::{debug, info, trace};
+use tracing::{debug, info, trace, warn};
 use utils::{path::normalize_macos_private_alias, shell::resolve_executable_path};
 
 // Global synchronization for worktree creation to prevent race conditions
@@ -507,19 +512,65 @@ impl WorktreeManager {
         .map_err(|e| WorktreeError::TaskJoin(format!("{e}")))?
     }
 
-    /// Get the base directory for vibe-kanban worktrees
+    /// Get the base directory for AuraPunk worktrees
     pub fn get_worktree_base_dir() -> std::path::PathBuf {
         if let Some(override_path) = WORKSPACE_DIR_OVERRIDE.get() {
             // Always use app-owned subdirectory within custom path for safety.
             // This ensures orphan cleanup never touches user's existing folders.
-            return override_path.join(".vibe-kanban-workspaces");
+            let current = override_path.join(WORKSPACES_SUBDIR);
+            let legacy = override_path.join(LEGACY_WORKSPACES_SUBDIR);
+            // Keep using a legacy subdirectory that could not be migrated
+            // (Windows, or a name clash) until it is.
+            if !current.exists() && legacy.is_dir() && !utils::path::is_linked_to(&legacy, &current)
+            {
+                return legacy;
+            }
+            return current;
         }
         Self::get_default_worktree_base_dir()
     }
 
+    /// Rename `<workspace_dir>/.vibe-kanban-workspaces` to
+    /// `.aurapunk-workspaces`, leaving a symlink so worktree paths recorded
+    /// before the rename keep resolving, and register the pair so those
+    /// records are recognized. No-op without a custom workspace directory.
+    pub fn migrate_legacy_workspace_subdir() {
+        let Some(override_path) = WORKSPACE_DIR_OVERRIDE.get() else {
+            return;
+        };
+        let legacy = override_path.join(LEGACY_WORKSPACES_SUBDIR);
+        let current = override_path.join(WORKSPACES_SUBDIR);
+        match utils::path::migrate_legacy_dir(&legacy, &current) {
+            Ok(outcome) => {
+                if outcome.moved || !outcome.merged.is_empty() {
+                    info!(
+                        "Migrated workspace directory {} -> {}",
+                        legacy.display(),
+                        current.display()
+                    );
+                }
+                if !outcome.conflicts.is_empty() {
+                    warn!(
+                        "Kept legacy workspace directory {}: entries exist in both places: {:?}",
+                        legacy.display(),
+                        outcome.conflicts
+                    );
+                }
+                if outcome.linked {
+                    utils::path::register_migrated_prefix(legacy, current);
+                }
+            }
+            Err(error) => warn!(
+                "Could not migrate workspace directory {}: {}",
+                legacy.display(),
+                error
+            ),
+        }
+    }
+
     /// Get the default base directory (ignoring any override).
     ///
-    /// Worktrees live under the persistent `~/.vibe-kanban/worktrees` home
+    /// Worktrees live under the persistent `~/.aurapunk/worktrees` home
     /// directory so they survive temp-dir cleanup. Override via the
     /// `workspace_dir` config option (see [`Self::get_worktree_base_dir`]).
     pub fn get_default_worktree_base_dir() -> std::path::PathBuf {

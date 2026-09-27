@@ -19,7 +19,7 @@ use crate::services::{
 
 const TICK_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Polls `~/.vibe-kanban/recurrent/*.toml` on a fixed interval, spawning a
+/// Polls `~/.aurapunk/recurrent/*.toml` on a fixed interval, spawning a
 /// due-and-enabled routine's session and stopping any session that has
 /// overrun its `max_runtime`.
 pub struct RecurrentScheduler<C: ContainerService> {

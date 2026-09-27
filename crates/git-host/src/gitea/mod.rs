@@ -3,7 +3,7 @@
 //! Unlike the GitHub provider (which shells out to `gh`), this talks to any
 //! Gitea-compatible instance over HTTP. The host is arbitrary, so it is not
 //! derived from the git remote; it comes from the configured `base_url` plus a
-//! token resolved from `~/.vibe-kanban/gitea.toml` (or the `GITEA_TOKEN` env
+//! token resolved from `~/.aurapunk/gitea.toml` (or the `GITEA_TOKEN` env
 //! var) at construction time.
 
 use std::path::Path;

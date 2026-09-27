@@ -1,6 +1,6 @@
 use std::{
     fs::{self, OpenOptions},
-    io::{self, Result, Write},
+    io::{Result, Write},
     path::PathBuf,
     str::FromStr,
 };
@@ -16,9 +16,8 @@ impl SessionManager {
     /// Create a new session manager with the given namespace
     pub fn new(namespace: impl Into<String>) -> Result<Self> {
         let namespace = namespace.into();
-        let mut vk_dir = dirs::home_dir()
-            .ok_or_else(|| io::Error::other("Could not determine home directory"))?
-            .join(".vibe-kanban");
+        // `~/.aurapunk` (legacy `~/.vibe-kanban`, migrated at startup).
+        let mut vk_dir = workspace_utils::path::config_home_dir();
 
         if cfg!(debug_assertions) {
             vk_dir = vk_dir.join("dev");

@@ -207,6 +207,164 @@ pub fn config_home_dir() -> PathBuf {
     }
 }
 
+/// Outcome of [`migrate_legacy_dir`].
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct DirMigration {
+    /// The whole legacy directory was renamed to the target.
+    pub moved: bool,
+    /// Entries moved one by one into an already existing target.
+    pub merged: Vec<String>,
+    /// Entries left in the legacy directory because the target has the same
+    /// name; the legacy directory then stays a real directory.
+    pub conflicts: Vec<String>,
+    /// The legacy path now is a symlink to the target.
+    pub linked: bool,
+}
+
+fn is_symlink(path: &Path) -> bool {
+    std::fs::symlink_metadata(path)
+        .map(|meta| meta.file_type().is_symlink())
+        .unwrap_or(false)
+}
+
+/// Whether `legacy` is a symlink resolving to `target`.
+pub fn is_linked_to(legacy: &Path, target: &Path) -> bool {
+    is_symlink(legacy)
+        && match (std::fs::canonicalize(legacy), std::fs::canonicalize(target)) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => false,
+        }
+}
+
+/// Move a pre-rename directory to its new name and leave a symlink behind.
+///
+/// Absolute paths into the legacy directory live on elsewhere — worktree
+/// paths in the database, Git's `.git/worktrees/*/gitdir`, MCP launcher
+/// scripts registered in other tools — so the legacy path must keep
+/// resolving. A same-filesystem rename is atomic and keeps open files valid.
+/// When both directories exist, entries missing from the target are moved
+/// and name clashes are left in place (reported as conflicts). Idempotent;
+/// Unix only (symlinks need privileges on Windows, where the legacy
+/// directory simply stays in use).
+pub fn migrate_legacy_dir(legacy: &Path, target: &Path) -> std::io::Result<DirMigration> {
+    let mut outcome = DirMigration::default();
+    if !cfg!(unix) || is_symlink(legacy) || !legacy.is_dir() || is_symlink(target) {
+        outcome.linked = is_linked_to(legacy, target);
+        return Ok(outcome);
+    }
+
+    if !target.exists() {
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::rename(legacy, target)?;
+        outcome.moved = true;
+    } else {
+        for entry in std::fs::read_dir(legacy)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let destination = target.join(&name);
+            if std::fs::symlink_metadata(&destination).is_ok() {
+                outcome.conflicts.push(name.to_string_lossy().into_owned());
+            } else {
+                std::fs::rename(entry.path(), &destination)?;
+                outcome.merged.push(name.to_string_lossy().into_owned());
+            }
+        }
+        if !outcome.conflicts.is_empty() {
+            return Ok(outcome);
+        }
+        std::fs::remove_dir(legacy)?;
+    }
+
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, legacy)?;
+    outcome.linked = true;
+    Ok(outcome)
+}
+
+fn migrated_prefixes() -> &'static std::sync::Mutex<Vec<(PathBuf, PathBuf)>> {
+    static PREFIXES: std::sync::OnceLock<std::sync::Mutex<Vec<(PathBuf, PathBuf)>>> =
+        std::sync::OnceLock::new();
+    PREFIXES.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+/// Remember that `legacy` now resolves to `target`, so paths stored under the
+/// legacy name are still recognized (see [`legacy_aliases`]).
+pub fn register_migrated_prefix(legacy: PathBuf, target: PathBuf) {
+    let mut prefixes = migrated_prefixes().lock().unwrap();
+    if !prefixes.iter().any(|(l, t)| *l == legacy && *t == target) {
+        prefixes.push((legacy, target));
+    }
+}
+
+/// Every registered `(legacy, target)` pair.
+pub fn registered_migrated_prefixes() -> Vec<(PathBuf, PathBuf)> {
+    migrated_prefixes().lock().unwrap().clone()
+}
+
+/// Pre-rename spellings of `path`: for each migrated directory that contains
+/// `path`, the same path under the legacy name. Used to match records written
+/// before the rename.
+pub fn legacy_aliases(path: &Path) -> Vec<PathBuf> {
+    registered_migrated_prefixes()
+        .into_iter()
+        .filter_map(|(legacy, target)| {
+            path.strip_prefix(&target)
+                .ok()
+                .map(|rest| legacy.join(rest))
+        })
+        .collect()
+}
+
+/// Rename the pre-rename home directories (`~/.vibe-kanban` →
+/// `~/.aurapunk`, `~/.vibe-kanban-dev` → `~/.aurapunk-dev`) and register them.
+/// Skipped when the home directory is overridden by environment.
+pub fn migrate_legacy_home_dirs() {
+    if crate::env_compat::renamed_os("HOME_DIR").is_some() {
+        return;
+    }
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+    for (legacy, current) in [
+        (LEGACY_HOME_DIR, ".aurapunk"),
+        (LEGACY_HOME_DIR_DEV, ".aurapunk-dev"),
+    ] {
+        let legacy = home.join(legacy);
+        let target = home.join(current);
+        match migrate_legacy_dir(&legacy, &target) {
+            Ok(outcome) => {
+                if outcome.moved || !outcome.merged.is_empty() {
+                    tracing::info!(
+                        from = %legacy.display(),
+                        to = %target.display(),
+                        ?outcome,
+                        "migrated legacy home directory"
+                    );
+                }
+                if !outcome.conflicts.is_empty() {
+                    tracing::warn!(
+                        from = %legacy.display(),
+                        to = %target.display(),
+                        conflicts = ?outcome.conflicts,
+                        "legacy home directory kept: entries exist in both places"
+                    );
+                }
+                if outcome.linked {
+                    register_migrated_prefix(legacy, target);
+                }
+            }
+            Err(error) => tracing::warn!(
+                from = %legacy.display(),
+                to = %target.display(),
+                %error,
+                "could not migrate legacy home directory"
+            ),
+        }
+    }
+}
+
 /// The opencode global config directory, matching opencode-ai's own XDG-style
 /// resolution (`$XDG_CONFIG_HOME`, else `$HOME/.config/opencode`) — NOT the
 /// platform-default config dir — so it lines up with where opencode actually
@@ -225,6 +383,88 @@ pub fn opencode_config_dir() -> PathBuf {
 /// Expand leading ~ to user's home directory.
 pub fn expand_tilde(path_str: &str) -> std::path::PathBuf {
     shellexpand::tilde(path_str).as_ref().into()
+}
+
+#[cfg(all(test, unix))]
+mod legacy_dir_tests {
+    use super::*;
+
+    fn temp() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("aurapunk-migrate-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn moves_and_links_when_target_is_missing() {
+        let root = temp();
+        let legacy = root.join(".vibe-kanban");
+        let target = root.join(".aurapunk");
+        std::fs::create_dir_all(legacy.join("worktrees/ws1")).unwrap();
+        std::fs::write(legacy.join("rlcd.toml"), "x").unwrap();
+
+        let outcome = migrate_legacy_dir(&legacy, &target).unwrap();
+        assert!(outcome.moved && outcome.linked);
+        assert_eq!(
+            std::fs::read_to_string(target.join("rlcd.toml")).unwrap(),
+            "x"
+        );
+        // Old absolute paths keep resolving through the symlink.
+        assert!(legacy.join("worktrees/ws1").is_dir());
+        assert!(is_linked_to(&legacy, &target));
+
+        // Idempotent.
+        let again = migrate_legacy_dir(&legacy, &target).unwrap();
+        assert_eq!(
+            again,
+            DirMigration {
+                linked: true,
+                ..Default::default()
+            }
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn merges_into_existing_target_and_keeps_conflicts() {
+        let root = temp();
+        let legacy = root.join(".vibe-kanban");
+        let target = root.join(".aurapunk");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(legacy.join("only-legacy.toml"), "a").unwrap();
+        std::fs::write(legacy.join("both.toml"), "legacy").unwrap();
+        std::fs::write(target.join("both.toml"), "new").unwrap();
+
+        let outcome = migrate_legacy_dir(&legacy, &target).unwrap();
+        assert_eq!(outcome.merged, vec!["only-legacy.toml".to_string()]);
+        assert_eq!(outcome.conflicts, vec!["both.toml".to_string()]);
+        assert!(!outcome.linked && legacy.is_dir() && !is_symlink(&legacy));
+        assert_eq!(
+            std::fs::read_to_string(target.join("both.toml")).unwrap(),
+            "new"
+        );
+
+        // Once the clash is resolved, the next run finishes the migration.
+        std::fs::remove_file(legacy.join("both.toml")).unwrap();
+        let outcome = migrate_legacy_dir(&legacy, &target).unwrap();
+        assert!(outcome.linked && is_linked_to(&legacy, &target));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_aliases_map_new_paths_back() {
+        let root = temp();
+        let legacy = root.join("legacy-home");
+        let target = root.join("new-home");
+        register_migrated_prefix(legacy.clone(), target.clone());
+        assert_eq!(
+            legacy_aliases(&target.join("worktrees/ws1")),
+            vec![legacy.join("worktrees/ws1")]
+        );
+        assert!(legacy_aliases(&root.join("elsewhere")).is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 #[cfg(test)]
