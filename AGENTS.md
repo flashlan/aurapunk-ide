@@ -46,6 +46,7 @@ Rules:
 - [x] **Done** — Erros de integração (Mem0/Laya/Jev) em balões na sidebar + transcript normalizado gravado no fim do processo + descrição dos cards (delta WS por projeção) (`vk/integration-errors`)
 - [x] **Done** — RAM da interface: lazy-load (configurações, terminal, diffs), gaveta mobile só no mobile, logo reduzido, sem Noto Emoji, inspetor opcional (`vk/webview-memory`)
 - [x] **Done** — RLCD no backend: guardrails reais (toggles + semântico em comandos), portão de memória do Mem0, auto-compactação compactando o agente (`vk/rlcd-backend`)
+- [x] **Done** — RLCD afinado para Laya e Jev + localidade determinística + CI verde (`vk/rlcd-tuning`)
 - [x] **Done** — Perf RAM/CPU: chat cache/localStorage, normalização serializada, chats travados no `Ready`, índice git racy após worktree add, cota UTF-16 (Laya Cloud não salvava) (`vk/perf-ram-cpu`)
 
 ## Card Pipeline Protocol (MCP)
@@ -579,3 +580,27 @@ fixed them. Newest last.
 - **Rede:** uma das conexões do operador não alcança `api.typesafe.ai`; nesse
   caso o portão grava mesmo assim e a falha aparece no balão do RLCD. Com o
   motor `jev` não há fallback para o Laya — use `adaptive` para ter.
+
+### 2026-09-26 — RLCD afinado para Laya e Jev; CI verde (vk/rlcd-tuning)
+- **Confrontando os mesmos casos nos dois motores** (`docs/rlcd-bench-cases.json`
+  tem casos, perguntas e respostas medidas): com os prompts da v0.3.24 o Laya
+  errava três — log de compilação com volatile=0.02 (gravado), `rm -rf target/`
+  destrutivo=0.97 (bloqueado) e `rm -rf ~/` "local ao projeto"=0.62. O Jev
+  acertava tudo. Perguntas longas com vários conceitos confundem o Laya; use
+  perguntas curtas de um conceito só.
+- **Regras:** memória recusa se secret≥0.5, raw_output≥0.6, ou in_progress≥0.7
+  com durable<0.5. Comando bloqueia se exfiltration≥0.8, ou destructive≥0.8 E
+  `reaches_outside_project` (determinístico: `~`, `$HOME`, `..`, caminho
+  absoluto exceto /tmp e /dev/null, SQL drop/truncate). `rm` recursivo/forçado
+  fora do projeto é bloqueado mesmo com o classificador fora do ar (única
+  exceção ao fail-open). Medido pelo backend: Laya 11/11; sem TypeSafe,
+  `rm -rf ~/` e `../other-repo` bloqueados, `target/` e `cargo test` liberados.
+- **Diagnóstico:** `POST /api/rlcd/classify-tool-call {command}` devolve o
+  veredito exato do hook headed.
+- **CI:** o workflow Build falhava em todo commit desde ≥21/09 (Json não usado
+  em `queue.rs`, `impl` depois do módulo de testes em `queued_message.rs`, 4
+  arquivos fora do Prettier). Corrigido; reproduza localmente com
+  `cargo clippy --workspace --all-targets --exclude aurapunk-tauri -- -D warnings`
+  e `npm run format:check` em cada pacote.
+- **Disco:** `target/debug` chegou a 50 GB nesta sessão e encheu o disco duas
+  vezes; apague-o quando só o app (release) importar.
