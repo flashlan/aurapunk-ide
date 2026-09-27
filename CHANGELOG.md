@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.27] - 2026-09-27
+
+### Changed
+
+- **Cloud sync is published by the backend, change by change.** The app used
+  to export the entire local database to AuraPunk Cloud on every workspace
+  event, and published nothing while no window was open. The backend now
+  records which card, column, workspace or chat changed and publishes only
+  those, keeps them queued while Cloud is unreachable, and sends deletions
+  too, so removed cards no longer linger on the phone.
+
+### Added
+
+- `GET /api/cloud-sync/status` (linked account, pending changes, last
+  error) and ADR-048 describing the planned team collaboration model.
+
 ## [0.3.26] - 2026-09-26
 
 ### Fixed
