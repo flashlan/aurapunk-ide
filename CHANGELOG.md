@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.32] - 2026-09-27
+
+### Added
+
+- **Agents can run the whole workflow through MCP.** New tools let an agent in
+  a terminal list the available agents and models (`list_agents`), wait for
+  sub-agents and collect their results (`wait_for_executions`, which also
+  stops early when one of them asks a question), read, write and delete
+  pipelines and attach one to a card (`list_pipelines`,
+  `get_pipeline_definition`, `save_pipeline`, `delete_pipeline`,
+  `set_issue_pipeline`), and get a suggested plan for a task — which roles
+  (explore, plan, build, review) and whether to split it (`route_task`).
+- **Merge conflicts are classified.** Lockfiles, generated files and
+  changelogs are reported as trivial; other conflicts are checked by the RLCD
+  classifier and, when in doubt, reported as needing your review before the
+  card is completed.
+
 ## [0.3.31] - 2026-09-27
 
 ### Fixed
