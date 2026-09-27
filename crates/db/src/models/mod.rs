@@ -17,6 +17,7 @@ pub mod project_status;
 pub mod pull_request;
 pub mod pull_request_issue;
 pub mod push_token;
+pub mod relayed_command;
 pub mod repo;
 pub mod requests;
 pub mod scratch;

@@ -604,3 +604,28 @@ fixed them. Newest last.
   e `npm run format:check` em cada pacote.
 - **Disco:** `target/debug` chegou a 50 GB nesta sessão e encheu o disco duas
   vezes; apague-o quando só o app (release) importar.
+
+### 2026-09-26 — Sync Cloud ⇄ Desktop ⇄ APK: integridade do log (ADR-047, fase 1)
+- **Revisão dos três lados** (`mobile_sync.rs`/`CloudAuthActions.tsx`,
+  `aurapunk-cloud` `app/api/sync`, `aurapunk-mobile`): revisão do Cloud
+  alocada com `max+1` fora de transação (eventos perdidos), sem índice em
+  `sync_events`, snapshot mantinha os 5000 registros MAIS ANTIGOS (instância
+  Cloud nascia sem os cards novos), deleções nunca propagadas, comandos sem
+  idempotência (cursor no `localStorage` perdido ou duas janelas reenviavam
+  prompts), APK ignorava eventos no modo Cloud e recomeçava o cursor do 0, e o
+  pedido de workspace do APK via Cloud usava `operation: "insert"` — rejeitado
+  com 400, nunca funcionou.
+- **Feito:** Cloud — `sync_cursors` (migração 0011) como alocador dentro da
+  transação do push, escrita em lote, índices, long-poll lendo só a linha do
+  cursor, snapshot paginado (`page_size`/`cursor`), snapshot legado com os mais
+  novos + `truncated`, `after_revision=latest`; teste de integração com PGlite
+  (`npm run test:sync`, 6/6). Desktop — tabela `relayed_commands` +
+  `run_relayed_once`: cada `command_id` (id do evento) roda uma vez; falha
+  libera o claim. APK — stream começa em `latest`, evento de board dispara
+  refresh com debounce, pedido de workspace com `upsert` e id único.
+- **Pendente (ADR-047):** publisher em Rust com outbox/tombstones (fase 2), fila
+  de comandos própria (3), push via NOTIFY + retenção (4), `scope_id` e
+  `base_revision` para equipes (5).
+- **Cuidado ao validar o Cloud:** `timeout` não existe no macOS — um
+  `timeout 300 tsc | grep -c` "passa" com 0 erros sem ter rodado. O `HEAD` do
+  `aurapunk-cloud` já tinha 39 erros de `tsc` pré-existentes.

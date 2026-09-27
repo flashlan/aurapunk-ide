@@ -27,6 +27,7 @@ use db::models::{
     project::Project,
     project_repo::ProjectRepo,
     project_status::ProjectStatus,
+    relayed_command::RelayedCommand,
     repo::Repo,
     requests::{CreateAndStartWorkspaceRequest, LinkedIssueInfo, WorkspaceRepoInput},
     scratch::{Scratch, ScratchPayload, ScratchType, UpdateScratch, WorkspaceChatConfigData},
@@ -85,6 +86,10 @@ pub struct MobileChatCommand {
     pub permission_policy: Option<PermissionPolicy>,
     #[serde(default)]
     pub attachments: Vec<MobileChatAttachment>,
+    /// Cloud event id of the relayed command; replays with the same id are
+    /// acknowledged without running again (see `RelayedCommand`).
+    #[serde(default)]
+    pub command_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,6 +121,9 @@ pub struct MobileWorkspaceRequest {
     pub pre_prompt: Option<String>,
     #[serde(default)]
     pub post_prompt: Option<String>,
+    /// Cloud event id of the relayed request (see `MobileChatCommand`).
+    #[serde(default)]
+    pub command_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1582,7 +1590,67 @@ async fn import_cloud_context(
 
 /// Dispatch a message received from Mobile through the local Desktop session.
 /// The local server remains the only component allowed to start an executor.
+fn relayed_command_id(command_id: &Option<String>) -> Option<String> {
+    command_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty() && id.len() <= 200)
+        .map(str::to_string)
+}
+
+/// Run a relayed command at most once per `command_id`. Commands without an
+/// id (direct Tailcat/LAN calls, older Desktop builds) run unconditionally.
+/// A failed execution releases its claim so a later delivery can retry.
+async fn run_relayed_once<F, Fut>(
+    deployment: &DeploymentImpl,
+    command_id: Option<String>,
+    kind: &str,
+    duplicate: impl std::future::Future<Output = Result<Response, ApiError>>,
+    execute: F,
+) -> Result<Response, ApiError>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Response, ApiError>>,
+{
+    let Some(command_id) = command_id else {
+        return execute().await;
+    };
+    let pool = deployment.db().pool.clone();
+    if !RelayedCommand::claim(&pool, &command_id, kind).await? {
+        tracing::info!(%command_id, kind, "ignoring replayed relayed command");
+        return duplicate.await;
+    }
+    let result = execute().await;
+    if result.is_err()
+        && let Err(error) = RelayedCommand::release(&pool, &command_id).await
+    {
+        tracing::warn!(%command_id, ?error, "could not release failed relayed command claim");
+    }
+    result
+}
+
 pub async fn post_chat_command(
+    State(deployment): State<DeploymentImpl>,
+    Json(command): Json<MobileChatCommand>,
+) -> Result<Response, ApiError> {
+    let command_id = relayed_command_id(&command.command_id);
+    let runner = deployment.clone();
+    run_relayed_once(
+        &deployment,
+        command_id,
+        "chat",
+        async {
+            Ok(ResponseJson(ApiResponse::<Value>::success(
+                serde_json::json!({ "duplicate": true }),
+            ))
+            .into_response())
+        },
+        || execute_chat_command(State(runner), Json(command)),
+    )
+    .await
+}
+
+async fn execute_chat_command(
     State(deployment): State<DeploymentImpl>,
     Json(command): Json<MobileChatCommand>,
 ) -> Result<Response, ApiError> {
@@ -1815,6 +1883,36 @@ pub async fn post_chat_command(
 /// or Mobile app never receives permission to create worktrees directly: the
 /// local Desktop remains the owner of repositories, sessions and executors.
 pub async fn post_workspace_request(
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<MobileWorkspaceRequest>,
+) -> Result<Response, ApiError> {
+    let command_id = relayed_command_id(&request.command_id);
+    let issue_id = request.issue_id;
+    let pool = deployment.db().pool.clone();
+    let runner = deployment.clone();
+    run_relayed_once(
+        &deployment,
+        command_id,
+        "workspace",
+        // Answer a replay with the workspace the first delivery created, so
+        // the published result still points Mobile at the right chat.
+        async move {
+            let workspace_id = IssueWorkspace::find_latest_by_issue(&pool, issue_id).await?;
+            Ok(
+                ResponseJson(ApiResponse::<Value>::success(serde_json::json!({
+                    "workspace_id": workspace_id,
+                    "created": false,
+                    "duplicate": true,
+                })))
+                .into_response(),
+            )
+        },
+        || execute_workspace_request(State(runner), Json(request)),
+    )
+    .await
+}
+
+async fn execute_workspace_request(
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<MobileWorkspaceRequest>,
 ) -> Result<Response, ApiError> {

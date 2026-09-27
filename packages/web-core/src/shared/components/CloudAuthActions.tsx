@@ -452,7 +452,12 @@ export function CloudAuthActions() {
                 {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(payload),
+                  // The event id makes the Desktop run each relayed command
+                  // once, even when the cursor is lost or two windows poll.
+                  body: JSON.stringify({
+                    ...payload,
+                    command_id: event.entityId,
+                  }),
                   signal,
                 }
               );
@@ -496,7 +501,12 @@ export function CloudAuthActions() {
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
+                // The event id makes the Desktop run each relayed command
+                // once, even when the cursor is lost or two windows poll.
+                body: JSON.stringify({
+                  ...payload,
+                  command_id: event.entityId,
+                }),
                 signal,
               }
             );
@@ -515,7 +525,12 @@ export function CloudAuthActions() {
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
+                // The event id makes the Desktop run each relayed command
+                // once, even when the cursor is lost or two windows poll.
+                body: JSON.stringify({
+                  ...payload,
+                  command_id: event.entityId,
+                }),
                 signal,
               }
             );
