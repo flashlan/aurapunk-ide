@@ -652,3 +652,24 @@ fixed them. Newest last.
   workspaces expirados de `dev_assets` — comportamento normal do `pnpm run dev`.
 - **ADR-048 (Proposed):** núcleo open source continua individual; times no
   Cloud; integração por PR; papéis como etapas da pipeline; roadmap T0–T5.
+
+### 2026-09-27 — Fila de comandos do Cloud (ADR-047 fase 3)
+- **Bugs encontrados no caminho:** (1) mover card pelo APK via Cloud nunca
+  tinha efeito — o APK reenvia o payload com o MESMO `updated_at` e a guarda
+  `X-Client-Updated-At` descarta `existing >= client`; (2) comandos rodavam a
+  partir do log de eventos com cursor no `localStorage`.
+- **Cloud (`aurapunk-cloud` 85a1fc6):** `sync_commands` com lease, claim
+  `FOR UPDATE SKIP LOCKED`, `released` volta à fila e falha após 5 tentativas;
+  rotas em `/api/sync/commands*` (o gateway já repassa `/api/sync/*`). Pushes
+  do APK viram comandos automaticamente e vão para a instância dona
+  (`source = desktop:<instance_id>`, que uma escrita do APK não sobrescreve —
+  o teste pegou isso). 10/10 testes PGlite.
+- **Desktop:** `routes::cloud_commands` reivindica (long-poll 25 s), executa
+  pelos mesmos handlers do caminho LAN (com `command_id`), devolve o que não é
+  desta instância e conclui com resultado; publica o `<id>:result` legado para
+  APKs antigos. Mover card = concorrência otimista sobre `updated_at`.
+- **Testado** com servidor de debug + Cloud falso: chat/pedido para
+  workspace/card inexistente → `released`; mover com base velha → conflito;
+  mover com base atual → aplicado no banco. O teste revelou loop apertado
+  quando o claim volta vazio na hora (373 claims) → piso de 1 s; e espera de
+  10 s após vincular a conta → consumidor acorda no vínculo.

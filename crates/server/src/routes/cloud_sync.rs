@@ -83,13 +83,36 @@ fn status() -> &'static Mutex<CloudSyncStatus> {
     STATUS.get_or_init(|| Mutex::new(CloudSyncStatus::default()))
 }
 
+/// Notified when the linked account changes, so the command consumer does
+/// not wait out its idle sleep after a sign-in.
+pub(crate) fn account_changed() -> &'static Notify {
+    static CHANGED: OnceLock<Notify> = OnceLock::new();
+    CHANGED.get_or_init(Notify::new)
+}
+
 fn wake() -> &'static Notify {
     static WAKE: OnceLock<Notify> = OnceLock::new();
     WAKE.get_or_init(Notify::new)
 }
 
+/// Stable id of this instance; records are published as
+/// `desktop:<instance_id>` so the Cloud routes commands back to their owner.
+static INSTANCE_ID: OnceLock<String> = OnceLock::new();
+
+fn instance_id() -> &'static str {
+    INSTANCE_ID.get().map(String::as_str).unwrap_or("unknown")
+}
+
+pub(crate) fn current_instance_id() -> &'static str {
+    instance_id()
+}
+
 fn state_path() -> std::path::PathBuf {
     asset_dir().join(ACCOUNT_FILE)
+}
+
+pub(crate) fn linked_account() -> Option<CloudSyncAccount> {
+    load_state().account
 }
 
 fn load_state() -> PersistedState {
@@ -114,6 +137,8 @@ fn save_state(state: &PersistedState) -> std::io::Result<()> {
 
 /// Start the publisher. Safe to call once per process.
 pub fn spawn(deployment: DeploymentImpl) {
+    let _ = INSTANCE_ID.set(super::instance::describe(&deployment).instance_id);
+    super::cloud_commands::spawn(deployment.clone());
     tokio::spawn(async move {
         let mut backoff = IDLE_POLL;
         let mut last_catalog: Option<std::time::Instant> = None;
@@ -194,7 +219,7 @@ async fn run_once(
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct CloudOperation {
+pub(crate) struct CloudOperation {
     entity_type: String,
     entity_id: String,
     operation: &'static str,
@@ -202,7 +227,7 @@ struct CloudOperation {
 }
 
 impl CloudOperation {
-    fn upsert(entity_type: &str, entity_id: String, payload: Value) -> Self {
+    pub(crate) fn upsert(entity_type: &str, entity_id: String, payload: Value) -> Self {
         Self {
             entity_type: entity_type.to_string(),
             entity_id,
@@ -339,7 +364,7 @@ async fn catalog_operations(deployment: &DeploymentImpl) -> anyhow::Result<Vec<C
         .collect())
 }
 
-async fn push(
+pub(crate) async fn push(
     client: &reqwest::Client,
     account: &CloudSyncAccount,
     operations: Vec<CloudOperation>,
@@ -411,7 +436,10 @@ async fn push_chunk(
             account.cloud_url.trim_end_matches('/')
         ))
         .bearer_auth(&account.access_token)
-        .json(&serde_json::json!({ "source": "desktop", "operations": chunk }))
+        .json(&serde_json::json!({
+            "source": format!("desktop:{}", instance_id()),
+            "operations": chunk,
+        }))
         .send()
         .await?;
     let code = response.status();
@@ -458,6 +486,7 @@ async fn put_account(
         save_state(&state).map_err(|error| ApiError::BadRequest(error.to_string()))?;
     }
     wake().notify_one();
+    account_changed().notify_one();
     get_status(State(deployment)).await
 }
 

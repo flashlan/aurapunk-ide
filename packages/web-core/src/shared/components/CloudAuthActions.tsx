@@ -248,40 +248,10 @@ export function CloudAuthActions() {
     async (nextAccount: CloudAccount, signal?: AbortSignal) => {
       if (!nextAccount.accessToken) return;
 
-      const publishWorkspaceResult = async (
-        requestId: string,
-        payload: MobileWorkspaceRequestResult
-      ) => {
-        const response = await fetch(
-          `${cloudUrl.replace(/\/$/, '')}/api/sync`,
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${nextAccount.accessToken}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              source: 'desktop',
-              operations: [
-                {
-                  entityType: 'chat_command',
-                  entityId: `${requestId}:result`,
-                  operation: 'upsert',
-                  payload,
-                },
-              ],
-            }),
-          }
-        );
-        if (!response.ok) {
-          console.warn(
-            'Could not publish workspace request result',
-            requestId,
-            await response.text()
-          );
-        }
-      };
-
+      // Prompts and workspace requests from Mobile are claimed and run by
+      // the backend from the Cloud command queue (ADR-047 phase 3). This
+      // loop only mirrors card moves made on other instances until the
+      // board becomes multi-writer (phase 5).
       const cursorKey = `${CLOUD_COMMAND_CURSOR_PREFIX}:${nextAccount.userId}`;
       const cursor = Number(window.localStorage.getItem(cursorKey) ?? '0');
       try {
@@ -302,107 +272,7 @@ export function CloudAuthActions() {
         for (const event of body.events ?? []) {
           nextCursor = Math.max(nextCursor, event.revision ?? nextCursor);
           if (event.operation !== 'upsert') continue;
-          if (event.entityType === 'chat_command') {
-            const payload = event.payload as
-              | MobileChatCommand
-              | MobileWorkspaceRequest;
-            if (payload.kind === 'workspace_request') {
-              if (!payload.issue_id) continue;
-              const localResponse = await makeLocalApiRequest(
-                '/api/mobile/workspace',
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  // The event id makes the Desktop run each relayed command
-                  // once, even when the cursor is lost or two windows poll.
-                  body: JSON.stringify({
-                    ...payload,
-                    command_id: event.entityId,
-                  }),
-                  signal,
-                }
-              );
-              const responseBody = await localResponse.text();
-              if (!localResponse.ok) {
-                console.warn(
-                  'Cloud workspace request was rejected by Desktop',
-                  event.entityId,
-                  responseBody
-                );
-                await publishWorkspaceResult(event.entityId ?? '', {
-                  kind: 'workspace_request_result',
-                  issue_id: payload.issue_id,
-                  status: 'error',
-                  message:
-                    responseBody.slice(0, 500) ||
-                    'Desktop rejected the request',
-                });
-              } else {
-                let workspaceId: string | undefined;
-                try {
-                  const result = JSON.parse(responseBody) as {
-                    data?: { workspace_id?: string };
-                  };
-                  workspaceId = result.data?.workspace_id;
-                } catch {
-                  // The workspace context sync remains authoritative.
-                }
-                await publishWorkspaceResult(event.entityId ?? '', {
-                  kind: 'workspace_request_result',
-                  issue_id: payload.issue_id,
-                  status: 'completed',
-                  workspace_id: workspaceId,
-                });
-              }
-              continue;
-            }
-            if (!payload.workspace_id || !payload.prompt?.trim()) continue;
-            const localResponse = await makeLocalApiRequest(
-              '/api/mobile/chat',
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                // The event id makes the Desktop run each relayed command
-                // once, even when the cursor is lost or two windows poll.
-                body: JSON.stringify({
-                  ...payload,
-                  command_id: event.entityId,
-                }),
-                signal,
-              }
-            );
-            if (!localResponse.ok) {
-              console.warn(
-                'Cloud chat command was rejected by Desktop',
-                event.entityId,
-                await localResponse.text()
-              );
-            }
-          } else if (event.entityType === 'workspace_request') {
-            const payload = event.payload as MobileWorkspaceRequest;
-            if (!payload.issue_id) continue;
-            const localResponse = await makeLocalApiRequest(
-              '/api/mobile/workspace',
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                // The event id makes the Desktop run each relayed command
-                // once, even when the cursor is lost or two windows poll.
-                body: JSON.stringify({
-                  ...payload,
-                  command_id: event.entityId,
-                }),
-                signal,
-              }
-            );
-            if (!localResponse.ok) {
-              console.warn(
-                'Cloud workspace request was rejected by Desktop',
-                event.entityId,
-                await localResponse.text()
-              );
-            }
-          } else if (event.entityType === 'issue') {
+          if (event.entityType === 'issue') {
             const payload = event.payload as {
               status_id?: string;
               updated_at?: string;
@@ -760,34 +630,6 @@ type CloudSyncEvent = {
   operation?: string;
   payload?: unknown;
   revision?: number;
-};
-
-type MobileChatCommand = {
-  kind?: never;
-  workspace_id: string;
-  prompt: string;
-  executor?: string;
-};
-
-type MobileWorkspaceRequest = {
-  kind: 'workspace_request';
-  issue_id: string;
-  executor?: string;
-  model_id?: string;
-  reasoning_id?: string;
-  agent_id?: string;
-  permission_policy?: string;
-  prompt?: string;
-  pipeline_id?: string;
-  pipeline_stage_ids?: string[];
-};
-
-type MobileWorkspaceRequestResult = {
-  kind: 'workspace_request_result';
-  issue_id: string;
-  status: 'completed' | 'error';
-  message?: string;
-  workspace_id?: string;
 };
 
 const CLOUD_ACCOUNT_STORAGE_KEY = 'aurapunk-cloud-account';

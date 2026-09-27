@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — phase 1 implemented (2026-09-26), phase 2 implemented (2026-09-27)
+Proposed — phase 1 implemented (2026-09-26), phases 2 and 3 implemented (2026-09-27)
 
 ## Date
 
@@ -78,8 +78,17 @@ ownership transfer via lease (ADR-042 compute), not a DB copy.
    and `PUT /api/cloud-sync/account` / `GET /api/cloud-sync/status`. The
    webview only hands over the account; commands are still polled there
    until phase 3.
-3. **Command queue.** Dedicated Cloud table (`pending → claimed → done/failed`,
-   lease, `command_id`) instead of commands inside the event log.
+3. **Command queue (done).** Dedicated Cloud table (`pending → claimed →
+   done/failed`, lease, `command_id`) instead of commands inside the event log.
+   Implemented as `sync_commands` + `/api/sync/commands{,/claim,/complete}`
+   (Cloud) and the `routes::cloud_commands` consumer (Desktop backend). Mobile
+   `chat_command`/`workspace_request`/`issue` pushes are queued automatically
+   (old APKs keep working) and routed to the owning instance
+   (`desktop:<instance_id>` record source, kept when Mobile writes). Card
+   moves carry the `updated_at` Mobile saw as base revision: applied unless
+   the card changed locally after it — the old mirror compared that unchanged
+   timestamp and dropped every move made from the phone. The webview still
+   mirrors card moves from other instances until phase 5.
 4. **Push and retention.** `LISTEN/NOTIFY` (or Supabase Realtime) over SSE/WS
    instead of polling; retain events N days, older cursors re-snapshot.
 5. **Teams.** Partition by `scope_id` (team/project) with membership ACL;

@@ -33,6 +33,7 @@ pub mod app_mode;
 pub mod approvals;
 pub mod attachments;
 pub mod backup;
+pub mod cloud_commands;
 pub mod cloud_sync;
 pub mod config;
 pub mod containers;
