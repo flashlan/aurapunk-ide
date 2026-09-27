@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.30] - 2026-09-27
+
+### Added
+
+- **Board changes made elsewhere now reach this Desktop.** Cards, columns and
+  projects edited on another Desktop, a Cloud instance or the phone are pulled
+  from AuraPunk Cloud and applied here, including deletions of cards and
+  columns (a project deletion is only logged).
+
+### Fixed
+
+- **Two instances of one account no longer overwrite each other's cards.**
+  Each change carries the Cloud revision it was based on; when both sides
+  edited the same card, the most recent edit wins on both, and a card deleted
+  on one side while edited on the other is kept.
+
 ## [0.3.29] - 2026-09-27
 
 ### Changed
