@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.33] - 2026-09-27
+
+### Fixed
+
+- **A merge conflict no longer leaves your main branch in a conflicted state.**
+  Conflicts used to be written into the main branch's checkout, which blocked
+  every other merge in the repository until someone resolved them there. The
+  merge is now checked in memory first: on a conflict nothing is touched, and
+  the card's agent is asked to bring the main branch into its own branch,
+  resolve the conflicts there (where it can run the tests) and try again.
+
 ## [0.3.32] - 2026-09-27
 
 ### Added
