@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.28] - 2026-09-27
+
+### Fixed
+
+- **Moving a card from the Android app through AuraPunk Cloud now works.**
+  The move was silently ignored by the Desktop: the phone re-sent the card's
+  unchanged timestamp and the Desktop treated it as an old event. Moves are
+  now applied unless the card was changed on the Desktop after the phone saw
+  it.
+
+### Changed
+
+- **Mobile prompts and workspace requests run from a Cloud command queue.**
+  The backend claims each command, runs it once on the instance that owns the
+  workspace or card, and reports the result — with no window open, and
+  without replaying old commands when browser storage is cleared.
+
 ## [0.3.27] - 2026-09-27
 
 ### Changed
