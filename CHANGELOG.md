@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.31] - 2026-09-27
+
+### Fixed
+
+- **Agents no longer stop when the merge is busy.** When another merge is
+  running for the repository, or another agent's declared work overlaps the
+  branch, finishing a card used to hold the agent for up to 45 seconds and
+  then give up, leaving the card open. The merge is now queued and happens
+  automatically as soon as possible; the agent is told to keep working and
+  gets a message in its chat when the merge lands (or what to fix if it
+  cannot). Commits added after the request are never merged unverified.
+
 ## [0.3.30] - 2026-09-27
 
 ### Added
