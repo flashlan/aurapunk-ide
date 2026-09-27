@@ -744,3 +744,21 @@ fixed them. Newest last.
   falso, backup/restauração de `dev_assets` e `DISABLE_WORKTREE_CLEANUP=1`.
 - **Mock com estado** (revisões, registros, eventos, snapshot, `baseRevision`,
   `hidden` para simular evento ainda não puxado) validou S1–S4.
+
+### 2026-09-27 — Fila de integração (ADR-050)
+- **Bug confirmado:** `complete_workspace_card`/`merge_workspace` seguravam o
+  agente até 45 s num bloqueio transitório e falhavam; nada tentava de novo.
+- **Agora:** bloqueio transitório → `POST …/git/merge-queue` (tabela
+  `integration_requests`, commit verificado) e resposta imediata `queued`;
+  worker `routes::workspaces::merge_queue` tenta ao ser acordado e a cada
+  10 s, e avisa a sessão do agente (fila de mensagens ou follow-up).
+  `complete` → o agente chama de novo; `GET …/merge-queue` informa
+  `integrated_head` (o squash move a branch para o commit do merge →
+  `result_sha`) e o merge não roda duas vezes.
+- **Corrida pega no teste:** o worker checava o SHA ANTES de o merge esperar o
+  lease (até 15 s); um commit durante a espera era integrado sem verificação.
+  `MergeWorkspaceRequest.expected_head` agora é conferido COM o lease →
+  `GitOperationError::BranchMoved` → `superseded`.
+- **zsh:** `$G` com espaços não vira comando (sem word-split) — roteiros de
+  teste com vários argumentos vão em arquivo `bash`.
+- **Disco:** `target/debug` chegou a 51 GB de novo (2,2 GB livres); apagado.

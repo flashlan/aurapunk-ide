@@ -61,65 +61,143 @@ struct McpCompleteWorkspaceCardResponse {
 /// Integration Guard refusals that clear by themselves once the other actor
 /// finishes: another merge running for this repository, or another
 /// workspace's active `declare_agent_work` declarations overlapping the
-/// branch. These are waited out inside the tool call instead of failing on
-/// the first attempt — the agent must WAIT until it can merge, not give up
-/// and move the card some other way.
+/// branch. Instead of holding the agent inside the tool call (it used to wait
+/// 45 s and then fail, with nothing retrying later), the merge is queued in
+/// the backend with the verified commit and integrated as soon as the
+/// blocker clears; the outcome arrives in the agent's session (ADR-050).
 const TRANSIENT_GUARD_BLOCKERS: [&str; 2] = ["integration_in_progress", "agent_work_conflict"];
-/// Total time a single tool call may spend waiting for a transient blocker.
-const GUARD_WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(45);
-const GUARD_RETRY_GAP: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Mirror of the backend `MergeQueueStatus`
+/// (`/api/workspaces/{id}/git/merge-queue`).
+#[derive(Debug, Deserialize)]
+struct MergeQueueStatus {
+    #[serde(default)]
+    position: Option<i64>,
+    current_head: String,
+    integrated_head: bool,
+}
+
+/// Result of asking the Integration Guard to merge.
+enum MergeOutcome {
+    Merged,
+    /// Refused by a transient blocker and queued for automatic integration.
+    Queued {
+        blocker: String,
+        reason: Option<String>,
+        position: Option<i64>,
+        commit: String,
+    },
+}
 
 #[tool_router(router = completion_tools_router, vis = "pub")]
 impl McpServer {
     /// POST `/api/workspaces/{id}/git/merge` through the Integration Guard.
     ///
-    /// Transient blockers are retried until [`GUARD_WAIT_BUDGET`] elapses.
-    /// Every refusal comes back through [`Self::merge_blocked_error`] with the
-    /// blocker's type, the backend's reason, and an explicit statement that
-    /// neither the merge nor the card move happened.
+    /// A transient refusal queues the merge (see [`TRANSIENT_GUARD_BLOCKERS`]);
+    /// any other refusal comes back through [`Self::merge_blocked_error`] with
+    /// the blocker's type, the backend's reason, and an explicit statement
+    /// that neither the merge nor the card move happened.
     async fn post_merge(
         &self,
         workspace_id: Uuid,
         repo_id: Uuid,
         suppress_auto_move: bool,
         keep_workspace_open: bool,
-    ) -> Result<(), ToolError> {
+        mode: &str,
+    ) -> Result<MergeOutcome, ToolError> {
         let url = self.url(&format!("/api/workspaces/{workspace_id}/git/merge"));
         let body = serde_json::json!({
             "repo_id": repo_id,
             "suppress_auto_move": suppress_auto_move,
             "keep_workspace_open": keep_workspace_open,
         });
-        let deadline = tokio::time::Instant::now() + GUARD_WAIT_BUDGET;
-        loop {
-            let envelope = self
-                .send_envelope(self.client.post(&url).json(&body))
-                .await?;
-            if envelope.success {
-                return Ok(());
-            }
-
-            let blocker = envelope
-                .error_data
-                .as_ref()
-                .and_then(|data| data.get("type"))
-                .and_then(|value| value.as_str())
-                .unwrap_or("unknown")
-                .to_string();
-
-            if TRANSIENT_GUARD_BLOCKERS.contains(&blocker.as_str())
-                && tokio::time::Instant::now() < deadline
-            {
-                tokio::time::sleep(GUARD_RETRY_GAP).await;
-                continue;
-            }
-
-            return Err(Self::merge_blocked_error(
-                &blocker,
-                envelope.message,
-                envelope.error_data,
-            ));
+        let envelope = self
+            .send_envelope(self.client.post(&url).json(&body))
+            .await?;
+        if envelope.success {
+            return Ok(MergeOutcome::Merged);
         }
+
+        let blocker = envelope
+            .error_data
+            .as_ref()
+            .and_then(|data| data.get("type"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        if TRANSIENT_GUARD_BLOCKERS.contains(&blocker.as_str()) {
+            let queue_url = self.url(&format!("/api/workspaces/{workspace_id}/git/merge-queue"));
+            let status: MergeQueueStatus = self
+                .send_json(self.client.post(&queue_url).json(&serde_json::json!({
+                    "repo_id": repo_id,
+                    "mode": mode,
+                    "blocker": blocker,
+                })))
+                .await?;
+            return Ok(MergeOutcome::Queued {
+                blocker,
+                reason: envelope.message,
+                position: status.position,
+                commit: status.current_head,
+            });
+        }
+
+        Err(Self::merge_blocked_error(
+            &blocker,
+            envelope.message,
+            envelope.error_data,
+        ))
+    }
+
+    /// Whether the queue already integrated the branch's current commit, so
+    /// completion must not merge it again (a squash cannot be re-applied).
+    async fn already_integrated(&self, workspace_id: Uuid, repo_id: Uuid) -> bool {
+        let url = self.url(&format!(
+            "/api/workspaces/{workspace_id}/git/merge-queue?repo_id={repo_id}"
+        ));
+        self.send_json::<MergeQueueStatus>(self.client.get(&url))
+            .await
+            .map(|status| status.integrated_head)
+            .unwrap_or(false)
+    }
+
+    /// Tool result for a queued merge: clearly NOT integrated and NOT closed,
+    /// with what happens next, so the agent keeps working instead of stopping.
+    fn queued_result(
+        workspace_id: Uuid,
+        repo_id: Uuid,
+        outcome: MergeOutcome,
+        tool: &str,
+    ) -> Result<CallToolResult, ErrorData> {
+        let MergeOutcome::Queued {
+            blocker,
+            reason,
+            position,
+            commit,
+        } = outcome
+        else {
+            unreachable!("queued_result is only called for queued merges");
+        };
+        McpServer::success(&serde_json::json!({
+            "success": false,
+            "queued": true,
+            "integrated": false,
+            "card_closed": false,
+            "workspace_id": workspace_id.to_string(),
+            "repo_id": repo_id.to_string(),
+            "blocker": blocker,
+            "reason": reason,
+            "queue_position": position,
+            "queued_commit": commit,
+            "next_step": format!(
+                "The merge is QUEUED, not done: the Integration Guard is busy ({blocker}). It will be \
+        integrated automatically as soon as the blocker clears, and the result will arrive in this session as a \
+        message. Do NOT move the card and do NOT run git merge/rebase/push. Do not commit to this branch while it \
+        waits (a new commit cancels the queued merge). Continue with any other remaining work, or end your turn; \
+        when the message says the merge succeeded, call `{tool}` again to finish."
+            ),
+        }))
     }
 
     /// A merge refusal that must leave the card exactly as it was. The
@@ -197,8 +275,15 @@ impl McpServer {
             )));
         };
 
-        if let Err(error) = self.post_merge(workspace_id, repo_id, true, true).await {
-            return Ok(Self::tool_error(error));
+        match self
+            .post_merge(workspace_id, repo_id, true, true, "merge")
+            .await
+        {
+            Ok(MergeOutcome::Merged) => {}
+            Ok(queued) => {
+                return Self::queued_result(workspace_id, repo_id, queued, "merge_workspace");
+            }
+            Err(error) => return Ok(Self::tool_error(error)),
         }
 
         McpServer::success(&serde_json::json!({
@@ -210,7 +295,7 @@ impl McpServer {
     }
 
     #[tool(
-        description = "Complete a card safely. After you finish and commit the verified work, you MUST call this tool yourself as the final action; do not stop and ask the operator to click Merge or Done, and do not claim completion without a successful response. It integrates the workspace through Integration Guard, then requires Mem0 to acknowledge the verified durable summary, and only then moves the card to its terminal Done status. On any merge conflict, dirty target, concurrent integration, or Mem0 failure, the card remains open. Do not use update_issue to set Done, and do not run manual git merge/rebase/push for this stage."
+        description = "Complete a card safely. After you finish and commit the verified work, you MUST call this tool yourself as the final action; do not stop and ask the operator to click Merge or Done, and do not claim completion without a successful response. It integrates the workspace through Integration Guard, then requires Mem0 to acknowledge the verified durable summary, and only then moves the card to its terminal Done status. If another integration or overlapping agent work blocks the merge, the merge is QUEUED (`queued: true`): it lands automatically when possible and a message tells you to call this tool again to finish — keep working meanwhile instead of stopping. On a merge conflict, dirty target, or Mem0 failure, the card remains open. Do not use update_issue to set Done, and do not run manual git merge/rebase/push for this stage."
     )]
     async fn complete_workspace_card(
         &self,
@@ -314,10 +399,25 @@ impl McpServer {
 
         // Defer the merge route's normal auto-move. The card must not reach
         // Done until the required Mem0 write has been acknowledged below.
-        // A refused merge waits out transient blockers and, if it still can't
-        // proceed, reports exactly why with the card left untouched.
-        if let Err(error) = self.post_merge(workspace_id, repo_id, true, false).await {
-            return Ok(Self::tool_error(error));
+        // A transient refusal queues the merge and returns at once; the
+        // agent is called back and re-runs this tool, and then the queue has
+        // already integrated this commit, so it is not merged twice.
+        if !self.already_integrated(workspace_id, repo_id).await {
+            match self
+                .post_merge(workspace_id, repo_id, true, false, "complete")
+                .await
+            {
+                Ok(MergeOutcome::Merged) => {}
+                Ok(queued) => {
+                    return Self::queued_result(
+                        workspace_id,
+                        repo_id,
+                        queued,
+                        "complete_workspace_card",
+                    );
+                }
+                Err(error) => return Ok(Self::tool_error(error)),
+            }
         }
 
         let memory_queued = match self

@@ -120,6 +120,7 @@ async fn main() -> Result<(), VibeKanbanError> {
 
     // Publish local changes to AuraPunk Cloud when an account is linked.
     routes::cloud_sync::spawn(deployment.clone());
+    routes::workspaces::merge_queue::spawn(deployment.clone());
 
     // Preload global executor options cache for all executors with DEFAULT presets
     tokio::spawn(async move {

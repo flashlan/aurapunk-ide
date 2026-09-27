@@ -411,7 +411,14 @@ export type AddWorkspaceRepoRequest = { repo_id: string, target_branch: string, 
 
 export type AddWorkspaceRepoResponse = { workspace: Workspace, repo: RepoWithTargetBranch, };
 
-export type MergeWorkspaceRequest = { repo_id: string, suppress_auto_move?: boolean, keep_workspace_open?: boolean, };
+export type MergeWorkspaceRequest = { repo_id: string, suppress_auto_move?: boolean, keep_workspace_open?: boolean, 
+/**
+ * Integrate only if the workspace branch still points at this commit
+ * once the Integration Guard lease is held (ADR-050). Otherwise the
+ * merge is refused with `BranchMoved`, so commits added while a queued
+ * merge waited for the lease are never integrated unverified.
+ */
+expected_head?: string, };
 
 export type CommitWorkspaceRequest = { repo_id: string, };
 
@@ -473,7 +480,7 @@ export type ContinueRebaseRequest = { repo_id: string, };
 
 export type AbortConflictsRequest = { repo_id: string, };
 
-export type GitOperationError = { "type": "merge_conflicts", message: string, op: ConflictOp, conflicted_files: Array<string>, target_branch: string, } | { "type": "rebase_in_progress" } | { "type": "agent_work_conflict", message: string, conflicts: Array<AgentWorkConflict>, } | { "type": "dirty_worktree", message: string, branch: string, modified: Array<string>, untracked: Array<string>, } | { "type": "integration_in_progress", message: string, };
+export type GitOperationError = { "type": "merge_conflicts", message: string, op: ConflictOp, conflicted_files: Array<string>, target_branch: string, } | { "type": "rebase_in_progress" } | { "type": "agent_work_conflict", message: string, conflicts: Array<AgentWorkConflict>, } | { "type": "dirty_worktree", message: string, branch: string, modified: Array<string>, untracked: Array<string>, } | { "type": "integration_in_progress", message: string, } | { "type": "branch_moved", message: string, expected: string, actual: string, };
 
 export type PushError = { "type": "force_push_required" };
 

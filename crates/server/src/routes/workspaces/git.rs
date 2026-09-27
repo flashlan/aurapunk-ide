@@ -77,6 +77,13 @@ pub enum GitOperationError {
     IntegrationInProgress {
         message: String,
     },
+    /// The branch no longer points at the commit the caller verified
+    /// (`MergeWorkspaceRequest::expected_head`).
+    BranchMoved {
+        message: String,
+        expected: String,
+        actual: String,
+    },
 }
 
 #[derive(Debug, Deserialize, Serialize, TS)]
@@ -88,6 +95,13 @@ pub struct MergeWorkspaceRequest {
     #[serde(default)]
     #[ts(optional)]
     pub keep_workspace_open: Option<bool>,
+    /// Integrate only if the workspace branch still points at this commit
+    /// once the Integration Guard lease is held (ADR-050). Otherwise the
+    /// merge is refused with `BranchMoved`, so commits added while a queued
+    /// merge waited for the lease are never integrated unverified.
+    #[serde(default)]
+    #[ts(optional)]
+    pub expected_head: Option<String>,
 }
 
 /// Successful merge result. `pending_stashes` lists our own stash entries
@@ -189,6 +203,10 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/diff-since", get(get_diff_since))
         .route("/diff/ws", get(stream_diff_ws))
         .route("/merge", post(merge_workspace))
+        .route(
+            "/merge-queue",
+            get(super::merge_queue::status).post(super::merge_queue::enqueue),
+        )
         .route("/stash", post(stash_workspace_changes))
         .route("/stash-pop", post(pop_workspace_stash))
         .route("/delegate-block", post(delegate_merge_block))
@@ -362,6 +380,26 @@ pub async fn merge_workspace(
     let task_head = deployment
         .git()
         .get_branch_oid(&repo.path, &workspace.branch)?;
+    // Checked while holding the lease: the branch cannot be integrated at a
+    // commit other than the one the caller verified.
+    if let Some(expected) = request.expected_head.as_deref()
+        && expected != task_head
+    {
+        let message = format!(
+            "Branch '{}' moved from {} to {} after the merge was requested; the new commits were not verified.",
+            workspace.branch,
+            expected.get(..8).unwrap_or(expected),
+            task_head.get(..8).unwrap_or(&task_head),
+        );
+        return Ok(ResponseJson(
+            ApiResponse::error_with_data(GitOperationError::BranchMoved {
+                message: message.clone(),
+                expected: expected.to_string(),
+                actual: task_head,
+            })
+            .with_message(message),
+        ));
+    }
     let original_head = deployment.git().get_fork_point(
         &repo.path,
         &workspace_repo.target_branch,
