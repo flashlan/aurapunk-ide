@@ -322,51 +322,11 @@ fn parse_rules_pre_post(raw: &str) -> (String, String) {
 /// Ultra-fast batch fetch for the Kanban board and mobile cockpit.
 /// Avoids N+1 queries across sessions/execution processes/turns and
 /// packages pipelines, pre/post prompt rules, and available models.
-pub async fn get_kanban_context(
-    deployment: &DeploymentImpl,
-) -> Result<ResponseJson<ApiResponse<MobileContextResponse>>, ApiError> {
-    let pool = &deployment.db().pool;
+/// Executors with their discovered models, providers, agent modes,
+/// permissions, default model and presets — the catalog Mobile and MCP
+/// agents choose from (`executor_options` records).
+pub(crate) async fn executor_catalog_records(deployment: &DeploymentImpl) -> Vec<MobileSyncRecord> {
     let mut records = Vec::new();
-
-    // 1. Instance descriptor
-    let node = instance::describe(deployment);
-    records.push(MobileSyncRecord {
-        entity_type: "instance",
-        entity_id: node.instance_id.clone(),
-        operation: "upsert",
-        payload: serde_json::to_value(node)
-            .map_err(|error| ApiError::BadRequest(error.to_string()))?,
-    });
-
-    // 2. Pipelines catalog
-    for pipeline in load_pipelines(&pipelines_dir()) {
-        records.push(MobileSyncRecord {
-            entity_type: "pipeline",
-            entity_id: pipeline.id.clone(),
-            operation: "upsert",
-            payload: serde_json::json!({
-                "id": pipeline.id,
-                "name": pipeline.name,
-                "description": pipeline.description,
-                "stages": pipeline.stages.iter().map(|stage| serde_json::json!({
-                    "id": stage.id,
-                    "label": stage.label,
-                    "default_enabled": stage.default_enabled,
-                    "prompt_fragment": stage.prompt_fragment,
-                })).collect::<Vec<_>>(),
-            }),
-        });
-    }
-
-    // 3. Executor & model options catalog
-    let (global_pre, global_post) = {
-        let config = deployment.config().read().await;
-        (
-            config.general_rules_pre.clone().unwrap_or_default(),
-            config.general_rules_post.clone().unwrap_or_default(),
-        )
-    };
-
     let executors_catalog = vec![
         (
             "CODEX",
@@ -516,6 +476,56 @@ pub async fn get_kanban_context(
             }),
         });
     }
+
+    records
+}
+
+pub async fn get_kanban_context(
+    deployment: &DeploymentImpl,
+) -> Result<ResponseJson<ApiResponse<MobileContextResponse>>, ApiError> {
+    let pool = &deployment.db().pool;
+    let mut records = Vec::new();
+
+    // 1. Instance descriptor
+    let node = instance::describe(deployment);
+    records.push(MobileSyncRecord {
+        entity_type: "instance",
+        entity_id: node.instance_id.clone(),
+        operation: "upsert",
+        payload: serde_json::to_value(node)
+            .map_err(|error| ApiError::BadRequest(error.to_string()))?,
+    });
+
+    // 2. Pipelines catalog
+    for pipeline in load_pipelines(&pipelines_dir()) {
+        records.push(MobileSyncRecord {
+            entity_type: "pipeline",
+            entity_id: pipeline.id.clone(),
+            operation: "upsert",
+            payload: serde_json::json!({
+                "id": pipeline.id,
+                "name": pipeline.name,
+                "description": pipeline.description,
+                "stages": pipeline.stages.iter().map(|stage| serde_json::json!({
+                    "id": stage.id,
+                    "label": stage.label,
+                    "default_enabled": stage.default_enabled,
+                    "prompt_fragment": stage.prompt_fragment,
+                })).collect::<Vec<_>>(),
+            }),
+        });
+    }
+
+    // 3. Executor & model options catalog
+    let (global_pre, global_post) = {
+        let config = deployment.config().read().await;
+        (
+            config.general_rules_pre.clone().unwrap_or_default(),
+            config.general_rules_post.clone().unwrap_or_default(),
+        )
+    };
+
+    records.extend(executor_catalog_records(deployment).await);
 
     // 4. Batch query projects and their pre/post prompt rules
     let projects = Project::find_all(pool).await?;

@@ -40,6 +40,20 @@ use crate::{
     middleware::signed_ws::{MaybeSignedWebSocket, SignedWsUpgrade},
 };
 
+/// `GET /api/agents/catalog`: every executor with its models, providers,
+/// agent modes, permissions, default model and presets — what an agent needs
+/// to start another agent through MCP (ADR-051).
+async fn get_agent_catalog(
+    State(deployment): State<DeploymentImpl>,
+) -> ResponseJson<ApiResponse<Vec<serde_json::Value>>> {
+    let catalog = super::mobile_sync::executor_catalog_records(&deployment)
+        .await
+        .into_iter()
+        .map(|record| record.payload)
+        .collect();
+    ResponseJson(ApiResponse::success(catalog))
+}
+
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/info", get(get_user_system_info))
@@ -57,6 +71,7 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/tools/install", post(install_tool))
         .route("/agents/preset-options", get(get_agent_preset_options))
         .route("/agents/models", get(get_agent_models))
+        .route("/agents/catalog", get(get_agent_catalog))
         .route("/general-rules/resolve", get(resolve_general_rules))
         .route(
             "/agents/discovered-options/ws",

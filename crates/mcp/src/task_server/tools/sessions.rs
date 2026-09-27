@@ -552,6 +552,155 @@ impl McpServer {
             pending_approvals,
         })
     }
+
+    #[tool(
+        description = "Wait until one or more executions finish (or one of them needs an answer) and return each one's status and final agent message. Use it after starting sub-agents (start_workspace / run_session_prompt) to collect their results instead of polling get_execution. Returns early as soon as any execution is waiting on an approval or question (answer it with respond_to_approval, then wait again), or when `timeout_seconds` elapses (still-running executions are reported as running)."
+    )]
+    async fn wait_for_executions(
+        &self,
+        Parameters(WaitForExecutionsRequest {
+            execution_ids,
+            timeout_seconds,
+        }): Parameters<WaitForExecutionsRequest>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if execution_ids.is_empty() || execution_ids.len() > 32 {
+            return Ok(Self::tool_error(super::ToolError::message(
+                "execution_ids must list between 1 and 32 executions",
+            )));
+        }
+        let timeout = std::time::Duration::from_secs(
+            timeout_seconds
+                .unwrap_or(600)
+                .clamp(5, WAIT_FOR_EXECUTIONS_MAX_SECONDS),
+        );
+        let deadline = tokio::time::Instant::now() + timeout;
+        let mut first_pass = true;
+        loop {
+            let mut results = Vec::with_capacity(execution_ids.len());
+            let mut all_finished = true;
+            let mut needs_attention = false;
+            for execution_id in &execution_ids {
+                let process_url = self.url(&format!("/api/execution-processes/{execution_id}"));
+                let execution_process: ExecutionProcess =
+                    match self.send_json(self.client.get(&process_url)).await {
+                        Ok(value) => value,
+                        Err(error_result) => return Ok(Self::tool_error(error_result)),
+                    };
+                if first_pass {
+                    let session_url =
+                        self.url(&format!("/api/sessions/{}", execution_process.session_id));
+                    let session: Session = match self.send_json(self.client.get(&session_url)).await
+                    {
+                        Ok(value) => value,
+                        Err(error_result) => return Ok(Self::tool_error(error_result)),
+                    };
+                    if let Err(error_result) = self.scope_allows_workspace(session.workspace_id) {
+                        return Ok(Self::tool_error(error_result));
+                    }
+                }
+                let is_finished = execution_process.status != ExecutionProcessStatus::Running;
+                all_finished &= is_finished;
+                let pending_url = self.url(&format!("/api/approvals/pending/{execution_id}"));
+                let pending_approvals: Vec<PendingApproval> = if is_finished {
+                    Vec::new()
+                } else {
+                    match self.send_json(self.client.get(&pending_url)).await {
+                        Ok(value) => value,
+                        Err(error_result) => return Ok(Self::tool_error(error_result)),
+                    }
+                };
+                needs_attention |= !pending_approvals.is_empty();
+                let final_message = if is_finished || !pending_approvals.is_empty() {
+                    let progress_url = self.url(&format!(
+                        "/api/execution-processes/{execution_id}/agent-progress"
+                    ));
+                    match self
+                        .send_json::<AgentProgress>(self.client.get(&progress_url))
+                        .await
+                    {
+                        Ok(progress) => progress.latest_message,
+                        Err(error_result) => return Ok(Self::tool_error(error_result)),
+                    }
+                } else {
+                    None
+                };
+                results.push(ExecutionOutcome {
+                    execution_id: execution_process.id.to_string(),
+                    session_id: execution_process.session_id.to_string(),
+                    status: Self::execution_process_status_label(&execution_process.status)
+                        .to_string(),
+                    is_finished,
+                    exit_code: execution_process.exit_code,
+                    final_message,
+                    pending_approvals,
+                });
+            }
+            first_pass = false;
+            let timed_out = tokio::time::Instant::now() >= deadline;
+            if all_finished || needs_attention || timed_out {
+                return Self::success(&WaitForExecutionsResponse {
+                    all_finished,
+                    needs_attention,
+                    timed_out: timed_out && !all_finished && !needs_attention,
+                    executions: results,
+                });
+            }
+            tokio::time::sleep(WAIT_FOR_EXECUTIONS_POLL).await;
+        }
+    }
+
+    #[tool(
+        description = "List the coding agents this instance can run: each executor (CLAUDE_CODE, CODEX, OPENCODE, ...) with its models, providers, agent modes, permission policies, default model and presets. Use the values with start_workspace / create_session / run_session_prompt."
+    )]
+    async fn list_agents(&self) -> Result<CallToolResult, ErrorData> {
+        let url = self.url("/api/agents/catalog");
+        match self
+            .send_json::<Vec<serde_json::Value>>(self.client.get(&url))
+            .await
+        {
+            Ok(catalog) => Self::success(&serde_json::json!({ "agents": catalog })),
+            Err(error_result) => Ok(Self::tool_error(error_result)),
+        }
+    }
+}
+
+/// Upper bound for one `wait_for_executions` call; the agent can call again.
+const WAIT_FOR_EXECUTIONS_MAX_SECONDS: u64 = 1_800;
+const WAIT_FOR_EXECUTIONS_POLL: std::time::Duration = std::time::Duration::from_secs(3);
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct WaitForExecutionsRequest {
+    #[schemars(
+        description = "Execution IDs to wait for (1–32), e.g. from start_workspace or run_session_prompt"
+    )]
+    execution_ids: Vec<Uuid>,
+    #[schemars(description = "Maximum seconds to wait (default 600, max 1800)")]
+    timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct ExecutionOutcome {
+    execution_id: String,
+    session_id: String,
+    status: String,
+    is_finished: bool,
+    exit_code: Option<i64>,
+    #[schemars(
+        description = "The agent's last message: its result when finished, or context for a pending question"
+    )]
+    final_message: Option<String>,
+    #[schemars(
+        description = "Approvals or questions this execution is waiting on; answer with respond_to_approval"
+    )]
+    pending_approvals: Vec<PendingApproval>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+struct WaitForExecutionsResponse {
+    all_finished: bool,
+    needs_attention: bool,
+    timed_out: bool,
+    executions: Vec<ExecutionOutcome>,
 }
 
 /// Longest a `"prompt"` string is allowed to be in a [`slim_execution_process`]

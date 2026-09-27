@@ -507,6 +507,8 @@ mod tests {
             "get_orchestrator_prompt".to_string(),
             "heartbeat_agent_work".to_string(),
             "list_agent_work".to_string(),
+            // ADR-051: agent catalog and waiting on sub-agents.
+            "list_agents".to_string(),
             "list_sessions".to_string(),
             "release_agent_work".to_string(),
             // Approval-control tools so the orchestrator can read, unblock, and
@@ -518,6 +520,7 @@ mod tests {
             "stop_execution".to_string(),
             "update_session".to_string(),
             "update_workspace".to_string(),
+            "wait_for_executions".to_string(),
         ]);
 
         assert_eq!(actual, expected);
@@ -579,6 +582,8 @@ mod tests {
             "list_issue_tags".to_string(),
             "list_issues".to_string(),
             "list_agent_work".to_string(),
+            // ADR-051: agent catalog and waiting on sub-agents.
+            "list_agents".to_string(),
             "list_pending_approvals".to_string(),
             "list_projects".to_string(),
             "list_project_statuses".to_string(),
@@ -608,6 +613,7 @@ mod tests {
             "update_session".to_string(),
             "update_setup_script".to_string(),
             "update_workspace".to_string(),
+            "wait_for_executions".to_string(),
         ]);
 
         assert_eq!(actual, expected);
