@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted — the integration queue is implemented (2026-09-27); execution
-rights and conflict classification are Proposed.
+Accepted — the integration queue and conflict classification are
+implemented (2026-09-27); execution rights are Proposed.
 
 ## Date
 
@@ -62,7 +62,7 @@ work on one board:
   (the claim moves and work continues on the existing branch), or open a
   **sub-card** with its own branch for parallel work.
 
-### 3. Classifiers classify conflicts; Git chooses the strategy (proposed)
+### 3. Classifiers classify conflicts; Git chooses the strategy (implemented)
 
 - The merge strategy stays deterministic and reproducible (squash, three-way
   when possible). A model never picks it.
@@ -71,6 +71,19 @@ work on one board:
   the agent to resolve — or **semantic** (logic changed on both sides) —
   delegated with a request for human review. This extends the merge-block
   delegation of ADR-044.
+- Implemented as `rlcd::classify_merge_conflict`: lockfiles, generated files
+  (`shared/types.ts`, schemas, `.sqlx`, snapshots) and `CHANGELOG.md` are
+  trivial by path; other files are sent to the configured classifier with
+  what each side changed since the merge base, asked two single-concept
+  questions (`same_logic`, `cosmetic`). Anything short of clearly cosmetic or
+  independent — including an unreachable classifier — is semantic. The result
+  rides on `GitOperationError::MergeConflicts.classification` with guidance,
+  so the MCP tool, the integration queue message and the UI all receive it.
+- Observed while testing: a conflicting squash leaves the unmerged files in
+  the target checkout (`UU` + `SQUASH_MSG`), by design of the existing
+  delegate flow (resolve on the target). Until resolved, every merge into
+  that repository is blocked as `dirty_worktree`. Aborting the squash and
+  resolving on the task branch instead is an open decision.
 
 ## Consequences
 

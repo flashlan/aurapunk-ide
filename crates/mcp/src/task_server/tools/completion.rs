@@ -226,7 +226,10 @@ impl McpServer {
                 "Stash, commit or delegate the listed files, then call this tool again."
             }
             "merge_conflicts" => {
-                "Resolve (or delegate) the listed files, then call this tool again."
+                "Resolve (or delegate) the listed files, then call this tool again. Follow the \
+                 `classification.guidance` in the blocker detail: trivial conflicts can be resolved \
+                 directly; semantic ones need the operator to review the resolution before you \
+                 complete the card."
             }
             _ => "Resolve the blocker reported above, then call this tool again.",
         };

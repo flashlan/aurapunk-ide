@@ -541,6 +541,196 @@ pub async fn classify_tool_call(tool_name: &str, command: &str) -> Option<String
     }
 }
 
+// ---------------------------------------------------------------------------
+// Merge conflict classification (ADR-050)
+// ---------------------------------------------------------------------------
+
+/// Whether a merge conflict is mechanical or needs a human to look at it.
+/// The merge strategy itself is never chosen by a model; this only decides how
+/// a conflict that already happened is handed over.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictKind {
+    /// Lockfiles, generated files, imports, formatting: the agent resolves it.
+    Trivial,
+    /// Both sides changed the same logic (or it could not be told): the agent
+    /// resolves it and asks the operator to review before completing.
+    Semantic,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ConflictFileClass {
+    pub path: String,
+    pub kind: ConflictKind,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+pub struct ConflictClassification {
+    /// `semantic` as soon as one file is.
+    pub kind: ConflictKind,
+    pub files: Vec<ConflictFileClass>,
+    /// What the agent should do next.
+    pub guidance: String,
+}
+
+/// One conflicted file: what the task branch and the target branch each
+/// changed since their merge base (unified diffs, possibly truncated).
+pub struct ConflictSides {
+    pub path: String,
+    pub task_diff: String,
+    pub target_diff: String,
+}
+
+/// Files whose conflicts are mechanical by nature, decided without a model.
+pub fn trivial_conflict_by_path(path: &str) -> Option<&'static str> {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let lockfiles = [
+        "Cargo.lock",
+        "pnpm-lock.yaml",
+        "package-lock.json",
+        "yarn.lock",
+        "bun.lockb",
+        "Gemfile.lock",
+        "poetry.lock",
+        "go.sum",
+    ];
+    if lockfiles.contains(&name) || name.ends_with(".lock") {
+        return Some("lockfile: regenerate it from the merged manifests");
+    }
+    if path.starts_with("shared/types.ts")
+        || path.starts_with("shared/schemas/")
+        || path.contains("/.sqlx/")
+        || path.starts_with(".sqlx/")
+        || name.ends_with(".snap")
+        || name.ends_with(".min.js")
+    {
+        return Some("generated file: regenerate it after resolving the sources");
+    }
+    if name.eq_ignore_ascii_case("CHANGELOG.md") {
+        return Some("changelog: keep both entries");
+    }
+    None
+}
+
+// Short, single-concept questions (see MEMORY_QUESTIONS for why).
+const CONFLICT_QUESTIONS: &[Question] = &[
+    Question {
+        key: "same_logic",
+        instructions: "Do both changes modify the same function or the same behavior?",
+    },
+    Question {
+        key: "cosmetic",
+        instructions: "Are these changes only imports, formatting, comments or version numbers?",
+    },
+];
+
+/// Decide from the classifier's answers. Anything short of a clear
+/// "cosmetic / unrelated" is semantic: a wrong "trivial" costs more than a
+/// review that was not needed.
+fn conflict_decision(probabilities: &HashMap<&'static str, f64>) -> (ConflictKind, String) {
+    let same_logic = probabilities.get("same_logic").copied();
+    let cosmetic = probabilities.get("cosmetic").copied();
+    match (same_logic, cosmetic) {
+        (Some(same), Some(cos)) if cos >= 0.7 && same < 0.5 => (
+            ConflictKind::Trivial,
+            format!("cosmetic changes (cosmetic {cos:.2}, same logic {same:.2})"),
+        ),
+        (Some(same), Some(cos)) if same < 0.3 && cos >= 0.4 => (
+            ConflictKind::Trivial,
+            format!("independent changes (same logic {same:.2}, cosmetic {cos:.2})"),
+        ),
+        (Some(same), cos) => (
+            ConflictKind::Semantic,
+            format!(
+                "both sides change behavior (same logic {same:.2}, cosmetic {})",
+                cos.map(|c| format!("{c:.2}"))
+                    .unwrap_or_else(|| "n/a".into())
+            ),
+        ),
+        _ => (
+            ConflictKind::Semantic,
+            "classifier gave no answer".to_string(),
+        ),
+    }
+}
+
+/// Classify every conflicted file: lockfiles/generated files by path, the
+/// rest by asking the configured classifier about both sides' changes.
+/// Unreachable or unconfigured classifiers yield `semantic` (fail safe).
+pub async fn classify_merge_conflict(files: Vec<ConflictSides>) -> ConflictClassification {
+    const MAX_MODEL_FILES: usize = 8;
+    let mut classes = Vec::new();
+    let mut asked = 0;
+    for file in files {
+        if let Some(reason) = trivial_conflict_by_path(&file.path) {
+            classes.push(ConflictFileClass {
+                path: file.path,
+                kind: ConflictKind::Trivial,
+                reason: reason.to_string(),
+            });
+            continue;
+        }
+        if asked >= MAX_MODEL_FILES {
+            classes.push(ConflictFileClass {
+                path: file.path,
+                kind: ConflictKind::Semantic,
+                reason: "not analysed (too many conflicted files)".to_string(),
+            });
+            continue;
+        }
+        asked += 1;
+        let state = format!(
+            "File: {}\n\nChange on the task branch:\n{}\n\nChange on the target branch:\n{}",
+            file.path, file.task_diff, file.target_diff
+        );
+        let (kind, reason) = match evaluate(
+            "merge_conflict",
+            &state,
+            CONFLICT_QUESTIONS,
+            Duration::from_secs(6),
+        )
+        .await
+        {
+            Ok(probabilities) => conflict_decision(&probabilities),
+            Err(RlcdError::NotConfigured) => (
+                ConflictKind::Semantic,
+                "no classifier configured".to_string(),
+            ),
+            Err(error) => (
+                ConflictKind::Semantic,
+                format!("classifier unavailable: {error}"),
+            ),
+        };
+        classes.push(ConflictFileClass {
+            path: file.path,
+            kind,
+            reason,
+        });
+    }
+    let kind = if classes.iter().any(|c| c.kind == ConflictKind::Semantic) {
+        ConflictKind::Semantic
+    } else {
+        ConflictKind::Trivial
+    };
+    let guidance = match kind {
+        ConflictKind::Trivial => {
+            "Every conflict is mechanical: resolve it keeping both sides' intent, regenerate lockfiles \
+and generated files from the merged sources, run the checks, commit, then retry."
+        }
+        ConflictKind::Semantic => {
+            "At least one file changes the same logic on both sides: resolve it carefully, run the tests, \
+and ask the operator to review the resolution before completing the card."
+        }
+    }
+    .to_string();
+    ConflictClassification {
+        kind,
+        files: classes,
+        guidance,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -742,5 +932,48 @@ mod tests {
         assert!(!view.has_jev_key);
         let json = serde_json::to_string(&view).unwrap();
         assert!(!json.contains("secret-token"));
+    }
+
+    #[test]
+    fn lockfiles_generated_files_and_changelogs_are_trivial_by_path() {
+        for path in [
+            "Cargo.lock",
+            "packages/web/pnpm-lock.yaml",
+            "shared/types.ts",
+            "shared/schemas/codex.json",
+            "crates/db/.sqlx/query-abc.json",
+            "CHANGELOG.md",
+        ] {
+            assert!(trivial_conflict_by_path(path).is_some(), "{path}");
+        }
+        for path in ["crates/server/src/main.rs", "src/lock.rs", "README.md"] {
+            assert!(trivial_conflict_by_path(path).is_none(), "{path}");
+        }
+    }
+
+    #[test]
+    fn conflict_decisions_lean_semantic() {
+        let decide = |same: f64, cos: f64| {
+            let mut p = HashMap::new();
+            p.insert("same_logic", same);
+            p.insert("cosmetic", cos);
+            conflict_decision(&p).0
+        };
+        assert_eq!(decide(0.1, 0.9), ConflictKind::Trivial);
+        assert_eq!(decide(0.2, 0.5), ConflictKind::Trivial);
+        assert_eq!(decide(0.8, 0.2), ConflictKind::Semantic);
+        assert_eq!(decide(0.4, 0.6), ConflictKind::Semantic);
+        assert_eq!(conflict_decision(&HashMap::new()).0, ConflictKind::Semantic);
+    }
+
+    #[tokio::test]
+    async fn path_rules_classify_without_a_classifier() {
+        let result = classify_merge_conflict(vec![ConflictSides {
+            path: "Cargo.lock".into(),
+            task_diff: String::new(),
+            target_diff: String::new(),
+        }])
+        .await;
+        assert_eq!(result.kind, ConflictKind::Trivial);
     }
 }

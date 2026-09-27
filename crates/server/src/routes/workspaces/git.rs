@@ -24,7 +24,10 @@ use deployment::Deployment;
 use executors::{executors::BaseCodingAgent, profile::ExecutorConfig};
 use git::{ConflictOp, GitCli, GitCliError, GitServiceError};
 use serde::{Deserialize, Serialize};
-use services::services::container::ContainerService;
+use services::services::{
+    container::ContainerService,
+    rlcd::{self, ConflictClassification},
+};
 use ts_rs::TS;
 use utils::response::ApiResponse;
 use uuid::Uuid;
@@ -58,6 +61,10 @@ pub enum GitOperationError {
         op: ConflictOp,
         conflicted_files: Vec<String>,
         target_branch: String,
+        /// Trivial vs semantic, per file (ADR-050). Present for merges.
+        #[serde(default)]
+        #[ts(optional)]
+        classification: Option<ConflictClassification>,
     },
     RebaseInProgress,
     AgentWorkConflict {
@@ -238,6 +245,40 @@ impl Drop for IntegrationGuardHandle {
             }
         });
     }
+}
+
+/// What the task branch and the target branch each changed in the
+/// conflicted files since their merge base, for conflict classification.
+fn conflict_sides(
+    repo_path: &Path,
+    base: &str,
+    task_head: &str,
+    target_head: &str,
+    files: &[String],
+) -> Vec<rlcd::ConflictSides> {
+    const MAX_DIFF_CHARS: usize = 3_000;
+    let diff = |to: &str, path: &str| -> String {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(repo_path)
+            .args(["diff", "--no-color", "--unified=3", base, to, "--", path])
+            .output()
+            .map(|output| {
+                String::from_utf8_lossy(&output.stdout)
+                    .chars()
+                    .take(MAX_DIFF_CHARS)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    files
+        .iter()
+        .map(|path| rlcd::ConflictSides {
+            path: path.clone(),
+            task_diff: diff(task_head, path),
+            target_diff: diff(target_head, path),
+        })
+        .collect()
 }
 
 async fn acquire_integration_guard(
@@ -489,8 +530,22 @@ pub async fn merge_workspace(
                 message,
                 conflicted_files,
             }) => {
+                let sides = {
+                    let repo_path = repo.path.clone();
+                    let base = original_head.clone();
+                    let task = task_head.clone();
+                    let target = target_head.clone();
+                    let files = conflicted_files.clone();
+                    tokio::task::spawn_blocking(move || {
+                        conflict_sides(&repo_path, &base, &task, &target, &files)
+                    })
+                    .await
+                    .unwrap_or_default()
+                };
+                let classification = rlcd::classify_merge_conflict(sides).await;
                 let message = format!(
-                    "{message} Resolve the files below (or delegate the resolution) before retrying."
+                    "{message} Resolve the files below (or delegate the resolution) before retrying. {}",
+                    classification.guidance
                 );
                 return Ok(ResponseJson(
                     ApiResponse::error_with_data(GitOperationError::MergeConflicts {
@@ -498,6 +553,7 @@ pub async fn merge_workspace(
                         op: ConflictOp::Merge,
                         conflicted_files,
                         target_branch: workspace_repo.target_branch.clone(),
+                        classification: Some(classification),
                     })
                     .with_message(message),
                 ));
@@ -1433,6 +1489,7 @@ pub async fn rebase_workspace(
                         op: ConflictOp::Rebase,
                         conflicted_files,
                         target_branch: new_base_branch.clone(),
+                        classification: None,
                     },
                 ),
             )),

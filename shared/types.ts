@@ -480,7 +480,11 @@ export type ContinueRebaseRequest = { repo_id: string, };
 
 export type AbortConflictsRequest = { repo_id: string, };
 
-export type GitOperationError = { "type": "merge_conflicts", message: string, op: ConflictOp, conflicted_files: Array<string>, target_branch: string, } | { "type": "rebase_in_progress" } | { "type": "agent_work_conflict", message: string, conflicts: Array<AgentWorkConflict>, } | { "type": "dirty_worktree", message: string, branch: string, modified: Array<string>, untracked: Array<string>, } | { "type": "integration_in_progress", message: string, } | { "type": "branch_moved", message: string, expected: string, actual: string, };
+export type GitOperationError = { "type": "merge_conflicts", message: string, op: ConflictOp, conflicted_files: Array<string>, target_branch: string, 
+/**
+ * Trivial vs semantic, per file (ADR-050). Present for merges.
+ */
+classification?: ConflictClassification, } | { "type": "rebase_in_progress" } | { "type": "agent_work_conflict", message: string, conflicts: Array<AgentWorkConflict>, } | { "type": "dirty_worktree", message: string, branch: string, modified: Array<string>, untracked: Array<string>, } | { "type": "integration_in_progress", message: string, } | { "type": "branch_moved", message: string, expected: string, actual: string, };
 
 export type PushError = { "type": "force_push_required" };
 
@@ -821,6 +825,20 @@ reason: string | null,
  * Classifier probabilities, when the classifier answered.
  */
 durable: number | null, volatile: number | null, secret: number | null, };
+
+export type ConflictKind = "trivial" | "semantic";
+
+export type ConflictFileClass = { path: string, kind: ConflictKind, reason: string, };
+
+export type ConflictClassification = { 
+/**
+ * `semantic` as soon as one file is.
+ */
+kind: ConflictKind, files: Array<ConflictFileClass>, 
+/**
+ * What the agent should do next.
+ */
+guidance: string, };
 
 export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_path: string, };
 
