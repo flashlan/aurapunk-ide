@@ -122,7 +122,9 @@ async fn send_now(
                 .ok_or(ApiError::Session(
                     db::models::session::SessionError::WorkspaceNotFound,
                 ))?;
-            super::run_follow_up(
+            // The follow-up's own response is not needed here; the queue
+            // status below is what the caller gets back.
+            let _ = super::run_follow_up(
                 &deployment,
                 session,
                 workspace,

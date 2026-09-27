@@ -18,7 +18,9 @@ export function buildAgentPrompt(
   // Normalize aliases like /compress, /autocompress, /autocompact to /compact
   // so underlying agents (Claude Code, OpenCode, etc.) execute cleanly
   if (isSlashCommand) {
-    const aliasMatch = /^\/(?:compress|autocompress|autocompact)(\s.*)?$/i.exec(trimmed);
+    const aliasMatch = /^\/(?:compress|autocompress|autocompact)(\s.*)?$/i.exec(
+      trimmed
+    );
     if (aliasMatch) {
       const rest = aliasMatch[1] ? aliasMatch[1] : '';
       trimmed = `/compact${rest}`;

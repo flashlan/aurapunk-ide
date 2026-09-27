@@ -1,8 +1,4 @@
-import {
-  SignInIcon,
-  SignOutIcon,
-  UserCircleIcon,
-} from '@phosphor-icons/react';
+import { SignInIcon, SignOutIcon, UserCircleIcon } from '@phosphor-icons/react';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
@@ -780,54 +776,57 @@ export function CloudAuthActions() {
     window.open(url, '_blank', 'noopener,noreferrer');
   }, []);
 
-  const openCloudAuth = useCallback(async (mode?: 'login' | 'signup') => {
-    const state = crypto.randomUUID().replaceAll('-', '');
-    try {
-      const url = new URL('/desktop-auth', cloudUrl);
-      url.searchParams.set('state', state);
-      // Hint the hosted flow so the browser can open the login or the
-      // create-account form directly; the state handoff is unchanged.
-      if (mode) url.searchParams.set('mode', mode);
-      setPending(true);
-      await openExternal(url.toString());
+  const openCloudAuth = useCallback(
+    async (mode?: 'login' | 'signup') => {
+      const state = crypto.randomUUID().replaceAll('-', '');
+      try {
+        const url = new URL('/desktop-auth', cloudUrl);
+        url.searchParams.set('state', state);
+        // Hint the hosted flow so the browser can open the login or the
+        // create-account form directly; the state handoff is unchanged.
+        if (mode) url.searchParams.set('mode', mode);
+        setPending(true);
+        await openExternal(url.toString());
 
-      const deadline = Date.now() + 2 * 60 * 1000;
-      while (Date.now() < deadline) {
-        await new Promise((resolve) => window.setTimeout(resolve, 1500));
-        const response = await fetch(
-          `${url.origin}/api/desktop-auth/status?state=${state}`,
-          { cache: 'no-store' }
-        );
-        if (!response.ok) continue;
-        const result = (await response.json()) as DesktopAuthStatus;
-        if (result.status !== 'complete') continue;
+        const deadline = Date.now() + 2 * 60 * 1000;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => window.setTimeout(resolve, 1500));
+          const response = await fetch(
+            `${url.origin}/api/desktop-auth/status?state=${state}`,
+            { cache: 'no-store' }
+          );
+          if (!response.ok) continue;
+          const result = (await response.json()) as DesktopAuthStatus;
+          if (result.status !== 'complete') continue;
 
-        setAccount(result.account);
-        // Persist the device authorization before opening any optional
-        // follow-up dialog. If the memory prompt is dismissed or fails, the
-        // browser authorization must still remain connected to this app.
-        try {
-          await persistAccount(result.account);
-        } catch (error) {
-          console.warn('Could not persist AuraPunk Cloud account', error);
+          setAccount(result.account);
+          // Persist the device authorization before opening any optional
+          // follow-up dialog. If the memory prompt is dismissed or fails, the
+          // browser authorization must still remain connected to this app.
+          try {
+            await persistAccount(result.account);
+          } catch (error) {
+            console.warn('Could not persist AuraPunk Cloud account', error);
+          }
+          try {
+            await offerCloudMemory(result.account, true);
+          } catch (error) {
+            console.warn('Could not open AuraPunk Cloud memory prompt', error);
+          }
+          void syncCloudContext(result.account);
+          break;
         }
-        try {
-          await offerCloudMemory(result.account, true);
-        } catch (error) {
-          console.warn('Could not open AuraPunk Cloud memory prompt', error);
-        }
-        void syncCloudContext(result.account);
-        break;
+      } catch (error) {
+        console.warn('Could not start AuraPunk Cloud sign-in', error);
+        // Do not redirect to the dashboard here: that hides an authorization
+        // failure and looks like a successful login. The native opener has its
+        // own platform fallback, so this branch is only for a real failure.
+      } finally {
+        setPending(false);
       }
-    } catch (error) {
-      console.warn('Could not start AuraPunk Cloud sign-in', error);
-      // Do not redirect to the dashboard here: that hides an authorization
-      // failure and looks like a successful login. The native opener has its
-      // own platform fallback, so this branch is only for a real failure.
-    } finally {
-      setPending(false);
-    }
-  }, [cloudUrl, offerCloudMemory, openExternal, persistAccount]);
+    },
+    [cloudUrl, offerCloudMemory, openExternal, persistAccount]
+  );
 
   useEffect(() => {
     const handleLoginRequest = () => void openCloudAuth();

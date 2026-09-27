@@ -33,7 +33,11 @@ function makeAssistantPatch(text: string, id: string): PatchTypeWithKey {
   };
 }
 
-function makeToolPatch(tool: string, output: string, id: string): PatchTypeWithKey {
+function makeToolPatch(
+  tool: string,
+  output: string,
+  id: string
+): PatchTypeWithKey {
   return {
     type: 'NORMALIZED_ENTRY',
     patchKey: `tool-${id}`,
@@ -43,7 +47,12 @@ function makeToolPatch(tool: string, output: string, id: string): PatchTypeWithK
       entry_type: {
         type: 'tool_use',
         tool_name: tool,
-        action_type: { action: 'command_run', command: tool, result: { output, exit_status: 0 }, category: 'other' },
+        action_type: {
+          action: 'command_run',
+          command: tool,
+          result: { output, exit_status: 0 },
+          category: 'other',
+        },
         status: { status: 'completed' },
       },
       content: output,
@@ -51,7 +60,10 @@ function makeToolPatch(tool: string, output: string, id: string): PatchTypeWithK
   };
 }
 
-function makeCompactionMarkerPatch(summary: string, id: string): PatchTypeWithKey {
+function makeCompactionMarkerPatch(
+  summary: string,
+  id: string
+): PatchTypeWithKey {
   return {
     type: 'NORMALIZED_ENTRY',
     patchKey: `marker-${id}`,
@@ -89,7 +101,10 @@ describe('sessionCompactor - Context Slicing & Marker Isolation', () => {
       makeUserPatch('Prompt velho que não deve ir pro modelo', '1'),
       makeToolPatch('run_command', '500 linhas de logs velhos de erro...', '1'),
       makeAssistantPatch('Corrigi o erro', '1'),
-      makeCompactionMarkerPatch('### Marco: Erro corrigido com sucesso', 'marker-1'),
+      makeCompactionMarkerPatch(
+        '### Marco: Erro corrigido com sucesso',
+        'marker-1'
+      ),
       makeUserPatch('Novo prompt após a marca', '2'),
       makeAssistantPatch('Resposta fresca', '2'),
     ];
@@ -99,10 +114,14 @@ describe('sessionCompactor - Context Slicing & Marker Isolation', () => {
 
     const result = sliceEntriesFromLastMarker(entries);
     expect(result.hasCompactedBoundary).toBe(true);
-    expect(result.marker?.content).toBe('### Marco: Erro corrigido com sucesso');
+    expect(result.marker?.content).toBe(
+      '### Marco: Erro corrigido com sucesso'
+    );
     expect(result.isolatedEntriesCount).toBe(3);
     expect(result.activeEntries).toHaveLength(2);
-    expect(result.activeEntries[0].content.content).toBe('Novo prompt após a marca');
+    expect(result.activeEntries[0].content.content).toBe(
+      'Novo prompt após a marca'
+    );
     expect(result.activeEntries[1].content.content).toBe('Resposta fresca');
   });
 
@@ -110,12 +129,20 @@ describe('sessionCompactor - Context Slicing & Marker Isolation', () => {
     const entries: PatchTypeWithKey[] = [
       makeUserPatch('Lixo antigo', '1'),
       makeToolPatch('view_file', '800 linhas de código velho...', '1'),
-      makeCompactionMarkerPatch('Resumo Consolidado dos Marcos Anteriores', 'm1'),
+      makeCompactionMarkerPatch(
+        'Resumo Consolidado dos Marcos Anteriores',
+        'm1'
+      ),
       makeUserPatch('Pergunta recente', '2'),
     ];
 
-    const cloudPrompt = prepareCloudPromptWithIsolation('Novo pedido do usuário', entries);
-    expect(cloudPrompt).toContain('[Contexto Consolidado da Sessão Anterior (Marco de Compactação)]');
+    const cloudPrompt = prepareCloudPromptWithIsolation(
+      'Novo pedido do usuário',
+      entries
+    );
+    expect(cloudPrompt).toContain(
+      '[Contexto Consolidado da Sessão Anterior (Marco de Compactação)]'
+    );
     expect(cloudPrompt).toContain('Resumo Consolidado dos Marcos Anteriores');
     expect(cloudPrompt).toContain('Novo pedido do usuário');
     expect(cloudPrompt).not.toContain('800 linhas de código velho');
@@ -135,8 +162,12 @@ describe('sessionCompactor - Context Slicing & Marker Isolation', () => {
     });
 
     expect(result.markerPatch.type).toBe('NORMALIZED_ENTRY');
-    expect(result.markerPatch.content.entry_type.type).toBe('compaction_marker');
-    expect(result.summary).toContain('✂ Contexto Compactado & Marco de Sessão');
+    expect(result.markerPatch.content.entry_type.type).toBe(
+      'compaction_marker'
+    );
+    expect(result.summary).toContain(
+      '✂ Contexto Compactado & Marco de Sessão'
+    );
     expect(result.tokensAfter).toBeLessThanOrEqual(result.tokensBefore);
   });
 });

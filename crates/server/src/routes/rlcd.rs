@@ -16,6 +16,7 @@ pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/rlcd/config", get(get_config).put(put_config))
         .route("/rlcd/classify-memory", post(classify_memory))
+        .route("/rlcd/classify-tool-call", post(classify_tool_call))
 }
 
 async fn get_config() -> ResponseJson<ApiResponse<RlcdConfigView>> {
@@ -46,4 +47,27 @@ async fn classify_memory(
     ResponseJson(ApiResponse::success(
         rlcd::classify_memory(&body.content).await,
     ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ClassifyToolCallRequest {
+    pub command: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ToolCallVerdict {
+    pub blocked: bool,
+    pub reason: Option<String>,
+}
+
+/// Diagnostic: the semantic guardrail verdict for a shell command, exactly as
+/// the headed approval hook would compute it (Settings test / benchmarks).
+async fn classify_tool_call(
+    Json(body): Json<ClassifyToolCallRequest>,
+) -> ResponseJson<ApiResponse<ToolCallVerdict>> {
+    let reason = rlcd::classify_tool_call("Bash", &body.command).await;
+    ResponseJson(ApiResponse::success(ToolCallVerdict {
+        blocked: reason.is_some(),
+        reason,
+    }))
 }

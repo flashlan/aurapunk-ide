@@ -122,6 +122,12 @@ impl QueuedMessageService {
     }
 }
 
+impl Default for QueuedMessageService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use db::models::execution_process::ExecutionProcessStatus;
@@ -159,11 +165,5 @@ mod tests {
         assert!(message.should_dispatch_after(&ExecutionProcessStatus::Completed));
         assert!(message.should_dispatch_after(&ExecutionProcessStatus::Killed));
         assert!(!message.should_dispatch_after(&ExecutionProcessStatus::Failed));
-    }
-}
-
-impl Default for QueuedMessageService {
-    fn default() -> Self {
-        Self::new()
     }
 }

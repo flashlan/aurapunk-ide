@@ -28,10 +28,7 @@ const CloudAuthDialogImpl = create<NoProps>(() => {
   };
 
   return (
-    <Dialog
-      open={modal.visible}
-      onOpenChange={(open) => !open && finish(null)}
-    >
+    <Dialog open={modal.visible} onOpenChange={(open) => !open && finish(null)}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>{t('cloudAuth.title')}</DialogTitle>
