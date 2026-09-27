@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.25] - 2026-09-26
+
+### Fixed
+
+- **RLCD prompts that work on both Laya and Jev.** Measured on the same cases,
+  the 0.3.24 prompts made Laya store compiler logs in Mem0 and block
+  `rm -rf target/`. The memory gate now asks four short, single-concept
+  questions, and both engines classify every benchmark case correctly.
+- **Tool-call guardrail locality is deterministic.** Whether a destructive
+  command reaches outside the project (`~`, `$HOME`, `..`, absolute paths, SQL
+  drops) is no longer asked to the model; a recursive/forced `rm` outside the
+  project is blocked even when the classifier is unreachable.
+- **CI is green again**: long-standing clippy (`-D warnings`) and Prettier
+  failures in the Build workflow are fixed.
+
+### Added
+
+- `POST /api/rlcd/classify-tool-call` to check the guardrail verdict for a
+  command, and `docs/rlcd-bench-cases.json` with the benchmark cases, prompts
+  and measured Laya/Jev answers.
+
 ## [0.3.24] - 2026-09-26
 
 ### Added
