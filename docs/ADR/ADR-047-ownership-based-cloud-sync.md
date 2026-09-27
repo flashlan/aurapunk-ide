@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — phase 1 implemented (2026-09-26), phases 2 and 3 implemented (2026-09-27)
+Proposed — phase 1 implemented (2026-09-26), phases 2, 3 and 4 implemented (2026-09-27)
 
 ## Date
 
@@ -89,8 +89,12 @@ ownership transfer via lease (ADR-042 compute), not a DB copy.
    the card changed locally after it — the old mirror compared that unchanged
    timestamp and dropped every move made from the phone. The webview still
    mirrors card moves from other instances until phase 5.
-4. **Push and retention.** `LISTEN/NOTIFY` (or Supabase Realtime) over SSE/WS
-   instead of polling; retain events N days, older cursors re-snapshot.
+4. **Push and retention (done).** Pushes and command enqueue/release fire
+   `pg_notify` in their transaction plus an in-process signal; long-polls
+   wake on it and re-check only every 1–2 s (no client change needed, so no
+   SSE/WS yet). Events are kept 7 days per account (pruned hourly at most);
+   `min_revision` marks the oldest kept and a stale cursor gets `reset: true`
+   to re-snapshot. Finished commands past retention are removed.
 5. **Teams.** Partition by `scope_id` (team/project) with membership ACL;
    board writes carry `base_revision` (optimistic concurrency) instead of
    wall-clock `updated_at` last-writer-wins.

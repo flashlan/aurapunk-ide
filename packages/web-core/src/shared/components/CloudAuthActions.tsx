@@ -267,7 +267,17 @@ export function CloudAuthActions() {
           await new Promise((resolve) => window.setTimeout(resolve, 2500));
           return;
         }
-        const body = (await response.json()) as { events?: CloudSyncEvent[] };
+        const body = (await response.json()) as {
+          events?: CloudSyncEvent[];
+          reset?: boolean;
+          revision?: number;
+        };
+        if (body.reset) {
+          // The cursor predates the retained log (ADR-047 phase 4). This
+          // mirror is best-effort, so resume from the current head.
+          window.localStorage.setItem(cursorKey, String(body.revision ?? 0));
+          return;
+        }
         let nextCursor = cursor;
         for (const event of body.events ?? []) {
           nextCursor = Math.max(nextCursor, event.revision ?? nextCursor);

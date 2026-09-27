@@ -673,3 +673,17 @@ fixed them. Newest last.
   mover com base atual → aplicado no banco. O teste revelou loop apertado
   quando o claim volta vazio na hora (373 claims) → piso de 1 s; e espera de
   10 s após vincular a conta → consumidor acorda no vínculo.
+
+### 2026-09-27 — Retenção e long-poll por sinal (ADR-047 fase 4)
+- **Cloud (`c532fc0`):** eventos guardados 7 dias por conta (poda no máximo
+  1×/hora, em background no push); `sync_cursors.min_revision` = mais antigo
+  retido; pull com cursor anterior recebe `reset: true` → re-snapshot.
+  Comandos concluídos além da retenção também saem. `pg_notify` dentro da
+  transação do push/enqueue + sinal em processo: long-polls acordam na hora e
+  só re-checam a cada 1–2 s (antes: query a cada 250/500 ms por cliente).
+  15/15 testes PGlite (incl. "acorda em <2 s com fallback de 5 s").
+- **Clientes:** APK recarrega o board no `reset`; o espelho de movimentos da
+  webview pula para a revisão atual.
+- **Pego no caminho:** o teste da fase 3 introduziu 1 erro de `tsc`
+  (`JSON.parse` de campo nullable) que meu filtro não viu por olhar só
+  `db/` e `app/` — filtre também `tests/`.
