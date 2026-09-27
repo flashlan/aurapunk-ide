@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.26] - 2026-09-26
+
+### Fixed
+
+- **Mobile commands relayed through AuraPunk Cloud run once.** A chat prompt
+  or workspace request sent from the Android app could be executed again when
+  the Desktop's command cursor was lost (full browser storage) or when two
+  windows were open. Each relayed command id is now claimed in the local
+  database before it runs; replays are acknowledged without re-sending the
+  prompt, and a failed execution can still be retried.
+
+### Changed
+
+- ADR-047 records the ownership-based sync design (one bootstrap snapshot,
+  then deltas) shared by the Desktop, the Android app and Cloud instances.
+
 ## [0.3.25] - 2026-09-26
 
 ### Fixed
