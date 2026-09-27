@@ -244,102 +244,6 @@ export function CloudAuthActions() {
     [cloudUrl]
   );
 
-  const syncCloudCommands = useCallback(
-    async (nextAccount: CloudAccount, signal?: AbortSignal) => {
-      if (!nextAccount.accessToken) return;
-
-      // Prompts and workspace requests from Mobile are claimed and run by
-      // the backend from the Cloud command queue (ADR-047 phase 3). This
-      // loop only mirrors card moves made on other instances until the
-      // board becomes multi-writer (phase 5).
-      const cursorKey = `${CLOUD_COMMAND_CURSOR_PREFIX}:${nextAccount.userId}`;
-      const cursor = Number(window.localStorage.getItem(cursorKey) ?? '0');
-      try {
-        const response = await fetch(
-          `${cloudUrl.replace(/\/$/, '')}/api/sync?after_revision=${Math.max(0, cursor)}&limit=200&wait_ms=25000`,
-          {
-            headers: { Authorization: `Bearer ${nextAccount.accessToken}` },
-            cache: 'no-store',
-            signal,
-          }
-        );
-        if (!response.ok) {
-          await new Promise((resolve) => window.setTimeout(resolve, 2500));
-          return;
-        }
-        const body = (await response.json()) as {
-          events?: CloudSyncEvent[];
-          reset?: boolean;
-          revision?: number;
-        };
-        if (body.reset) {
-          // The cursor predates the retained log (ADR-047 phase 4). This
-          // mirror is best-effort, so resume from the current head.
-          window.localStorage.setItem(cursorKey, String(body.revision ?? 0));
-          return;
-        }
-        let nextCursor = cursor;
-        for (const event of body.events ?? []) {
-          nextCursor = Math.max(nextCursor, event.revision ?? nextCursor);
-          if (event.operation !== 'upsert') continue;
-          if (event.entityType === 'issue') {
-            const payload = event.payload as {
-              status_id?: string;
-              updated_at?: string;
-            };
-            if (!payload.status_id || !event.entityId) continue;
-            const headers: Record<string, string> = {
-              'Content-Type': 'application/json',
-            };
-            // Carry the source row's timestamp so the Desktop can keep its
-            // own newer edit: a replayed/stale Cloud event must never drag a
-            // locally moved card back to its previous column.
-            if (payload.updated_at) {
-              headers['X-Client-Updated-At'] = payload.updated_at;
-            }
-            const localResponse = await makeLocalApiRequest(
-              `/api/issues/${event.entityId}`,
-              {
-                method: 'PATCH',
-                headers,
-                // A mirrored remote move is the operator acting on another
-                // device: it carries the same unmerged-Done override as every
-                // interactive surface, so a reflected Done is never refused by
-                // the integration guard (agents never set it).
-                body: JSON.stringify({
-                  status_id: payload.status_id,
-                  allow_unmerged_done: true,
-                }),
-                signal,
-              }
-            );
-            if (!localResponse.ok) {
-              console.warn(
-                'Cloud issue update was rejected by Desktop',
-                event.entityId,
-                await localResponse.text()
-              );
-            }
-          }
-        }
-        window.localStorage.setItem(cursorKey, String(nextCursor));
-      } catch {
-        if (signal?.aborted) return;
-        await new Promise((resolve) => window.setTimeout(resolve, 1000));
-      }
-    },
-    [cloudUrl]
-  );
-
-  const watchCloudCommands = useCallback(
-    async (nextAccount: CloudAccount, signal: AbortSignal) => {
-      while (!signal.aborted) {
-        await syncCloudCommands(nextAccount, signal);
-      }
-    },
-    [syncCloudCommands]
-  );
-
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -456,16 +360,13 @@ export function CloudAuthActions() {
     syncMem0Account,
   ]);
 
+  // The backend publishes local changes, pulls board changes made on other
+  // instances and runs Mobile commands (ADR-047/049); it only needs to know
+  // which account to act as.
   useEffect(() => {
     if (!account?.accessToken) return;
-    const controller = new AbortController();
-    void watchCloudCommands(account, controller.signal);
     void linkCloudSync(account);
-
-    return () => {
-      controller.abort();
-    };
-  }, [account, linkCloudSync, watchCloudCommands]);
+  }, [account, linkCloudSync]);
 
   const openExternal = useCallback(async (url: string) => {
     if ('__TAURI_INTERNALS__' in window) {
@@ -634,14 +535,5 @@ type DesktopAuthStatus =
   | { status: 'pending' }
   | { status: 'complete'; account: CloudAccount };
 
-type CloudSyncEvent = {
-  entityType?: string;
-  entityId?: string;
-  operation?: string;
-  payload?: unknown;
-  revision?: number;
-};
-
 const CLOUD_ACCOUNT_STORAGE_KEY = 'aurapunk-cloud-account';
 const CLOUD_SNAPSHOT_RELOAD_PREFIX = 'aurapunk-cloud-snapshot-reload';
-const CLOUD_COMMAND_CURSOR_PREFIX = 'aurapunk-cloud-command-cursor';

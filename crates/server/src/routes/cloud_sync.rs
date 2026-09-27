@@ -139,6 +139,7 @@ fn save_state(state: &PersistedState) -> std::io::Result<()> {
 pub fn spawn(deployment: DeploymentImpl) {
     let _ = INSTANCE_ID.set(super::instance::describe(&deployment).instance_id);
     super::cloud_commands::spawn(deployment.clone());
+    super::cloud_pull::spawn(deployment.clone());
     tokio::spawn(async move {
         let mut backoff = IDLE_POLL;
         let mut last_catalog: Option<std::time::Instant> = None;
@@ -206,8 +207,21 @@ async fn run_once(
                 operations.push(operation);
             }
         }
-        push(&client, &account, operations).await?;
+        with_base_revisions(pool, &mut operations).await?;
+        let report = push(&client, &account, operations).await?;
+        for applied in &report.applied {
+            CloudSyncOutbox::record_remote_revision(
+                pool,
+                &applied.entity_type,
+                &applied.entity_id,
+                applied.revision,
+            )
+            .await?;
+        }
         CloudSyncOutbox::acknowledge(pool, max_seq).await?;
+        // A conflict either applies the newer remote record here or requeues
+        // the local one on top of it; requeued entries drain on the next pass.
+        super::cloud_pull::resolve_conflicts(pool, report.conflicts).await?;
     }
 
     let mut current = status().lock().unwrap();
@@ -217,13 +231,21 @@ async fn run_once(
     Ok(())
 }
 
+/// Board entities several instances may edit (ADR-049). Their writes carry
+/// the last seen Cloud revision, and the board puller applies remote changes
+/// to them; every other entity is single-writer (owned by one instance).
+pub(crate) const BOARD_ENTITY_TYPES: [&str; 4] = ["project", "status", "issue", "issue_workspace"];
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CloudOperation {
-    entity_type: String,
-    entity_id: String,
+    pub(crate) entity_type: String,
+    pub(crate) entity_id: String,
     operation: &'static str,
-    payload: Value,
+    pub(crate) payload: Value,
+    /// Cloud revision this instance last saw for the record (ADR-049).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    base_revision: Option<i64>,
 }
 
 impl CloudOperation {
@@ -233,6 +255,7 @@ impl CloudOperation {
             entity_id,
             operation: "upsert",
             payload,
+            base_revision: None,
         }
     }
 
@@ -242,8 +265,37 @@ impl CloudOperation {
             entity_id,
             operation: "delete",
             payload: Value::Null,
+            base_revision: None,
         }
     }
+}
+
+/// What the Cloud reported for a push: the revision each changed record now
+/// holds, and the operations refused because the record moved on.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct PushReport {
+    #[serde(default)]
+    pub(crate) applied: Vec<AppliedRevision>,
+    #[serde(default)]
+    pub(crate) conflicts: Vec<RemoteConflict>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppliedRevision {
+    pub(crate) entity_type: String,
+    pub(crate) entity_id: String,
+    pub(crate) revision: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RemoteConflict {
+    pub(crate) entity_type: String,
+    pub(crate) entity_id: String,
+    /// Current revision; `None` when the record was deleted remotely.
+    pub(crate) revision: Option<i64>,
+    pub(crate) payload: Value,
 }
 
 fn to_json(value: impl Serialize) -> anyhow::Result<Value> {
@@ -256,7 +308,7 @@ fn api(error: ApiError) -> anyhow::Error {
 
 /// Build the Cloud operation for one outbox entry from the current row. A row
 /// that no longer exists is published as a delete.
-async fn build_operation(
+pub(crate) async fn build_operation(
     pool: &SqlitePool,
     entry: &OutboxEntry,
 ) -> anyhow::Result<Option<CloudOperation>> {
@@ -364,11 +416,32 @@ async fn catalog_operations(deployment: &DeploymentImpl) -> anyhow::Result<Vec<C
         .collect())
 }
 
+/// Attach the last seen Cloud revision to board writes, so a write based on a
+/// stale view becomes a conflict instead of overwriting another instance.
+async fn with_base_revisions(
+    pool: &SqlitePool,
+    operations: &mut [CloudOperation],
+) -> anyhow::Result<()> {
+    let keys: Vec<(String, String)> = operations
+        .iter()
+        .filter(|operation| BOARD_ENTITY_TYPES.contains(&operation.entity_type.as_str()))
+        .map(|operation| (operation.entity_type.clone(), operation.entity_id.clone()))
+        .collect();
+    let known = CloudSyncOutbox::remote_revisions(pool, &keys).await?;
+    for operation in operations.iter_mut() {
+        operation.base_revision = known
+            .get(&(operation.entity_type.clone(), operation.entity_id.clone()))
+            .copied();
+    }
+    Ok(())
+}
+
 pub(crate) async fn push(
     client: &reqwest::Client,
     account: &CloudSyncAccount,
     operations: Vec<CloudOperation>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<PushReport> {
+    let mut report = PushReport::default();
     let operations: Vec<CloudOperation> = operations
         .into_iter()
         .filter(|operation| {
@@ -387,21 +460,20 @@ pub(crate) async fn push(
         .collect();
     for chunk in operations.chunks(PUSH_CHUNK) {
         match push_chunk(client, account, chunk).await? {
-            PushOutcome::Accepted => {}
+            PushOutcome::Accepted(chunk_report) => report.merge(chunk_report),
             // One malformed record must not block everything behind it:
             // retry individually and drop only what the Cloud refuses.
             PushOutcome::Rejected(reason) if chunk.len() > 1 => {
                 tracing::warn!(%reason, "cloud sync batch rejected; retrying record by record");
                 for operation in chunk {
-                    if let PushOutcome::Rejected(reason) =
-                        push_chunk(client, account, std::slice::from_ref(operation)).await?
-                    {
-                        tracing::warn!(
+                    match push_chunk(client, account, std::slice::from_ref(operation)).await? {
+                        PushOutcome::Accepted(single) => report.merge(single),
+                        PushOutcome::Rejected(reason) => tracing::warn!(
                             entity_type = %operation.entity_type,
                             entity_id = %operation.entity_id,
                             %reason,
                             "cloud sync record rejected; dropped"
-                        );
+                        ),
                     }
                 }
             }
@@ -413,11 +485,18 @@ pub(crate) async fn push(
         current.published_total += chunk.len() as u64;
         current.last_success_at = Some(chrono::Utc::now());
     }
-    Ok(())
+    Ok(report)
+}
+
+impl PushReport {
+    fn merge(&mut self, other: PushReport) {
+        self.applied.extend(other.applied);
+        self.conflicts.extend(other.conflicts);
+    }
 }
 
 enum PushOutcome {
-    Accepted,
+    Accepted(PushReport),
     /// The Cloud refused the content (HTTP 400/413); retrying is pointless.
     Rejected(String),
 }
@@ -428,7 +507,7 @@ async fn push_chunk(
     chunk: &[CloudOperation],
 ) -> anyhow::Result<PushOutcome> {
     if chunk.is_empty() {
-        return Ok(PushOutcome::Accepted);
+        return Ok(PushOutcome::Accepted(PushReport::default()));
     }
     let response = client
         .post(format!(
@@ -444,7 +523,9 @@ async fn push_chunk(
         .await?;
     let code = response.status();
     if code.is_success() {
-        return Ok(PushOutcome::Accepted);
+        // Older Cloud deployments answer without `applied`/`conflicts`.
+        let report = response.json::<PushReport>().await.unwrap_or_default();
+        return Ok(PushOutcome::Accepted(report));
     }
     let body: String = response
         .text()

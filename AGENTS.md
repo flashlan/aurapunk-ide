@@ -726,3 +726,21 @@ fixed them. Newest last.
   `scratch` fazia upsert com o alvo da PK antiga — teria quebrado.
 - **Próximo:** Desktop bidirecional (ADR-049 rollout 2): revisão base por
   entidade, puller de board, merge de conflitos, fim do espelho da webview.
+
+### 2026-09-27 — Desktop bidirecional (ADR-049 rollout 2)
+- **Peças:** `cloud_sync_remote` (revisão do Cloud por entidade de board →
+  `baseRevision`), resposta do push com `applied` (Cloud `4542d77`),
+  `routes::cloud_pull` (snapshot paginado → long-poll → aplica com captura
+  suspensa via `import_cloud_records`), `resolve_conflicts` (vence o
+  `updated_at` mais novo; apagado remoto é recriado do local). Espelho da
+  webview removido (`CloudAuthActions.tsx` 995 → 539 linhas).
+- **Pego no teste:** o Cloud (JS) reserializa `1.0` como `1`; comparar
+  `serde_json::Value` direto fazia todo card parecer mudado → `same_json`
+  compara números por valor.
+- **⚠️ Servidor de debug agora MIGRA pastas:** com o `HOME` real e o
+  `dev_assets/config.json` (que aponta `workspace_dir` para a pasta REAL de
+  workspaces), um `pnpm run dev` renomearia `~/.vibe-kanban-dev` e a
+  `.vibe-kanban-workspaces` real. Para testes: `HOME` falso, `workspace_dir`
+  falso, backup/restauração de `dev_assets` e `DISABLE_WORKTREE_CLEANUP=1`.
+- **Mock com estado** (revisões, registros, eventos, snapshot, `baseRevision`,
+  `hidden` para simular evento ainda não puxado) validou S1–S4.

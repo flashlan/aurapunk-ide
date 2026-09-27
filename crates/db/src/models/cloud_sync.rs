@@ -1,4 +1,6 @@
-use sqlx::{FromRow, SqlitePool};
+use std::collections::HashMap;
+
+use sqlx::{FromRow, SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
 /// Cloud sync outbox (ADR-047 phase 2). Triggers on the synced tables record
@@ -35,11 +37,153 @@ impl CloudSyncOutbox {
             .execute(&mut *tx)
             .await?;
         if !enabled {
-            sqlx::query("DELETE FROM cloud_sync_outbox")
-                .execute(&mut *tx)
-                .await?;
+            // Everything below belongs to the account that was just unlinked.
+            for statement in [
+                "DELETE FROM cloud_sync_outbox",
+                "DELETE FROM cloud_sync_remote",
+                "UPDATE cloud_sync_state SET pull_revision = 0 WHERE id = 1",
+            ] {
+                sqlx::query(statement).execute(&mut *tx).await?;
+            }
         }
         tx.commit().await
+    }
+
+    /// Switch change capture off inside the caller's transaction and return
+    /// the previous state for [`Self::restore_capture`]. Used while writing
+    /// rows that came from the Cloud, so they are not published back. SQLite
+    /// serializes writers, so no other connection can observe the switch.
+    pub async fn suppress_capture(conn: &mut SqliteConnection) -> Result<bool, sqlx::Error> {
+        let enabled: Option<i64> =
+            sqlx::query_scalar("SELECT enabled FROM cloud_sync_state WHERE id = 1")
+                .fetch_optional(&mut *conn)
+                .await?;
+        sqlx::query("UPDATE cloud_sync_state SET enabled = 0 WHERE id = 1")
+            .execute(&mut *conn)
+            .await?;
+        Ok(enabled == Some(1))
+    }
+
+    pub async fn restore_capture(
+        conn: &mut SqliteConnection,
+        enabled: bool,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE cloud_sync_state SET enabled = $1 WHERE id = 1")
+            .bind(i64::from(enabled))
+            .execute(conn)
+            .await?;
+        Ok(())
+    }
+
+    /// Queue one entity for publishing (e.g. to republish a local edit that
+    /// won a conflict).
+    pub async fn enqueue(
+        pool: &SqlitePool,
+        entity_type: &str,
+        entity_id: Uuid,
+        aux_id: Option<Uuid>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO cloud_sync_outbox (entity_type, entity_id, aux_id, operation)
+             VALUES ($1, $2, $3, 'upsert')",
+        )
+        .bind(entity_type)
+        .bind(entity_id)
+        .bind(aux_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Whether this entity has local changes not yet published.
+    pub async fn has_pending(
+        pool: &SqlitePool,
+        entity_type: &str,
+        entity_id: Uuid,
+        aux_id: Option<Uuid>,
+    ) -> Result<bool, sqlx::Error> {
+        let found: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM cloud_sync_outbox
+             WHERE entity_type = $1 AND entity_id = $2 AND aux_id IS $3 LIMIT 1",
+        )
+        .bind(entity_type)
+        .bind(entity_id)
+        .bind(aux_id)
+        .fetch_optional(pool)
+        .await?;
+        Ok(found.is_some())
+    }
+
+    /// Cloud revisions last seen for the given `(entity_type, entity_id)`s.
+    pub async fn remote_revisions(
+        pool: &SqlitePool,
+        keys: &[(String, String)],
+    ) -> Result<HashMap<(String, String), i64>, sqlx::Error> {
+        let mut found = HashMap::new();
+        for (entity_type, entity_id) in keys {
+            let revision: Option<i64> = sqlx::query_scalar(
+                "SELECT revision FROM cloud_sync_remote WHERE entity_type = $1 AND entity_id = $2",
+            )
+            .bind(entity_type)
+            .bind(entity_id)
+            .fetch_optional(pool)
+            .await?;
+            if let Some(revision) = revision {
+                found.insert((entity_type.clone(), entity_id.clone()), revision);
+            }
+        }
+        Ok(found)
+    }
+
+    /// Remember the Cloud revision of an entity (after publishing or applying
+    /// it). Never moves backwards.
+    pub async fn record_remote_revision(
+        pool: &SqlitePool,
+        entity_type: &str,
+        entity_id: &str,
+        revision: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO cloud_sync_remote (entity_type, entity_id, revision) VALUES ($1, $2, $3)
+             ON CONFLICT(entity_type, entity_id)
+             DO UPDATE SET revision = MAX(revision, excluded.revision)",
+        )
+        .bind(entity_type)
+        .bind(entity_id)
+        .bind(revision)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Forget an entity's Cloud revision (it was deleted remotely).
+    pub async fn forget_remote(
+        pool: &SqlitePool,
+        entity_type: &str,
+        entity_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM cloud_sync_remote WHERE entity_type = $1 AND entity_id = $2")
+            .bind(entity_type)
+            .bind(entity_id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn pull_revision(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
+        let revision: Option<i64> =
+            sqlx::query_scalar("SELECT pull_revision FROM cloud_sync_state WHERE id = 1")
+                .fetch_optional(pool)
+                .await?;
+        Ok(revision.unwrap_or(0))
+    }
+
+    pub async fn set_pull_revision(pool: &SqlitePool, revision: i64) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE cloud_sync_state SET pull_revision = $1 WHERE id = 1")
+            .bind(revision)
+            .execute(pool)
+            .await?;
+        Ok(())
     }
 
     /// Queue every synced entity once — the bootstrap of a newly linked
@@ -140,6 +284,55 @@ mod tests {
             .await
             .unwrap();
         id
+    }
+
+    #[tokio::test]
+    async fn suppressed_capture_skips_cloud_writes_and_restores_state() {
+        let pool = pool().await;
+        CloudSyncOutbox::set_enabled(&pool, true).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let previous = CloudSyncOutbox::suppress_capture(&mut tx).await.unwrap();
+        sqlx::query("INSERT INTO workspaces (id, branch, name) VALUES (?, 'main', 'remote')")
+            .bind(Uuid::new_v4())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        CloudSyncOutbox::restore_capture(&mut tx, previous)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(CloudSyncOutbox::pending(&pool).await.unwrap(), 0);
+        assert!(CloudSyncOutbox::is_enabled(&pool).await.unwrap());
+        // A local write afterwards is captured again.
+        insert_workspace(&pool).await;
+        assert_eq!(CloudSyncOutbox::pending(&pool).await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn remote_revisions_only_move_forward_and_reset_on_unlink() {
+        let pool = pool().await;
+        CloudSyncOutbox::set_enabled(&pool, true).await.unwrap();
+        CloudSyncOutbox::record_remote_revision(&pool, "issue", "a", 7)
+            .await
+            .unwrap();
+        CloudSyncOutbox::record_remote_revision(&pool, "issue", "a", 5)
+            .await
+            .unwrap();
+        CloudSyncOutbox::set_pull_revision(&pool, 42).await.unwrap();
+        let key = ("issue".to_string(), "a".to_string());
+        let found = CloudSyncOutbox::remote_revisions(&pool, std::slice::from_ref(&key))
+            .await
+            .unwrap();
+        assert_eq!(found.get(&key), Some(&7));
+
+        CloudSyncOutbox::set_enabled(&pool, false).await.unwrap();
+        assert!(
+            CloudSyncOutbox::remote_revisions(&pool, &[key])
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(CloudSyncOutbox::pull_revision(&pool).await.unwrap(), 0);
     }
 
     #[tokio::test]

@@ -18,6 +18,7 @@ use axum::{
 };
 use base64::Engine;
 use db::models::{
+    cloud_sync::CloudSyncOutbox,
     coding_agent_turn::CodingAgentTurn,
     execution_process::ExecutionProcess,
     file::WorkspaceAttachment,
@@ -208,9 +209,9 @@ struct CloudChatPayload {
 }
 
 #[derive(Debug, Serialize)]
-struct CloudImportSummary {
-    imported: usize,
-    skipped: usize,
+pub(crate) struct CloudImportSummary {
+    pub imported: usize,
+    pub skipped: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1076,7 +1077,18 @@ async fn import_cloud_context(
             "Cloud snapshot contains more than {MAX_RECORDS} records"
         )));
     }
+    let summary = import_cloud_records(&deployment.db().pool, request.records).await?;
+    Ok(ResponseJson(ApiResponse::success(summary)))
+}
 
+/// Apply Cloud records (projects, statuses, issues, workspaces, links,
+/// workspace contexts, chat) to the local database in one transaction.
+/// Shared by the Cloud IDE bootstrap import and the board puller
+/// (`routes::cloud_pull`). Issues keep the local row when it is newer.
+pub(crate) async fn import_cloud_records(
+    pool: &sqlx::SqlitePool,
+    records: Vec<CloudImportRecord>,
+) -> Result<CloudImportSummary, ApiError> {
     let mut projects = Vec::new();
     let mut statuses = Vec::new();
     let mut issues = Vec::new();
@@ -1086,7 +1098,7 @@ async fn import_cloud_context(
     let mut chats = Vec::new();
     let mut skipped = 0;
 
-    for record in request.records {
+    for record in records {
         if record.operation != "upsert" {
             skipped += 1;
             continue;
@@ -1124,8 +1136,11 @@ async fn import_cloud_context(
         }
     }
 
-    let pool = &deployment.db().pool;
     let mut transaction = pool.begin().await?;
+    // Rows written here came from the Cloud: keep the outbox triggers from
+    // queueing them to be published straight back. Writers are serialized,
+    // so no other connection observes capture switched off.
+    let capture = CloudSyncOutbox::suppress_capture(&mut transaction).await?;
 
     // Insert projects without parent_id first. A snapshot is sorted by update
     // time, not by the project hierarchy, so setting the parent in a second
@@ -1595,8 +1610,9 @@ async fn import_cloud_context(
         .await?;
     }
 
+    CloudSyncOutbox::restore_capture(&mut transaction, capture).await?;
     transaction.commit().await?;
-    Ok(ResponseJson(ApiResponse::success(CloudImportSummary {
+    Ok(CloudImportSummary {
         imported: projects.len()
             + statuses.len()
             + issues.len()
@@ -1605,7 +1621,7 @@ async fn import_cloud_context(
             + imported_context_records
             + chats.len(),
         skipped,
-    })))
+    })
 }
 
 /// Dispatch a message received from Mobile through the local Desktop session.

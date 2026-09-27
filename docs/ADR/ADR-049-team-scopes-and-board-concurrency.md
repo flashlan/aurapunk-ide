@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed — rollout step 1 (Cloud) implemented 2026-09-27
+Proposed — rollout steps 1 (Cloud) and 2 (Desktop) implemented 2026-09-27
 
 ## Date
 
@@ -68,8 +68,22 @@ AuraPunk Cloud already has `tenants` (plan `personal` | `enterprise`) and
    `X-AuraPunk-Scope` selects the scope (personal by default, tenant scopes
    for members only). Verified in production: new keys, continuous revision,
    403 for a foreign tenant, command round trip.
-2. Desktop: `cloud_sync_remote`, base revisions on publish, board puller for
-   shared scopes, conflict merge; remove the webview mirror.
+2. **Desktop (done, personal scope).** `cloud_sync_remote` keeps the Cloud
+   revision per board entity; the publisher sends it as `baseRevision` and
+   records `applied` revisions from the push response. `routes::cloud_pull`
+   bootstraps from a paged snapshot, then long-polls the log and applies
+   project/status/issue/link changes through `import_cloud_records` with
+   change capture suppressed (writers are serialized, so the switch is
+   invisible to other connections). Entities with unpublished local changes
+   are skipped; equal records only update the revision (JSON numbers compare
+   by value — the Cloud re-serializes `1.0` as `1`); links to workspaces on
+   another instance are not materialized; remote issue/status/link deletions
+   apply, a project deletion is only logged. Conflicts: issues and projects
+   keep the newer `updated_at` (the loser is republished on top of the remote
+   revision, or the remote record is applied); a record deleted remotely is
+   recreated from the local row. The webview mirror is gone. Verified with a
+   stateful mock Cloud: remote edit applied without echo, both conflict
+   directions, create/delete round trip. Team scopes wait for step 3.
 3. Product: open team creation (ADR-048 T1) and per-project "share with team".
 
 ## Consequences
