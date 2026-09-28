@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.41] - 2026-09-28
+
+### Fixed
+
+- **Installing a coding agent works on a machine without Node.js.** On a
+  clean Windows (or any system without npm) the installer now downloads
+  Node.js for you — verified, into the app's own folder, no administrator
+  rights — instead of failing with "npm is required". The agents that run
+  through npx use it too.
+
+### Added
+
+- **Requirements in the setup wizard.** The first-run screen checks Node.js
+  and Git and installs what is missing with one click (Git on Windows via the
+  official portable build; on macOS it opens the Command Line Tools
+  installer).
+
 ## [0.3.40] - 2026-09-28
 
 ### Fixed

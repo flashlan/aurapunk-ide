@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookOpenIcon,
   BirdIcon,
@@ -21,6 +21,7 @@ import {
   SoundFile,
   type AvailabilityInfo,
   type EditorConfig,
+  type DependencyStatus,
 } from 'shared/types';
 import { configApi } from '@/shared/lib/api';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -152,6 +153,18 @@ export function LandingPage() {
     Partial<Record<EditorType, boolean>>
   >({});
   const [installingTool, setInstallingTool] = useState<string | null>(null);
+  const [dependencies, setDependencies] = useState<DependencyStatus[] | null>(
+    null
+  );
+  const refreshDependencies = useCallback(() => {
+    configApi
+      .getDependencies()
+      .then(setDependencies)
+      .catch(() => setDependencies(null));
+  }, []);
+  useEffect(() => {
+    refreshDependencies();
+  }, [refreshDependencies]);
   const [installError, setInstallError] = useState<string | null>(null);
   const [availabilityReady, setAvailabilityReady] = useState(false);
   const hasRedirectedToRootRef = useRef(false);
@@ -293,8 +306,8 @@ export function LandingPage() {
   };
 
   const installTool = async (
-    kind: 'agent' | 'editor',
-    id: BaseCodingAgent | EditorType,
+    kind: 'agent' | 'editor' | 'dependency',
+    id: BaseCodingAgent | EditorType | 'node' | 'git',
     name: string
   ) => {
     const key = `${kind}:${id}`;
@@ -303,7 +316,11 @@ export function LandingPage() {
 
     try {
       await configApi.installTool(kind, id);
-      if (kind === 'agent') {
+      // Installing an agent may also provision Node.js.
+      refreshDependencies();
+      if (kind === 'dependency') {
+        // Status comes from refreshDependencies above.
+      } else if (kind === 'agent') {
         setAgentAvailability((current) => ({
           ...current,
           [id as BaseCodingAgent]: { type: 'INSTALLATION_FOUND' },
@@ -452,6 +469,59 @@ export function LandingPage() {
                   {availabilityReady ? 'Installed' : 'Detecting...'}
                 </span>
               </div>
+              {dependencies && (
+                <div className="space-y-quarter rounded-sm border border-border bg-panel p-half">
+                  <p className="text-xs font-medium text-normal">
+                    Requirements
+                  </p>
+                  {dependencies.map((dependency) => {
+                    const label = dependency.id === 'node' ? 'Node.js' : 'Git';
+                    const toolKey = `dependency:${dependency.id}`;
+                    return (
+                      <div
+                        key={dependency.id}
+                        className="flex items-center gap-base text-xs"
+                      >
+                        <span
+                          className={cn(
+                            'size-1.5 shrink-0 rounded-full',
+                            dependency.installed ? 'bg-success' : 'bg-error'
+                          )}
+                          aria-hidden="true"
+                        />
+                        <span className="w-14 shrink-0 text-normal">
+                          {label}
+                        </span>
+                        <span className="flex-1 truncate text-low">
+                          {dependency.installed
+                            ? (dependency.version ?? 'Installed')
+                            : 'Missing — the coding agents need it'}
+                        </span>
+                        {!dependency.installed && dependency.installable && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void installTool(
+                                'dependency',
+                                dependency.id as 'node' | 'git',
+                                label
+                              )
+                            }
+                            disabled={installingTool !== null}
+                            className="inline-flex shrink-0 items-center gap-1 text-brand hover:underline disabled:cursor-wait disabled:opacity-60"
+                            aria-label={`Install ${label}`}
+                          >
+                            <DownloadSimpleIcon className="size-icon-xs" />
+                            {installingTool === toolKey
+                              ? 'Installing...'
+                              : 'Install'}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               <div className="grid gap-1.5">
                 {executorOptions.map((agent) => {
                   const selected = selectedAgent === agent;
@@ -526,7 +596,9 @@ export function LandingPage() {
               </div>
               <p className="text-xs text-low">
                 Install runs the official package installer inside this
-                environment. Authentication is still performed with the CLI.
+                environment, and first installs Node.js for you when it is
+                missing — no administrator rights needed. Authentication is
+                still performed with the CLI.
               </p>
             </section>
 

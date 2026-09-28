@@ -69,6 +69,7 @@ pub fn router() -> Router<DeploymentImpl> {
         )
         .route("/agents/check-availability", get(check_agent_availability))
         .route("/tools/install", post(install_tool))
+        .route("/tools/dependencies", get(get_dependencies))
         .route("/agents/preset-options", get(get_agent_preset_options))
         .route("/agents/models", get(get_agent_models))
         .route("/agents/catalog", get(get_agent_catalog))
@@ -605,6 +606,8 @@ pub struct CheckAgentAvailabilityQuery {
 pub enum InstallToolKind {
     Agent,
     Editor,
+    /// Runtime the agents need: `node` (Node.js + npm/npx) or `git`.
+    Dependency,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -619,29 +622,178 @@ pub struct InstallToolResponse {
     pub message: String,
 }
 
+/// Paths the install scripts write managed tools to (see
+/// `utils::managed_tools`).
+fn managed_dir(tool: &str) -> String {
+    utils::managed_tools::managed_root()
+        .join(tool)
+        .display()
+        .to_string()
+}
+
+/// POSIX sh: make `npm` available, downloading the current Node.js LTS
+/// (v22 line) into the app's managed tools dir when the machine has none.
+/// Checksum-verified against nodejs.org's SHASUMS256.txt.
+fn ensure_node_sh() -> String {
+    format!(
+        r#"if ! command -v npm >/dev/null 2>&1; then
+  NODE_ROOT="{root}"
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) NODE_PLATFORM=darwin-arm64 ;;
+    Darwin-x86_64) NODE_PLATFORM=darwin-x64 ;;
+    Linux-aarch64|Linux-arm64) NODE_PLATFORM=linux-arm64 ;;
+    Linux-x86_64) NODE_PLATFORM=linux-x64 ;;
+    *) echo "No Node.js build for $(uname -s)-$(uname -m); install Node.js 20+ and retry" >&2; exit 127 ;;
+  esac
+  command -v curl >/dev/null 2>&1 || {{ echo "curl is required to download Node.js" >&2; exit 127; }}
+  NODE_BASE="https://nodejs.org/dist/latest-v22.x"
+  NODE_SUMS="$(curl -fsSL "$NODE_BASE/SHASUMS256.txt")"
+  NODE_LINE="$(printf '%s\n' "$NODE_SUMS" | grep " node-v[0-9.]*-$NODE_PLATFORM.tar.gz$" | head -n1)"
+  NODE_FILE="$(printf '%s' "$NODE_LINE" | awk '{{print $2}}')"
+  NODE_SHA="$(printf '%s' "$NODE_LINE" | awk '{{print $1}}')"
+  [ -n "$NODE_FILE" ] || {{ echo "Could not find a Node.js download for $NODE_PLATFORM" >&2; exit 1; }}
+  mkdir -p "$NODE_ROOT"
+  NODE_TMP="$(mktemp -d)"
+  curl -fsSL "$NODE_BASE/$NODE_FILE" -o "$NODE_TMP/$NODE_FILE"
+  if command -v shasum >/dev/null 2>&1; then NODE_GOT="$(shasum -a 256 "$NODE_TMP/$NODE_FILE" | awk '{{print $1}}')"; else NODE_GOT="$(sha256sum "$NODE_TMP/$NODE_FILE" | awk '{{print $1}}')"; fi
+  [ "$NODE_GOT" = "$NODE_SHA" ] || {{ echo "Node.js download checksum mismatch" >&2; exit 1; }}
+  tar -xzf "$NODE_TMP/$NODE_FILE" -C "$NODE_ROOT"
+  rm -rf "$NODE_TMP"
+  export PATH="$NODE_ROOT/${{NODE_FILE%.tar.gz}}/bin:$PATH"
+fi
+"#,
+        root = managed_dir("node")
+    )
+}
+
+/// PowerShell helper shared by the Windows install scripts: prepend a dir to
+/// the user's PATH (persisted in the registry, which the backend re-reads) and
+/// to this session's.
+const ADD_USER_PATH_PS: &str = r#"function Add-UserPath([string]$dir) {
+  $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+  if (-not (($userPath -split ';') -contains $dir)) {
+    [Environment]::SetEnvironmentVariable('Path', (($dir, $userPath) -join ';').TrimEnd(';'), 'User')
+  }
+  $env:Path = "$dir;$env:Path"
+}
+"#;
+
+/// PowerShell: make `npm` available on Windows, downloading the current
+/// Node.js LTS zip (checksum-verified) into the app's managed tools dir and
+/// adding it to the user's PATH — no administrator rights needed.
+fn ensure_node_powershell() -> String {
+    format!(
+        r#"{add_user_path}if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {{
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  $ProgressPreference = 'SilentlyContinue'
+  $nodeRoot = '{root}'
+  $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') {{ 'arm64' }} else {{ 'x64' }}
+  $lts = (Invoke-RestMethod 'https://nodejs.org/dist/index.json') | Where-Object {{ $_.lts }} | Select-Object -First 1
+  $name = "node-$($lts.version)-win-$arch"
+  $sums = (Invoke-WebRequest "https://nodejs.org/dist/$($lts.version)/SHASUMS256.txt" -UseBasicParsing).Content
+  $expected = ([regex]::Match($sums, "(?m)^([0-9a-f]{{64}})\s+$([regex]::Escape($name)).zip$")).Groups[1].Value
+  if (-not $expected) {{ throw "Could not find the checksum for $name.zip" }}
+  New-Item -ItemType Directory -Force -Path $nodeRoot | Out-Null
+  $zip = Join-Path $env:TEMP "$name.zip"
+  Invoke-WebRequest "https://nodejs.org/dist/$($lts.version)/$name.zip" -OutFile $zip -UseBasicParsing
+  if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() -ne $expected) {{ throw 'Node.js download checksum mismatch' }}
+  Expand-Archive $zip -DestinationPath $nodeRoot -Force
+  Remove-Item $zip -Force
+  Add-UserPath (Join-Path $nodeRoot $name)
+}}
+"#,
+        add_user_path = ADD_USER_PATH_PS,
+        root = managed_dir("node")
+    )
+}
+
+/// PowerShell: install portable Git for Windows (MinGit, the official
+/// minimal build) into the app's managed tools dir when `git` is missing.
+fn ensure_git_powershell() -> String {
+    format!(
+        r#"if (-not (Get-Command git -ErrorAction SilentlyContinue)) {{
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  $ProgressPreference = 'SilentlyContinue'
+  $gitRoot = '{root}'
+  $suffix = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') {{ 'arm64' }} else {{ '64-bit' }}
+  $release = Invoke-RestMethod 'https://api.github.com/repos/git-for-windows/git/releases/latest' -Headers @{{ 'User-Agent' = 'AuraPunk' }}
+  $asset = $release.assets | Where-Object {{ $_.name -match "^MinGit-[0-9.()]+-$suffix\.zip$" }} | Select-Object -First 1
+  if (-not $asset) {{ throw "No MinGit build found for $suffix" }}
+  $zip = Join-Path $env:TEMP $asset.name
+  Invoke-WebRequest $asset.browser_download_url -OutFile $zip -UseBasicParsing
+  if ($asset.digest -and $asset.digest.StartsWith('sha256:')) {{
+    if ((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() -ne $asset.digest.Substring(7)) {{ throw 'Git download checksum mismatch' }}
+  }}
+  if (Test-Path $gitRoot) {{ Remove-Item $gitRoot -Recurse -Force }}
+  New-Item -ItemType Directory -Force -Path $gitRoot | Out-Null
+  Expand-Archive $zip -DestinationPath $gitRoot -Force
+  Remove-Item $zip -Force
+  Add-UserPath (Join-Path $gitRoot 'cmd')
+}}
+"#,
+        root = managed_dir("git")
+    )
+}
+
 fn npm_install_script(package: &str, executable: &str) -> String {
     format!(
         r#"set -eu
-command -v npm >/dev/null 2>&1 || {{ echo "npm is required to install this tool" >&2; exit 127; }}
-mkdir -p "$HOME/.local"
+{ensure_node}mkdir -p "$HOME/.local"
 npm install --prefix "$HOME/.local" --global {package}
 export PATH="$HOME/.local/bin:$PATH"
 command -v {executable} >/dev/null 2>&1 || {{ echo "The package installed, but {executable} was not found on PATH" >&2; exit 127; }}
-"#
+"#,
+        ensure_node = ensure_node_sh()
     )
 }
 
 fn npm_install_powershell_script(package: &str, executable: &str) -> String {
     format!(
         r#"$ErrorActionPreference = 'Stop'
-if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {{ throw 'npm is required to install this tool' }}
-$prefix = Join-Path $env:USERPROFILE '.local'
+{ensure_node}$prefix = Join-Path $env:USERPROFILE '.local'
 New-Item -ItemType Directory -Force -Path $prefix | Out-Null
 npm install --prefix $prefix --global {package}
-$env:Path = "$prefix;$env:Path"
+if ($LASTEXITCODE -ne 0) {{ throw "npm install failed for {package}" }}
+Add-UserPath $prefix
 if (-not (Get-Command {executable} -ErrorAction SilentlyContinue)) {{ throw 'The package installed, but {executable} was not found on PATH' }}
-"#
+"#,
+        ensure_node = ensure_node_powershell()
     )
+}
+
+/// Install a runtime dependency (`node` or `git`).
+fn dependency_install_script(id: &str) -> Option<String> {
+    match (id, cfg!(windows)) {
+        ("node", true) => Some(format!(
+            "$ErrorActionPreference = 'Stop'\n{}\nif (-not (Get-Command npm -ErrorAction SilentlyContinue)) {{ throw 'Node.js was installed, but npm was not found' }}\n",
+            ensure_node_powershell()
+        )),
+        ("node", false) => Some(format!(
+            "set -eu\n{}command -v npm >/dev/null 2>&1 || {{ echo 'Node.js was installed, but npm was not found' >&2; exit 127; }}\n",
+            ensure_node_sh()
+        )),
+        ("git", true) => Some(format!(
+            "$ErrorActionPreference = 'Stop'\n{}{}\nif (-not (Get-Command git -ErrorAction SilentlyContinue)) {{ throw 'Git was installed, but git was not found' }}\n",
+            ADD_USER_PATH_PS,
+            ensure_git_powershell()
+        )),
+        // macOS ships Git with the Command Line Tools; the system installer
+        // must be confirmed by the user.
+        ("git", false) => Some(
+            r#"set -eu
+command -v git >/dev/null 2>&1 && git --version >/dev/null 2>&1 && exit 0
+if [ "$(uname -s)" = "Darwin" ]; then
+  xcode-select --install >/dev/null 2>&1 || true
+  echo "macOS is installing Git with the Command Line Tools: confirm the system dialog, then check again." >&2
+  exit 3
+fi
+echo "Install Git with your distribution's package manager (e.g. sudo apt install git), then check again." >&2
+exit 2
+"#
+            .to_string(),
+        ),
+        _ => None,
+    }
 }
 
 fn agent_install_script(agent: &BaseCodingAgent) -> Option<String> {
@@ -731,6 +883,7 @@ fn install_script(request: &InstallToolRequest) -> Option<String> {
             let editor = request.id.parse::<EditorType>().ok()?;
             editor_install_script(&editor)
         }
+        InstallToolKind::Dependency => dependency_install_script(&request.id),
     }
 }
 
@@ -787,10 +940,75 @@ async fn install_tool(
         )));
     }
 
+    // Agents spawned from now on must see the tools just provisioned.
+    utils::managed_tools::add_managed_tools_to_path();
+
     Ok(ResponseJson(ApiResponse::success(InstallToolResponse {
         installed: true,
         message: format!("{} installation completed", request.id),
     })))
+}
+
+#[derive(Debug, Serialize, TS)]
+pub struct DependencyStatus {
+    /// `node` or `git`.
+    pub id: String,
+    pub installed: bool,
+    pub version: Option<String>,
+    /// Installed by the app into its own tools dir.
+    pub managed: bool,
+    /// Whether the app can install it with one click on this OS.
+    pub installable: bool,
+}
+
+async fn tool_version(executable: &str) -> Option<(String, std::path::PathBuf)> {
+    let path = utils::shell::resolve_executable_path(executable).await?;
+    let output = TokioCommand::new(&path)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .output()
+        .await
+        .ok()?;
+    output.status.success().then(|| {
+        (
+            String::from_utf8_lossy(&output.stdout).trim().to_string(),
+            path,
+        )
+    })
+}
+
+/// What the coding agents need from the machine: Node.js (npm/npx) and Git.
+/// The onboarding wizard offers one-click installs for what is missing.
+async fn get_dependencies() -> ResponseJson<ApiResponse<Vec<DependencyStatus>>> {
+    utils::managed_tools::add_managed_tools_to_path();
+    let root = utils::managed_tools::managed_root();
+    let mut statuses = Vec::new();
+    for (id, executable) in [
+        ("node", if cfg!(windows) { "npm.cmd" } else { "npm" }),
+        ("git", "git"),
+    ] {
+        let found = if id == "node" {
+            // npm must exist; report node's version.
+            match utils::shell::resolve_executable_path(executable).await {
+                Some(_) => tool_version("node").await,
+                None => None,
+            }
+        } else {
+            tool_version(executable).await
+        };
+        statuses.push(DependencyStatus {
+            id: id.to_string(),
+            installed: found.is_some(),
+            version: found.as_ref().map(|(version, _)| version.clone()),
+            managed: found
+                .as_ref()
+                .is_some_and(|(_, path)| path.starts_with(&root)),
+            // Git is installed silently only on Windows (MinGit); macOS needs
+            // the system dialog and Linux its package manager.
+            installable: id == "node" || cfg!(windows) || cfg!(target_os = "macos"),
+        });
+    }
+    ResponseJson(ApiResponse::success(statuses))
 }
 
 async fn check_agent_availability(
@@ -1153,4 +1371,66 @@ async fn handle_executor_discovered_options_ws(
         .send(LogMsg::Finished.to_ws_message_unchecked())
         .await;
     Ok(())
+}
+
+#[cfg(test)]
+mod managed_tool_tests {
+    use super::*;
+
+    #[test]
+    fn install_scripts_provision_node_before_npm() {
+        let unix = npm_install_script("@anthropic-ai/claude-code", "claude");
+        let ensure = unix.find("if ! command -v npm").unwrap();
+        let install = unix.find("npm install").unwrap();
+        assert!(ensure < install, "Node must be provisioned before npm runs");
+        assert!(
+            unix.contains("SHASUMS256.txt"),
+            "download is checksum-verified"
+        );
+
+        let windows = npm_install_powershell_script("@anthropic-ai/claude-code", "claude");
+        assert!(
+            !windows.contains("npm is required"),
+            "no hard npm requirement"
+        );
+        assert!(windows.contains("function Add-UserPath"));
+        assert!(windows.contains("Get-FileHash"));
+        assert!(windows.find("Invoke-RestMethod").unwrap() < windows.find("npm install").unwrap());
+
+        let git = dependency_install_script("git").unwrap();
+        if cfg!(windows) {
+            assert!(git.contains("MinGit") && git.contains("function Add-UserPath"));
+        } else {
+            assert!(git.contains("xcode-select") || git.contains("package manager"));
+        }
+        assert!(dependency_install_script("node").is_some());
+        assert!(dependency_install_script("python").is_none());
+    }
+
+    /// Downloads Node.js (~50 MB): run with `--ignored` to check the POSIX
+    /// provisioning end to end on a machine without npm on PATH.
+    #[cfg(unix)]
+    #[test]
+    #[ignore]
+    fn node_provisioning_works_without_npm() {
+        let home = tempfile::tempdir().unwrap();
+        // SAFETY: test-only, single-threaded use of HOME for dirs::.
+        unsafe { std::env::set_var("HOME", home.path()) };
+        let script = format!("set -eu\n{}npm --version\n", ensure_node_sh());
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&script)
+            .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+            .env("HOME", home.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let dirs = utils::managed_tools::managed_bin_dirs();
+        assert_eq!(dirs.len(), 1, "{dirs:?}");
+        assert!(dirs[0].starts_with(home.path()));
+    }
 }

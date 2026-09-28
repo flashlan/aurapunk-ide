@@ -42,6 +42,7 @@ import {
   RenameBranchResponse,
   CheckEditorAvailabilityResponse,
   AvailabilityInfo,
+  DependencyStatus,
   BaseCodingAgent,
   ExecutorConfig,
   DraftFollowUpData,
@@ -1382,9 +1383,16 @@ export const configApi = {
     );
     return handleApiResponse<AvailabilityInfo>(response);
   },
+  /** Node.js and Git status, with whether the app can install them. */
+  getDependencies: async (): Promise<DependencyStatus[]> => {
+    const response = await makeRequest('/api/tools/dependencies', {
+      cache: 'no-store',
+    });
+    return handleApiResponse<DependencyStatus[]>(response);
+  },
   installTool: async (
-    kind: 'agent' | 'editor',
-    id: BaseCodingAgent | EditorType
+    kind: 'agent' | 'editor' | 'dependency',
+    id: BaseCodingAgent | EditorType | 'node' | 'git'
   ): Promise<{ installed: boolean; message: string }> => {
     const response = await makeRequest('/api/tools/install', {
       method: 'POST',

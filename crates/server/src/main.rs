@@ -40,6 +40,10 @@ async fn main() -> Result<(), VibeKanbanError> {
         .with(tracing_subscriber::fmt::layer().with_filter(env_filter))
         .init();
 
+    // Node.js / Git the app provisioned itself (clean machines) must be on
+    // PATH before any agent is spawned.
+    utils::managed_tools::add_managed_tools_to_path();
+
     // Create asset directory if it doesn't exist
     if !asset_dir().exists() {
         std::fs::create_dir_all(asset_dir())?;

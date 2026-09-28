@@ -292,6 +292,9 @@ impl ServerHandle {
 /// resolves to `::1` (IPv6) first — binding to `127.0.0.1` (IPv4) while
 /// the browser connects via `::1` causes "connection refused".
 pub async fn start() -> anyhow::Result<ServerHandle> {
+    // Node.js / Git the app provisioned itself (clean machines) must be on
+    // PATH before any agent is spawned.
+    utils::managed_tools::add_managed_tools_to_path();
     let host = if std::env::var("AURAPUNK_LAN_SYNC").as_deref() == Ok("1") {
         "0.0.0.0"
     } else {

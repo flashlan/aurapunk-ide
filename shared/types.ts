@@ -381,6 +381,20 @@ export type UserSystemInfo = { version: string, config: Config, environment: Env
  */
 capabilities: { [key in string]?: Array<BaseAgentCapability> }, preview_proxy_port: number | null, executors: { [key in BaseCodingAgent]?: ExecutorProfile }, };
 
+export type DependencyStatus = { 
+/**
+ * `node` or `git`.
+ */
+id: string, installed: boolean, version: string | null, 
+/**
+ * Installed by the app into its own tools dir.
+ */
+managed: boolean, 
+/**
+ * Whether the app can install it with one click on this OS.
+ */
+installable: boolean, };
+
 export type Environment = { os_type: string, os_version: string, os_architecture: string, bitness: string, };
 
 export type McpServerQuery = { executor: BaseCodingAgent, };

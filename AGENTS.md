@@ -937,3 +937,21 @@ fixed them. Newest last.
   `/api/integration-refusals`, seção "Integration Guard" no painel Agent
   Activity (N merged · M stopped, com motivo e arquivos).
 - **Disco:** `target/debug` chegou a 52 GB e encheu o disco no meio do build.
+
+### 2026-09-28 — Certificação MS Store: instalar agentes num Windows limpo
+- **Reprovação (10.1.2.10):** "Installation failed for CLAUDE_CODE: npm is
+  required to install this tool" num Surface Laptop 5 (Win 11 22631). O botão
+  de instalar agente exigia `npm`, que um Windows limpo não tem — e o Claude
+  Code headless e vários agentes rodam via `npx`, então Node é necessário
+  também para EXECUTAR, não só instalar.
+- **Correção:** `utils::managed_tools` (pasta `<data-local>/AuraPunk/tools`):
+  quando falta `npm`, o instalador baixa o Node LTS (nodejs.org, SHA-256 do
+  `SHASUMS256.txt`) sem admin; no Windows põe no PATH do usuário (registro,
+  que o backend relê) e o backend prepende as pastas gerenciadas ao próprio
+  PATH ao iniciar e após cada instalação. Git no Windows: MinGit oficial
+  (release do git-for-windows, digest SHA-256). Rota `GET
+  /api/tools/dependencies` + bloco "Requirements" (Node.js, Git) com botão
+  Install no wizard inicial.
+- **Testado:** provisionamento POSIX real sem npm no PATH (baixou, conferiu,
+  `npm --version` ok). Os scripts PowerShell NÃO rodaram aqui (sem Windows):
+  a validação real é a nova submissão.
