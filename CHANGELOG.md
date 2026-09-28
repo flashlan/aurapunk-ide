@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.37] - 2026-09-27
+
+### Fixed
+
+- **The project map and handoff summaries reach the hosted memory.** They are
+  stored through the memory service's verbatim index (no rewriting into
+  fragments), which is now deployed; 0.3.36 could not write them.
+
 ## [0.3.36] - 2026-09-27
 
 ### Added
