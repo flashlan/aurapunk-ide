@@ -1,16 +1,5 @@
-import { SignInIcon, SignOutIcon, UserCircleIcon } from '@phosphor-icons/react';
 import { useCallback, useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
-import { SidebarBarButton } from '@vibe/ui/components/SidebarBarButton';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@vibe/ui/components/Dropdown';
 import { useCloudUrl, useIsCloudMode } from '@/shared/hooks/useAppMode';
 import { makeLocalApiRequest } from '@/shared/lib/localApiTransport';
 import { makeRequest } from '@/shared/lib/remoteApi';
@@ -18,12 +7,12 @@ import { CloudMemoryDialog } from '@/shared/dialogs/auth/CloudMemoryDialog';
 import { CloudAuthDialog } from '@/shared/dialogs/auth/CloudAuthDialog';
 
 /**
- * Cloud authentication entry points. Authentication is completed by the
- * AuraPunk Cloud website so the desktop app never handles a provider password
- * or stores a browser session itself.
+ * Cloud account state and actions for the sidebar account footer.
+ * Authentication is completed by the AuraPunk Cloud website so the desktop
+ * app never handles a provider password or stores a browser session itself.
+ * Mount once (it owns the auth polling and account-sync effects).
  */
-export function CloudAuthActions() {
-  const { t } = useTranslation('common');
+export function useCloudAccount() {
   const cloudUrl = useCloudUrl();
   const isCloudMode = useIsCloudMode();
   const [account, setAccount] = useState<CloudAccount | null>(null);
@@ -454,61 +443,10 @@ export function CloudAuthActions() {
     void linkCloudSync(null);
   }, [clearPersistedAccount, linkCloudSync, syncMem0Account]);
 
-  return (
-    <>
-      {account ? (
-        // Account and sign-out share one entry: the account button opens a
-        // menu with the dashboard link and the sign-out action.
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <SidebarBarButton
-              label={t('sidebar.account')}
-              icon={UserCircleIcon}
-              title={account.email}
-              aria-label={`${t('sidebar.account')} — ${account.email}`}
-              className="text-normal"
-            />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side="top"
-            align="start"
-            className="min-w-[220px]"
-          >
-            <DropdownMenuLabel className="truncate">
-              {account.email}
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem icon={UserCircleIcon} onClick={openDashboard}>
-              {t('sidebar.accountDashboard')}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              icon={SignOutIcon}
-              variant="destructive"
-              onClick={signOut}
-            >
-              {t('signOut')}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : (
-        // Login and sign-up share one entry: the button opens a modal with
-        // links into both sides of the hosted account flow.
-        <SidebarBarButton
-          label={t('sidebar.logIn')}
-          icon={SignInIcon}
-          onClick={() => void requestCloudAuth()}
-          title={t('sidebar.cloudAuthTitle')}
-          aria-label={t('sidebar.logIn')}
-          className="text-normal"
-          disabled={pending}
-        />
-      )}
-    </>
-  );
+  return { account, pending, requestCloudAuth, openDashboard, signOut };
 }
 
-type CloudAccount = {
+export type CloudAccount = {
   userId: string;
   displayName: string;
   email: string;
