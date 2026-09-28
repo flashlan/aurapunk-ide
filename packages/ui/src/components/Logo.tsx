@@ -66,21 +66,21 @@ export function BrandWordmark({ className }: { className?: string }) {
         PUNK
       </span>
       <span className="self-center rounded-[3px] border border-border px-1.5 py-0.5 text-micro font-semibold leading-none tracking-[0.16em] text-low">
-        IDE
+        ADE
       </span>
     </span>
   );
 }
 
-/** AuraPunk IDE logo used in the desktop application's top bar. */
+/** AuraPunk ADE logo used in the desktop application's top bar. */
 export function BrandLockup({ className }: { className?: string }) {
   return (
     <img
-      // 880px wide: 4x the ~220px max display width (sharp on Retina with
-      // zoom). The 2372px original decoded to ~4 MB of bitmap for a 32px-tall
-      // top-bar logo.
-      src="/aurapunk-ide-logo-bar.png"
-      alt="AuraPunk IDE"
+      // 880px wide (cropped to the artwork): 4x the ~220px max display width,
+      // sharp on Retina with zoom. The 2372px original decoded to ~4 MB of
+      // bitmap for a 32px-tall top-bar logo.
+      src="/aurapunk-ade-logo-bar.png"
+      alt="AuraPunk ADE"
       className={cn(
         'block h-8 w-auto max-w-[220px] object-contain object-left',
         className
@@ -96,7 +96,7 @@ export function GitHubStarBanner({ className }: { className?: string }) {
       href="https://github.com/flashlan/aurapunk-ide"
       target="_blank"
       rel="noreferrer"
-      aria-label="Give Aurapunk IDE a star on GitHub"
+      aria-label="Give AuraPunk ADE a star on GitHub"
       className={cn(
         'flex items-center gap-1.5 rounded border border-brand/40 px-2 py-1',
         'font-ibm-plex-mono text-micro font-semibold tracking-[0.08em] text-brand',
