@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.36] - 2026-09-27
+
 ### Added
 
 - **Project map.** Agents can ask where things live (`project_map`): the
