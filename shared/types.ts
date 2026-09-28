@@ -285,6 +285,14 @@ export type ExecutionProcessRepoState = { id: string, execution_process_id: stri
 
 export type Merge = { "type": "direct" } & DirectMerge | { "type": "pr" } & PrMerge;
 
+export type IntegrationRefusal = { id: string, workspace_id: string, workspace_name: string | null, branch: string, blocker: string, message: string, files: Array<string>, created_at: string, };
+
+export type IntegrationRefusalsResponse = { days: number, 
+/**
+ * Direct merges in the same window, to put the refusals in proportion.
+ */
+merges: number, refusals: Array<IntegrationRefusal>, };
+
 export type DirectMerge = { id: string, workspace_id: string, repo_id: string, merge_commit: string, target_branch_name: string, created_at: string, };
 
 export type PrMerge = { id: string, workspace_id: string, repo_id: string, created_at: string, target_branch_name: string, pr_info: PullRequestInfo, };
@@ -701,7 +709,13 @@ export type CreateFromPrError = { "type": "pr_not_found" } | { "type": "branch_f
 
 export type RepoBranchStatus = { repo_id: string, repo_name: string, commits_behind: number | null, commits_ahead: number | null, has_uncommitted_changes: boolean | null, head_oid: string | null, uncommitted_count: number | null, untracked_count: number | null, target_branch_name: string, remote_commits_behind: number | null, remote_commits_ahead: number | null, merges: Array<Merge>, is_rebase_in_progress: boolean, conflict_op: ConflictOp | null, conflicted_files: Array<string>, is_target_remote: boolean, };
 
-export type UpdateWorkspace = { archived: boolean | null, pinned: boolean | null, name: string | null, };
+export type UpdateWorkspace = { archived: boolean | null, pinned: boolean | null, name: string | null, 
+/**
+ * Archive even though the branch has work not integrated into its
+ * target. Only interactive surfaces (the operator's own action) send it;
+ * agents never do.
+ */
+allow_unintegrated?: boolean, };
 
 export type UpdateSession = { name: string | null, };
 

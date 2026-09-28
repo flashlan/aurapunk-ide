@@ -215,7 +215,7 @@ impl McpServer {
     }
 
     #[tool(
-        description = "Update a workspace's archived, pinned, or name fields. `workspace_id` is optional if running inside that workspace context."
+        description = "Update a workspace's archived, pinned, or name fields. Archiving is refused while the branch has commits not integrated into its target or uncommitted changes: integrate first (complete_workspace_card / merge_workspace); never archive unmerged work. `workspace_id` is optional if running inside that workspace context."
     )]
     async fn update_workspace(
         &self,
@@ -239,6 +239,9 @@ impl McpServer {
             archived,
             pinned,
             name,
+            // Agents never override: archiving work that was not integrated
+            // is the operator's decision, taken in the app.
+            allow_unintegrated: None,
         };
 
         let updated: Workspace = match self.send_json(self.client.put(&url).json(&payload)).await {

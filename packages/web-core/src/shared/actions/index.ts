@@ -294,7 +294,12 @@ export const Actions = {
         : null;
 
       // Perform the archive/unarchive
-      await workspacesApi.update(workspaceId, { archived: !wasArchived });
+      // The operator's own action: allowed even with unintegrated work
+      // (agents are refused by the backend).
+      await workspacesApi.update(workspaceId, {
+        archived: !wasArchived,
+        allow_unintegrated: true,
+      });
       invalidateWorkspaceQueries(ctx.queryClient, workspaceId);
 
       // Select next workspace after successful archive

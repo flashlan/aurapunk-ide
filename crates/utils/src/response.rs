@@ -60,6 +60,11 @@ impl<T, E> ApiResponse<T, E> {
         self.message.as_deref()
     }
 
+    /// Returns a reference to the structured error payload if present.
+    pub fn error_data(&self) -> Option<&E> {
+        self.error_data.as_ref()
+    }
+
     /// Consumes the response, returning the data payload if present.
     pub fn into_data(self) -> Option<T> {
         self.data

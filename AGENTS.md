@@ -62,7 +62,7 @@ A card whose description has no such reference has nothing to fetch — proceed 
 
 ## Completion and Integration Guard Protocol
 
-When the selected pipeline reaches `Integration Guard → Done`, the execution agent must commit its verified work in the workspace and call `complete_workspace_card` itself as the final action. Do not stop after committing, ask the operator to click Merge or Done, wait for the UI, or claim integration without a successful tool response. Do not run `git merge`, `git rebase`, `git update-ref`, or `git push` manually for this stage. If the tool reports a conflict, dirty target, concurrent integration, or Mem0 failure, leave the card open and report the blocker.
+When the selected pipeline reaches `Integration Guard → Done`, the execution agent must commit its verified work in the workspace and call `complete_workspace_card` itself as the final action. Do not stop after committing, ask the operator to click Merge or Done, wait for the UI, or claim integration without a successful tool response. Do not run `git merge`, `git rebase`, `git update-ref`, or `git push` manually for this stage. If the tool reports a conflict or a collision with the operator's uncommitted edits, leave the card open and report the blocker; a concurrent integration is queued and lands by itself. A Mem0 failure no longer blocks Done: it comes back as `memory_warning` — report it.
 
 > **Never touch the operator's uncommitted work in the target checkout.** The
 > target branch (usually `main`) is checked out where the operator works. Its
@@ -919,3 +919,21 @@ fixed them. Newest last.
   trabalho do operador. Teste `merge_goes_around_unrelated_operator_changes` +
   cenário real: card no README integra com `book.md`/`cover.jpg` sujos
   intactos; card no `book.md` é recusado listando só `book.md`, sem stash.
+
+### 2026-09-28 — Guard integra por cima do trabalho do operador (ADR-050 §6)
+- **Merge de três vias no checkout do operador:** arquivo que o operador editou
+  e o card também mudou é combinado em memória por arquivo (`git merge-file`);
+  se tudo combina, backup em `.git/aurapunk-operator-edits/<ts>`, squash, e o
+  arquivo recebe o resultado combinado (card no commit, edição do operador por
+  cima, não commitada). Só bloqueiam: staged, arquivo novo no mesmo caminho,
+  mesmas linhas. Cenário real: card A (corpo) integrou com o título editado
+  pelo operador; card B (título) recusado listando só `doc.md`.
+- **Nunca arquivar/apagar trabalho não integrado:** `PUT/DELETE
+  /api/workspaces/{id}` recusam (409) se a branch tem commits fora do alvo ou
+  alterações não commitadas, salvo `allow_unintegrated` (só a UI envia). A
+  limpeza periódica pula worktrees sujos.
+- **Mem0 vira aviso** no `complete_workspace_card` (`memory_warning`).
+- **Recusas registradas:** tabela `integration_refusals`, rota
+  `/api/integration-refusals`, seção "Integration Guard" no painel Agent
+  Activity (N merged · M stopped, com motivo e arquivos).
+- **Disco:** `target/debug` chegou a 52 GB e encheu o disco no meio do build.

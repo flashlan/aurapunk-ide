@@ -45,6 +45,7 @@ pub mod frontend;
 pub mod health;
 pub mod instance;
 pub mod integration_errors;
+pub mod integration_refusals;
 pub mod jev;
 pub mod kanban;
 pub mod kanban_stream;
@@ -99,6 +100,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(usage::router())
         .merge(jev::router())
         .merge(integration_errors::router())
+        .merge(integration_refusals::router())
         .merge(rlcd::router())
         .merge(project_map::router())
         .merge(memory_migration::router())

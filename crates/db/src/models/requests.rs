@@ -121,6 +121,12 @@ pub struct UpdateWorkspace {
     pub archived: Option<bool>,
     pub pinned: Option<bool>,
     pub name: Option<String>,
+    /// Archive even though the branch has work not integrated into its
+    /// target. Only interactive surfaces (the operator's own action) send it;
+    /// agents never do.
+    #[serde(default)]
+    #[ts(optional)]
+    pub allow_unintegrated: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, TS)]

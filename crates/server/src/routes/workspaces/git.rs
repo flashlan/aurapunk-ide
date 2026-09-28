@@ -320,7 +320,61 @@ pub async fn stream_diff_ws(
 }
 
 #[axum::debug_handler]
+/// Integration Guard merge. Every refusal is recorded
+/// (`integration_refusals`) so the operator can see how often and why merges
+/// stop.
 pub async fn merge_workspace(
+    Extension(workspace): Extension<Workspace>,
+    State(deployment): State<DeploymentImpl>,
+    Json(request): Json<MergeWorkspaceRequest>,
+) -> Result<ResponseJson<ApiResponse<MergeWorkspaceResponse, GitOperationError>>, ApiError> {
+    let workspace_id = workspace.id;
+    let repo_id = request.repo_id;
+    let response = merge_workspace_unrecorded(
+        Extension(workspace),
+        State(deployment.clone()),
+        Json(request),
+    )
+    .await;
+    let refusal = match &response {
+        Ok(ResponseJson(body)) => body.error_data().map(|error| {
+            let value = serde_json::to_value(error).unwrap_or_default();
+            let blocker = value
+                .get("type")
+                .and_then(|t| t.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let files: Vec<String> = ["conflicted_files", "modified", "files"]
+                .iter()
+                .filter_map(|key| value.get(*key)?.as_array().cloned())
+                .flatten()
+                .filter_map(|file| file.as_str().map(str::to_string))
+                .collect();
+            (
+                blocker,
+                body.message().unwrap_or_default().to_string(),
+                files,
+            )
+        }),
+        Err(error) => Some(("error".to_string(), error.to_string(), Vec::new())),
+    };
+    if let Some((blocker, message, files)) = refusal
+        && let Err(error) = db::models::integration_refusal::IntegrationRefusal::record(
+            &deployment.db().pool,
+            workspace_id,
+            repo_id,
+            &blocker,
+            &message,
+            &files,
+        )
+        .await
+    {
+        tracing::warn!(%workspace_id, %error, "could not record the integration refusal");
+    }
+    response
+}
+
+async fn merge_workspace_unrecorded(
     Extension(workspace): Extension<Workspace>,
     State(deployment): State<DeploymentImpl>,
     Json(request): Json<MergeWorkspaceRequest>,
@@ -339,11 +393,13 @@ pub async fn merge_workspace(
     // Integration Guard cleanliness gate (validation phase). The target
     // checkout is usually where the operator works, so it is almost never
     // clean — and those uncommitted changes are the operator's, not ours.
-    // Only two things block: staged changes (the squash commit would sweep
-    // them in) and changes to files this merge writes (Git refuses to
-    // overwrite them). Everything else is left exactly as it is; the squash
-    // commits only the merge's own index. Cheap and read-only, so it runs
-    // before the lease is acquired.
+    // Unrelated changes are left exactly as they are (the squash commits only
+    // the merge's own index). Edits to files this merge also changes are
+    // combined with it by a three-way merge at merge time
+    // (`merge_changes_preserving_operator_edits`). Only staged changes (the
+    // squash would sweep them in) and untracked files at a path the merge
+    // creates block here. Cheap and read-only, so it runs before the lease.
+    let mut operator_paths: Vec<String> = Vec::new();
     {
         let cleanliness = deployment
             .git()
@@ -354,12 +410,13 @@ pub async fn merge_workspace(
                 .merge_touched_paths(&repo.path, &workspace_repo.target_branch, &workspace.branch)?
                 .into_iter()
                 .collect();
-            let mut blocking: Vec<String> = cleanliness
+            operator_paths = cleanliness
                 .modified
                 .iter()
-                .filter(|path| cleanliness.staged.contains(path) || touched.contains(*path))
+                .filter(|path| !cleanliness.staged.contains(path) && touched.contains(*path))
                 .cloned()
                 .collect();
+            let mut blocking: Vec<String> = cleanliness.staged.clone();
             let blocking_untracked: Vec<String> = cleanliness
                 .untracked
                 .iter()
@@ -376,8 +433,8 @@ pub async fn merge_workspace(
                 );
             } else {
                 let message = format!(
-                    "Branch '{}' is checked out with uncommitted changes the merge would collide with: {}. \
-These are the operator's own changes (staged, or in files this card also changes). They were not touched. \
+                    "Branch '{}' is checked out with uncommitted changes the merge cannot go around: {}. \
+These are the operator's own changes (staged files, or new files at a path this card creates). They were not touched. \
 The operator must commit or move them; an agent must NOT stash, commit, reset or discard them.",
                     workspace_repo.target_branch,
                     blocking.join(", "),
@@ -556,14 +613,35 @@ The operator must commit or move them; an agent must NOT stash, commit, reset or
     let merge_commit_id = if task_head == target_head {
         target_head.clone()
     } else {
-        match deployment.git().merge_changes(
+        match deployment.git().merge_changes_preserving_operator_edits(
             &repo.path,
             &worktree_path,
             &workspace.branch,
             &workspace_repo.target_branch,
             &commit_message,
+            &operator_paths,
         ) {
             Ok(sha) => sha,
+            // The operator's uncommitted edits change the same lines as the
+            // card: nothing was touched; report the files, never work around
+            // them by stashing.
+            Err(git::GitServiceError::OperatorEditsCollide { files }) => {
+                let message = format!(
+                    "The operator's uncommitted edits in '{}' change the same lines as this card in: {}. \
+Nothing was touched. The operator must commit or revise those edits; an agent must NOT stash, commit, reset or discard them.",
+                    workspace_repo.target_branch,
+                    files.join(", "),
+                );
+                return Ok(ResponseJson(
+                    ApiResponse::error_with_data(GitOperationError::DirtyWorktree {
+                        message: message.clone(),
+                        branch: workspace_repo.target_branch.clone(),
+                        modified: files,
+                        untracked: Vec::new(),
+                    })
+                    .with_message(message),
+                ));
+            }
             // Textual conflicts surface as structured data (file list) so
             // the UI and agents can act on them instead of showing raw git
             // stderr. Every other failure keeps the generic error path.

@@ -603,7 +603,14 @@ export const workspacesApi = {
 
   update: async (
     workspaceId: string,
-    data: { archived?: boolean; pinned?: boolean; name?: string }
+    data: {
+      archived?: boolean;
+      pinned?: boolean;
+      name?: string;
+      /** Operator's explicit decision to archive work that was never
+       *  integrated (the backend refuses otherwise; agents never send it). */
+      allow_unintegrated?: boolean;
+    }
   ): Promise<Workspace> => {
     const response = await makeRequest(`/api/workspaces/${workspaceId}`, {
       method: 'PUT',
@@ -651,6 +658,9 @@ export const workspacesApi = {
     if (deleteBranches) {
       params.set('delete_branches', 'true');
     }
+    // Deleting from the app is the operator's own confirmed action; the
+    // backend refuses unintegrated work only when this is absent (agents).
+    params.set('allow_unintegrated', 'true');
     const queryString = params.toString();
     const url = `/api/workspaces/${workspaceId}${queryString ? `?${queryString}` : ''}`;
     const response = await makeRequest(url, {

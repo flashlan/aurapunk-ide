@@ -724,6 +724,21 @@ impl GitCli {
         base_branch: &str,
         from_branch: &str,
     ) -> Result<Option<Vec<String>>, GitCliError> {
+        Ok(self
+            .merge_tree_write(repo_path, base_branch, from_branch)?
+            .err())
+    }
+
+    /// Merge `from_branch` into `base_branch` in memory (`git merge-tree
+    /// --write-tree`): `Ok(Ok(tree))` with the merged tree id when clean,
+    /// `Ok(Err(files))` with the conflicted paths otherwise. Nothing is
+    /// touched.
+    pub fn merge_tree_write(
+        &self,
+        repo_path: &Path,
+        base_branch: &str,
+        from_branch: &str,
+    ) -> Result<Result<String, Vec<String>>, GitCliError> {
         self.ensure_available()?;
         let git = resolve_executable_path_blocking("git").ok_or(GitCliError::NotAvailable)?;
         use utils::command_ext::NoWindowExt;
@@ -742,12 +757,17 @@ impl GitCli {
             .no_window()
             .output()
             .map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
+        let stdout = String::from_utf8_lossy(&out.stdout);
         match out.status.code() {
-            Some(0) => Ok(None),
+            Some(0) => Ok(Ok(stdout
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string())),
             // Exit 1: conflicts. stdout is the tree id, then one conflicted
             // path per line.
             Some(1) => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
                 let mut files: Vec<String> = stdout
                     .lines()
                     .skip(1)
@@ -756,17 +776,68 @@ impl GitCli {
                     .map(str::to_string)
                     .collect();
                 files.dedup();
-                Ok(Some(files))
+                Ok(Err(files))
             }
-            _ => Err(GitCliError::CommandFailed(
-                String::from_utf8_lossy(&out.stderr).trim().to_string(),
-            )),
+            _ => Err(GitCliError::CommandFailed(format!(
+                "git merge-tree failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ))),
         }
     }
 
-    /// Undo a conflicted `merge --squash` in a checkout: restore the files the
-    /// merge touched (`git reset --merge` keeps unrelated local changes) and
-    /// drop the pending squash message, so the branch is left as it was.
+    /// Raw bytes of `git <args>` (binary-safe, e.g. `show <rev>:<path>`).
+    pub fn git_bytes<I, S>(&self, repo_path: &Path, args: I) -> Result<Vec<u8>, GitCliError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        self.git_impl(repo_path, args, None, None)
+    }
+
+    /// Three-way merge of one file's contents (`git merge-file`), in memory:
+    /// `Ok(Some(merged))` when the two sides combine without overlapping
+    /// changes, `Ok(None)` when they conflict.
+    pub fn merge_file(
+        &self,
+        base: &[u8],
+        ours: &[u8],
+        theirs: &[u8],
+    ) -> Result<Option<Vec<u8>>, GitCliError> {
+        self.ensure_available()?;
+        let git = resolve_executable_path_blocking("git").ok_or(GitCliError::NotAvailable)?;
+        let dir = tempfile::tempdir().map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
+        let write = |name: &str, bytes: &[u8]| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, bytes)
+                .map(|_| path)
+                .map_err(|e| GitCliError::CommandFailed(e.to_string()))
+        };
+        let (ours_path, base_path, theirs_path) = (
+            write("ours", ours)?,
+            write("base", base)?,
+            write("theirs", theirs)?,
+        );
+        use utils::command_ext::NoWindowExt;
+        let out = Command::new(&git)
+            .args(["merge-file", "-p", "--quiet"])
+            .arg(&ours_path)
+            .arg(&base_path)
+            .arg(&theirs_path)
+            .stdin(Stdio::null())
+            .no_window()
+            .output()
+            .map_err(|e| GitCliError::CommandFailed(e.to_string()))?;
+        match out.status.code() {
+            Some(0) => Ok(Some(out.stdout)),
+            // Positive exit: number of conflicts.
+            Some(code) if code > 0 => Ok(None),
+            _ => Err(GitCliError::CommandFailed(format!(
+                "git merge-file failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ))),
+        }
+    }
+
     pub fn abort_squash(&self, repo_path: &Path) -> Result<(), GitCliError> {
         self.git(repo_path, ["reset", "--merge"])?;
         let squash_msg = self.git(repo_path, ["rev-parse", "--git-path", "SQUASH_MSG"])?;

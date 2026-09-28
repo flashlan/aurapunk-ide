@@ -61,6 +61,8 @@ fn generate_types_content() -> String {
         db::models::agent_work::AgentActivity::decl(),
         db::models::execution_process_repo_state::ExecutionProcessRepoState::decl(),
         db::models::merge::Merge::decl(),
+        db::models::integration_refusal::IntegrationRefusal::decl(),
+        server::routes::integration_refusals::IntegrationRefusalsResponse::decl(),
         db::models::merge::DirectMerge::decl(),
         db::models::merge::PrMerge::decl(),
         db::models::merge::MergeStatus::decl(),

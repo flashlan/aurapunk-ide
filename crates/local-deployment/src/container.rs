@@ -318,9 +318,38 @@ impl LocalContainerService {
             expired_workspaces.len()
         );
         for workspace in &expired_workspaces {
+            // Removing the worktree destroys uncommitted work (commits stay
+            // on the branch). Never reap a worktree that still has changes.
+            if let Some(dirty) = Self::uncommitted_work(workspace) {
+                tracing::warn!(
+                    workspace_id = %workspace.id,
+                    dirty = %dirty,
+                    "Skipping cleanup of an expired workspace with uncommitted changes"
+                );
+                continue;
+            }
             self.cleanup_workspace(workspace).await;
         }
         Ok(())
+    }
+
+    /// The first repository folder inside the workspace container that has
+    /// uncommitted changes (tracked or untracked), if any.
+    fn uncommitted_work(workspace: &Workspace) -> Option<String> {
+        let container = std::path::Path::new(workspace.container_ref.as_deref()?);
+        let entries = std::fs::read_dir(container).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.join(".git").exists() {
+                continue;
+            }
+            // An unreadable status counts as dirty: when unsure, keep it.
+            match git::GitCli::new().git(&path, ["status", "--porcelain"]) {
+                Ok(status) if status.lines().all(|line| line.trim().is_empty()) => {}
+                _ => return Some(path.display().to_string()),
+            }
+        }
+        None
     }
 
     /// Delete any leftover ephemeral (spec-intake) workspaces from a prior run

@@ -1492,3 +1492,132 @@ fn merge_goes_around_unrelated_operator_changes() {
     assert!(status.contains(" M book.md"), "{status}");
     assert!(status.contains("?? cover.jpg"), "{status}");
 }
+
+fn run_git(repo: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+/// The operator edits a file the card also changes, on different lines: the
+/// card is committed and the operator's edit stays uncommitted on top.
+#[test]
+fn merge_combines_operator_edits_in_the_same_file() {
+    let td = TempDir::new().unwrap();
+    let (repo_path, worktree_path) = setup_repo_with_worktree(&td);
+    let main_repo = Repository::open(&repo_path).unwrap();
+    checkout_branch(&main_repo, "main");
+    write_file(&repo_path, "doc.md", "title\n\nintro\n\nbody\n\nend\n");
+    commit_all(&main_repo, "main adds doc");
+    let wt_repo = Repository::open(&worktree_path).unwrap();
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(&worktree_path)
+        .args([
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "merge",
+            "-q",
+            "main",
+        ])
+        .status()
+        .unwrap();
+    write_file(
+        &worktree_path,
+        "doc.md",
+        "title\n\nintro\n\nbody by card\n\nend\n",
+    );
+    commit_all(&wt_repo, "card edits body");
+
+    // Operator's uncommitted edit on another line of the same file.
+    write_file(
+        &repo_path,
+        "doc.md",
+        "title (operator)\n\nintro\n\nbody\n\nend\n",
+    );
+
+    let service = GitService::new();
+    let sha = service
+        .merge_changes_preserving_operator_edits(
+            &repo_path,
+            &worktree_path,
+            "feature",
+            "main",
+            "squash",
+            &["doc.md".to_string()],
+        )
+        .unwrap();
+    assert_eq!(
+        run_git(&repo_path, &["show", &format!("{sha}:doc.md")]),
+        "title\n\nintro\n\nbody by card\n\nend\n",
+        "the commit carries only the card's change"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo_path.join("doc.md")).unwrap(),
+        "title (operator)\n\nintro\n\nbody by card\n\nend\n",
+        "the working copy has both"
+    );
+    let diff = run_git(&repo_path, &["diff", "--", "doc.md"]);
+    assert!(
+        diff.contains("+title (operator)") && !diff.contains("body by card"),
+        "{diff}"
+    );
+    let git_dir = repo_path.join(".git").join("aurapunk-operator-edits");
+    assert!(!git_dir.exists() || std::fs::read_dir(&git_dir).unwrap().next().is_none());
+}
+
+/// Same lines changed by both: nothing is touched and the files are listed.
+#[test]
+fn merge_refuses_operator_edits_on_the_same_lines_without_touching_them() {
+    let td = TempDir::new().unwrap();
+    let (repo_path, worktree_path) = setup_repo_with_worktree(&td);
+    let main_repo = Repository::open(&repo_path).unwrap();
+    checkout_branch(&main_repo, "main");
+    write_file(&repo_path, "doc.md", "line\n");
+    commit_all(&main_repo, "main adds doc");
+    let wt_repo = Repository::open(&worktree_path).unwrap();
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(&worktree_path)
+        .args([
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "merge",
+            "-q",
+            "main",
+        ])
+        .status()
+        .unwrap();
+    write_file(&worktree_path, "doc.md", "line by card\n");
+    commit_all(&wt_repo, "card edits line");
+    write_file(&repo_path, "doc.md", "line by operator\n");
+
+    let service = GitService::new();
+    let before = service.get_branch_oid(&repo_path, "main").unwrap();
+    match service.merge_changes_preserving_operator_edits(
+        &repo_path,
+        &worktree_path,
+        "feature",
+        "main",
+        "squash",
+        &["doc.md".to_string()],
+    ) {
+        Err(git::GitServiceError::OperatorEditsCollide { files }) => {
+            assert_eq!(files, vec!["doc.md".to_string()])
+        }
+        other => panic!("expected OperatorEditsCollide, got {other:?}"),
+    }
+    assert_eq!(service.get_branch_oid(&repo_path, "main").unwrap(), before);
+    assert_eq!(
+        std::fs::read_to_string(repo_path.join("doc.md")).unwrap(),
+        "line by operator\n"
+    );
+}

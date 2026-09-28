@@ -145,6 +145,36 @@ work on one board:
 - Not covered: commits made directly to the target outside the Integration
   Guard (by hand, or pushes) bypass reservations.
 
+### 6. The target checkout is the operator's: merge around it, never through it (implemented 2026-09-28)
+
+- The target branch is checked out where the operator works, so it almost
+  always has uncommitted changes. The gate used to refuse any of them, and the
+  MCP told agents to stash the listed files — an agent stashed the owner's
+  book WIP and it vanished from their folder.
+- Now: unrelated uncommitted changes are left untouched (`git merge --squash`
+  works around them and the commit records only the merge's index). Edits to
+  files the card also changes are combined in memory with a three-way merge
+  per file (`merge_changes_preserving_operator_edits`: base = target, ours =
+  working copy, theirs = merged tree). If every file combines, the working
+  copies are backed up under the git dir, reset for the squash, and receive
+  the combined content afterwards — the card is committed and the operator's
+  edits stay uncommitted on top; any failure restores the backup. Only
+  staged changes, untracked files at a path the card creates, and edits on
+  the same lines stop the merge (`dirty_worktree`, listing just those files,
+  nothing touched). Agents are told never to stash, commit, reset or discard
+  the operator's work.
+- Unintegrated work is never archived or deleted by an agent: archiving or
+  deleting a workspace whose branch has commits not in its target, or
+  uncommitted changes, is refused unless the request carries
+  `allow_unintegrated` (sent only by the app's own actions). The periodic
+  cleanup skips worktrees with uncommitted changes (an unreadable status
+  counts as dirty).
+- `complete_workspace_card`: a Mem0 failure no longer keeps an integrated
+  card out of Done; it returns `memory_warning`. Done still requires the
+  merge (backend guard, ADR-046).
+- Every refusal is recorded (`integration_refusals`) and shown in the board's
+  Agent Activity panel next to the merge count of the same window.
+
 ## Consequences
 
 - Agents no longer stall or give up on a busy Integration Guard; queued merges

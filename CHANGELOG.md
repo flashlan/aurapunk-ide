@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.40] - 2026-09-28
+
+### Fixed
+
+- **Merges go through even when you edit the same file as the card.** If
+  your uncommitted edits and the card touch different lines, both are
+  combined: the card is committed and your edits stay in place, uncommitted.
+  A merge stops only when you changed the same lines, and then nothing is
+  touched.
+- **Work that was never merged is never archived or deleted by an agent.**
+  Archiving or deleting a workspace with commits not in the target branch, or
+  with uncommitted changes, is refused unless you do it yourself in the app.
+  The automatic cleanup also keeps worktrees that still have changes.
+- **A memory (Mem0) failure no longer keeps a merged card out of Done.** It is
+  reported as a warning.
+
+### Added
+
+- **See when and why merges stop.** The Agent Activity panel on the board
+  shows how many merges went through in the last 7 days and every time the
+  Integration Guard stopped one, with the reason and the files.
+
 ## [0.3.39] - 2026-09-28
 
 ### Fixed

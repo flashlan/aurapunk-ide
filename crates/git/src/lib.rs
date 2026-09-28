@@ -57,6 +57,11 @@ pub enum GitServiceError {
     InvalidRepository(String),
     #[error("Branch not found: {0}")]
     BranchNotFound(String),
+    /// The operator's uncommitted edits in the target checkout overlap the
+    /// merge's changes on the same lines (or cannot be combined: binary,
+    /// deleted, untracked). Nothing was touched.
+    #[error("Uncommitted changes collide with the merge in: {files:?}")]
+    OperatorEditsCollide { files: Vec<String> },
     #[error("Merge conflicts: {message}")]
     MergeConflicts {
         message: String,
@@ -748,6 +753,165 @@ impl GitService {
             .filter(|line| !line.is_empty())
             .map(str::to_string)
             .collect())
+    }
+
+    /// [`Self::merge_changes`], for a target checkout where the operator has
+    /// uncommitted edits in `operator_paths` — files the merge also changes.
+    ///
+    /// Everything is decided in memory first: for each file, a three-way
+    /// merge of the target's version (base), the operator's working copy
+    /// (ours) and the merged result (theirs). If any file cannot be combined
+    /// (same lines changed, binary, deleted) nothing is touched and
+    /// [`GitServiceError::OperatorEditsCollide`] lists them. Otherwise the
+    /// working copies are backed up under the git dir, reset to the target's
+    /// version so the squash can run, and after the merge each file receives
+    /// the combined content: the card is committed and the operator's edits
+    /// stay uncommitted on top. On any failure the backups are restored.
+    pub fn merge_changes_preserving_operator_edits(
+        &self,
+        base_worktree_path: &Path,
+        task_worktree_path: &Path,
+        task_branch_name: &str,
+        base_branch_name: &str,
+        commit_message: &str,
+        operator_paths: &[String],
+    ) -> Result<String, GitServiceError> {
+        let checkout =
+            match self.find_checkout_path_for_branch(base_worktree_path, base_branch_name)? {
+                Some(path) if !operator_paths.is_empty() => path,
+                _ => {
+                    return self.merge_changes(
+                        base_worktree_path,
+                        task_worktree_path,
+                        task_branch_name,
+                        base_branch_name,
+                        commit_message,
+                    );
+                }
+            };
+        let cli = GitCli::new();
+        let cli_err = |e: GitCliError| GitServiceError::InvalidRepository(e.to_string());
+        let tree = match cli
+            .merge_tree_write(base_worktree_path, base_branch_name, task_branch_name)
+            .map_err(cli_err)?
+        {
+            Ok(tree) => tree,
+            // Real conflicts between the branches: merge_changes reports them
+            // without touching anything.
+            Err(_) => {
+                return self.merge_changes(
+                    base_worktree_path,
+                    task_worktree_path,
+                    task_branch_name,
+                    base_branch_name,
+                    commit_message,
+                );
+            }
+        };
+
+        struct Edit {
+            path: std::path::PathBuf,
+            ours: Vec<u8>,
+            base: Vec<u8>,
+            theirs: Vec<u8>,
+            merged: Vec<u8>,
+        }
+        let mut edits = Vec::new();
+        let mut collisions = Vec::new();
+        for rel in operator_paths {
+            let path = checkout.join(rel);
+            let show = |rev: &str| {
+                cli.git_bytes(base_worktree_path, ["show", &format!("{rev}:{rel}")])
+                    .ok()
+            };
+            let (Ok(ours), Some(base), Some(theirs)) =
+                (std::fs::read(&path), show(base_branch_name), show(&tree))
+            else {
+                collisions.push(rel.clone());
+                continue;
+            };
+            let binary = [&ours, &base, &theirs].iter().any(|b| b.contains(&0));
+            match (!binary)
+                .then(|| cli.merge_file(&base, &ours, &theirs))
+                .transpose()
+                .map_err(cli_err)?
+                .flatten()
+            {
+                Some(merged) => edits.push(Edit {
+                    path,
+                    ours,
+                    base,
+                    theirs,
+                    merged,
+                }),
+                None => collisions.push(rel.clone()),
+            }
+        }
+        if !collisions.is_empty() {
+            return Err(GitServiceError::OperatorEditsCollide { files: collisions });
+        }
+
+        // Back up the operator's copies before touching them.
+        let backup_dir = cli
+            .git(&checkout, ["rev-parse", "--absolute-git-dir"])
+            .map(|dir| std::path::PathBuf::from(dir.trim()))
+            .map_err(cli_err)?
+            .join("aurapunk-operator-edits")
+            .join(chrono::Utc::now().format("%Y%m%dT%H%M%S%.3f").to_string());
+        for (index, edit) in edits.iter().enumerate() {
+            std::fs::create_dir_all(&backup_dir)
+                .and_then(|()| std::fs::write(backup_dir.join(index.to_string()), &edit.ours))
+                .map_err(|e| GitServiceError::InvalidRepository(format!("backup failed: {e}")))?;
+        }
+        let restore = |edits: &[Edit]| {
+            for edit in edits {
+                let _ = std::fs::write(&edit.path, &edit.ours);
+            }
+        };
+        for edit in &edits {
+            if let Err(e) = std::fs::write(&edit.path, &edit.base) {
+                restore(&edits);
+                return Err(GitServiceError::InvalidRepository(format!(
+                    "could not prepare {}: {e}",
+                    edit.path.display()
+                )));
+            }
+        }
+
+        match self.merge_changes(
+            base_worktree_path,
+            task_worktree_path,
+            task_branch_name,
+            base_branch_name,
+            commit_message,
+        ) {
+            Ok(sha) => {
+                let mut kept_backup = false;
+                for edit in &edits {
+                    // The squash wrote `theirs`. If the file changed in the
+                    // meantime (the operator saved again), leave it and keep
+                    // the backup rather than overwrite a newer edit.
+                    if std::fs::read(&edit.path).ok().as_deref() == Some(edit.theirs.as_slice()) {
+                        if std::fs::write(&edit.path, &edit.merged).is_err() {
+                            kept_backup = true;
+                        }
+                    } else {
+                        kept_backup = true;
+                    }
+                }
+                if !kept_backup {
+                    let _ = std::fs::remove_dir_all(&backup_dir);
+                } else {
+                    tracing::warn!(backup = %backup_dir.display(), "operator edits kept in backup after merge");
+                }
+                Ok(sha)
+            }
+            Err(error) => {
+                restore(&edits);
+                let _ = std::fs::remove_dir_all(&backup_dir);
+                Err(error)
+            }
+        }
     }
 
     /// Merge changes from a task branch into the base branch.

@@ -14,7 +14,13 @@ import {
 } from '@vibe/ui/components/Popover';
 import { useAppNavigation } from '@/shared/hooks/useAppNavigation';
 import { useWorkspaceContext } from '@/shared/hooks/useWorkspaceContext';
-import { workspacesApi, type AgentActivity } from '@/shared/lib/api';
+import {
+  workspacesApi,
+  makeRequest,
+  handleApiResponse,
+  type AgentActivity,
+} from '@/shared/lib/api';
+import type { IntegrationRefusalsResponse } from 'shared/types';
 import { cn } from '@/shared/lib/utils';
 
 interface AgentActivityIndicatorProps {
@@ -212,8 +218,83 @@ export function AgentActivityIndicator({
               })}
             </div>
           )}
+          <IntegrationGuardSection />
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/** Plain-language cause of each Integration Guard refusal. */
+export const REFUSAL_LABEL: Record<string, string> = {
+  dirty_worktree: 'Your uncommitted edits collide with the card',
+  merge_conflicts: 'Conflict — the agent resolves it on its branch',
+  integration_in_progress: 'Waited for another merge (queued)',
+  agent_work_conflict: 'Waited for another agent (queued)',
+  branch_moved: 'New commits after verification',
+  error: 'Error',
+};
+
+function timeAgo(iso: string): string {
+  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h ago`;
+  return `${Math.round(seconds / 86400)}d ago`;
+}
+
+/**
+ * How often the Integration Guard stopped a merge, and why (last 7 days),
+ * next to how many merges went through.
+ */
+function IntegrationGuardSection() {
+  const { data } = useQuery({
+    queryKey: ['integration-refusals', 7],
+    queryFn: async () =>
+      handleApiResponse<IntegrationRefusalsResponse>(
+        await makeRequest('/api/integration-refusals?days=7', {
+          cache: 'no-store',
+        })
+      ),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  if (!data) return null;
+  const refusals = data.refusals;
+  return (
+    <div className="space-y-half border-t border-border pt-base">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-medium text-normal">Integration Guard</h4>
+        <span className="text-[10px] text-low">
+          {data.days}d · {data.merges} merged · {refusals.length} stopped
+        </span>
+      </div>
+      {refusals.length === 0 ? (
+        <p className="text-xs text-low">No merge was stopped.</p>
+      ) : (
+        <ul className="max-h-40 space-y-half overflow-y-auto">
+          {refusals.slice(0, 8).map((refusal) => (
+            <li
+              key={refusal.id}
+              className="rounded-sm bg-secondary/40 px-half py-quarter text-xs"
+              title={refusal.message}
+            >
+              <div className="flex items-center justify-between gap-half">
+                <span className="truncate font-medium text-normal">
+                  {refusal.workspace_name ?? refusal.branch}
+                </span>
+                <span className="shrink-0 text-[10px] text-low">
+                  {timeAgo(refusal.created_at)}
+                </span>
+              </div>
+              <div className="text-low">
+                {REFUSAL_LABEL[refusal.blocker] ?? refusal.blocker}
+                {refusal.files.length > 0 &&
+                  ` · ${refusal.files.slice(0, 3).join(', ')}${refusal.files.length > 3 ? '…' : ''}`}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

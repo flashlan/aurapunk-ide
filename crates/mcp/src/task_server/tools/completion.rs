@@ -56,6 +56,10 @@ struct McpCompleteWorkspaceCardResponse {
     workspace_id: String,
     repo_id: String,
     memory_queued: bool,
+    /// Set when Mem0 did not store the summary. The card is completed anyway;
+    /// report the warning to the operator.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    memory_warning: Option<String>,
 }
 
 /// Integration Guard refusals that clear by themselves once the other actor
@@ -303,7 +307,7 @@ impl McpServer {
     }
 
     #[tool(
-        description = "Complete a card safely. After you finish and commit the verified work, you MUST call this tool yourself as the final action; do not stop and ask the operator to click Merge or Done, and do not claim completion without a successful response. It integrates the workspace through Integration Guard, then requires Mem0 to acknowledge the verified durable summary, and only then moves the card to its terminal Done status. If another integration or overlapping agent work blocks the merge, the merge is QUEUED (`queued: true`): it lands automatically when possible and a message tells you to call this tool again to finish — keep working meanwhile instead of stopping. On a merge conflict, dirty target, or Mem0 failure, the card remains open. Do not use update_issue to set Done, and do not run manual git merge/rebase/push for this stage."
+        description = "Complete a card safely. After you finish and commit the verified work, you MUST call this tool yourself as the final action; do not stop and ask the operator to click Merge or Done, and do not claim completion without a successful response. It integrates the workspace through Integration Guard, saves the verified durable summary to Mem0, and moves the card to its terminal Done status; a Mem0 failure does not block completion (it comes back as `memory_warning` — tell the operator). If another integration or overlapping agent work blocks the merge, the merge is QUEUED (`queued: true`): it lands automatically when possible and a message tells you to call this tool again to finish — keep working meanwhile instead of stopping. On a merge conflict or a collision with the operator's uncommitted edits, the card remains open — never stash, commit or discard the operator's changes in the target checkout. Do not use update_issue to set Done, and do not run manual git merge/rebase/push for this stage."
     )]
     async fn complete_workspace_card(
         &self,
@@ -428,17 +432,22 @@ impl McpServer {
             }
         }
 
-        let memory_queued = match self
+        // The merge is what delivers the work; memory is a bonus. A Mem0
+        // failure is reported as a warning (and on the sidebar balloon) but
+        // no longer keeps an integrated card out of Done.
+        let (memory_queued, memory_warning) = match self
             .save_memory_for_completion(&request.memory_summary, &user_id)
             .await
         {
-            Ok(true) => true,
-            Ok(false) => {
-                return Ok(Self::tool_error(super::ToolError::message(
-                    "Integration succeeded, but Mem0 did not acknowledge the completion summary; the card was left open",
-                )));
-            }
-            Err(error) => return Err(error),
+            Ok(true) => (true, None),
+            Ok(false) => (
+                false,
+                Some("Mem0 did not acknowledge the completion summary; the card was completed anyway. Save it later with memory_save if it matters.".to_string()),
+            ),
+            Err(error) => (
+                false,
+                Some(format!("Mem0 failed ({}); the card was completed anyway.", error.message)),
+            ),
         };
 
         if let Err(error) = self
@@ -458,6 +467,7 @@ impl McpServer {
             workspace_id: workspace_id.to_string(),
             repo_id: repo_id.to_string(),
             memory_queued,
+            memory_warning,
         })
     }
 }

@@ -7,6 +7,7 @@ pub mod execution_process_repo_state;
 pub mod file;
 pub mod integration_guard;
 pub mod integration_queue;
+pub mod integration_refusal;
 pub mod issue;
 pub mod issue_comment;
 pub mod issue_relationship;

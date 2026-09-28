@@ -31,6 +31,68 @@ use crate::{DeploymentImpl, error::ApiError};
 pub struct DeleteWorkspaceQuery {
     #[serde(default)]
     pub delete_branches: bool,
+    /// Delete even though the branch has work not integrated into its
+    /// target (operator action only; agents never send it).
+    #[serde(default)]
+    pub allow_unintegrated: bool,
+}
+
+/// Work in a workspace that has not reached its target branch: commits on
+/// the branch that the target does not contain, and uncommitted changes in
+/// its worktree. Archiving or deleting such a workspace hides or destroys the
+/// work, so it needs the operator's explicit override.
+async fn unintegrated_work(
+    deployment: &DeploymentImpl,
+    workspace: &Workspace,
+) -> Result<Vec<String>, ApiError> {
+    let repos =
+        db::models::workspace_repo::WorkspaceRepo::find_repos_with_target_branch_for_workspace(
+            &deployment.db().pool,
+            workspace.id,
+        )
+        .await?;
+    let cli = git::GitCli::new();
+    let mut findings = Vec::new();
+    for repo in repos {
+        let range = format!("{}..{}", repo.target_branch, workspace.branch);
+        let ahead = cli
+            .git(&repo.repo.path, ["rev-list", "--count", &range])
+            .ok()
+            .and_then(|out| out.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        if ahead > 0 {
+            findings.push(format!(
+                "{}: {ahead} commit(s) on '{}' not integrated into '{}'",
+                repo.repo.name, workspace.branch, repo.target_branch
+            ));
+        }
+        if let Some(container) = workspace.container_ref.as_deref() {
+            let worktree = std::path::Path::new(container).join(&repo.repo.name);
+            if worktree.exists()
+                && let Ok(status) = cli.git(&worktree, ["status", "--porcelain"])
+            {
+                let changed = status
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .count();
+                if changed > 0 {
+                    findings.push(format!(
+                        "{}: {changed} uncommitted change(s) in the workspace",
+                        repo.repo.name
+                    ));
+                }
+            }
+        }
+    }
+    Ok(findings)
+}
+
+fn unintegrated_refusal(action: &str, findings: &[String]) -> ApiError {
+    ApiError::Conflict(format!(
+        "Refusing to {action} this workspace: it has work that was never integrated ({}). \
+Integrate it first (complete_workspace_card / merge). Only the operator can {action} it anyway, from the app.",
+        findings.join("; ")
+    ))
 }
 
 pub async fn get_workspaces(
@@ -79,6 +141,12 @@ pub async fn update_workspace(
 ) -> Result<ResponseJson<ApiResponse<Workspace>>, ApiError> {
     let pool = &deployment.db().pool;
     let is_archiving = request.archived == Some(true) && !workspace.archived;
+    if is_archiving && request.allow_unintegrated != Some(true) {
+        let findings = unintegrated_work(&deployment, &workspace).await?;
+        if !findings.is_empty() {
+            return Err(unintegrated_refusal("archive", &findings));
+        }
+    }
 
     Workspace::update(
         pool,
@@ -116,6 +184,13 @@ pub async fn delete_workspace(
     let pool = &deployment.db().pool;
     let workspace_manager = deployment.workspace_manager();
     let workspace_id = workspace.id;
+
+    if !query.allow_unintegrated {
+        let findings = unintegrated_work(&deployment, &workspace).await?;
+        if !findings.is_empty() {
+            return Err(unintegrated_refusal("delete", &findings));
+        }
+    }
 
     if ExecutionProcess::has_running_non_dev_server_processes_for_workspace(pool, workspace_id)
         .await?
