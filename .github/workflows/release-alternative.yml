@@ -205,13 +205,29 @@ jobs:
             console.log(JSON.stringify(out, null, 2));
           '
 
+      # The version's CHANGELOG.md section is the release body: GitHub's
+      # generated notes only list pull requests, and releases here come from
+      # direct commits, so they were just a "Full Changelog" link.
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            index($0, "## [" v "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "No CHANGELOG.md entry for $version." > release-notes.md
+          fi
+          cat release-notes.md
+
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          # Let GitHub build the release body ("What's Changed" from the commits
-          # since the previous tag) so release pages aren't blank; the in-app
-          # new-release badge reads this body and falls back to CHANGELOG.md.
+          # CHANGELOG section first, then GitHub's generated notes (the
+          # compare link). The in-app new-release badge reads this body.
+          body_path: release-notes.md
           generate_release_notes: true
           # Prerelease tags (e.g. v0.2.8-beta.1) become GitHub pre-releases so the
           # CLI's releases/latest manifest pointer stays on the last stable build.
