@@ -46,25 +46,20 @@ export function NewReleaseBadge() {
       <button
         type="button"
         onClick={() => setOpen(true)}
+        // One compact line beside Agent Activity: it must not add a row to
+        // the board header.
         className={cn(
-          'flex min-w-0 items-center gap-half rounded-sm border px-base py-half text-left transition-colors',
-          'border-warning/40 bg-warning/5 hover:border-warning/70'
+          'flex shrink-0 items-center gap-quarter whitespace-nowrap rounded-sm border px-half py-quarter text-xs transition-colors',
+          'border-warning/40 bg-warning/5 text-normal hover:border-warning/70'
         )}
         aria-label={`New release v${latest.version} available`}
-        title={`AuraPunk IDE v${latest.version} is available`}
+        title={`AuraPunk ADE v${latest.version} is available — click for the release notes`}
       >
         <ArrowCircleUpIcon
-          className="size-icon-sm shrink-0 text-warning"
+          className="size-icon-xs shrink-0 text-warning"
           weight="fill"
         />
-        <span className="min-w-0">
-          <span className="block truncate text-xs font-medium text-normal">
-            New release
-          </span>
-          <span className="flex items-center gap-quarter text-[10px] text-low">
-            v{latest.version}
-          </span>
-        </span>
+        <span className="font-medium">v{latest.version}</span>
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -78,7 +73,7 @@ export function NewReleaseBadge() {
               New release available
             </DialogTitle>
             <DialogDescription>
-              {`AuraPunk IDE v${latest.version} is available. You are running v${currentVersion}.`}
+              {`AuraPunk ADE v${latest.version} is available. You are running v${currentVersion}.`}
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[50vh] overflow-y-auto rounded-sm border border-border bg-panel p-base">
