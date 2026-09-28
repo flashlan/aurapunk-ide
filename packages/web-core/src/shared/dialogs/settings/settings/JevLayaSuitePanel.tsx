@@ -48,7 +48,6 @@ import {
   useLayaDockerUrl,
   useLayaCloudUrl,
   readCloudAccessToken,
-  type CompactorEngineType,
   type CompactionThreshold,
   type PrimaryEngine,
 } from '@/shared/stores/useUiPreferencesStore';
@@ -643,13 +642,13 @@ export const JevLayaSuitePanel: React.FC = () => {
               <div className="text-sm font-medium text-high">
                 {t(
                   'settings.compactor.title',
-                  'Chat Auto-Compaction (/compress)'
+                  'Chat Auto-Compaction (/compact)'
                 )}
               </div>
               <div className="text-2xs text-low">
                 {t(
                   'settings.compactor.desc',
-                  'Isolates conversation history with milestone markers to keep model input fresh.'
+                  'When the context fills past the threshold, asks the agent to compact its own session (/compact). The agent writes the summary; Laya and Jev are not involved.'
                 )}
               </div>
             </div>
@@ -665,24 +664,6 @@ export const JevLayaSuitePanel: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-1">
-          <div>
-            <label className="block text-2xs font-medium text-low mb-1">
-              Compaction Engine:
-            </label>
-            <select
-              value={compactorEngine}
-              onChange={(e) =>
-                setCompactorEngine(e.target.value as CompactorEngineType)
-              }
-              className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal"
-            >
-              <option value="auto">🔄 Auto (Laya with Jev Fallback)</option>
-              <option value="laya">🐳 Laya (Docker / Cloud)</option>
-              <option value="jev">▲ Fast Jev (TypeSafe)</option>
-              <option value="disabled">🚫 Disabled</option>
-            </select>
-          </div>
-
           <div>
             <label className="block text-2xs font-medium text-low mb-1">
               Context Trigger Threshold:

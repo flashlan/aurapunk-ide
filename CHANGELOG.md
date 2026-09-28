@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The compaction settings say what really happens.** Chat auto-compaction
+  asks the agent to compact its own session (`/compact`); the card no longer
+  offers a Laya/Jev "compaction engine" that did nothing. In Settings → Usage,
+  the "RLCD Engine" picker now controls the engine the backend actually uses
+  (memory gate, guardrails, conflict classification, handoff, session-start
+  memory) instead of the old compaction switch.
+
 ## [0.3.41] - 2026-09-28
 
 ### Fixed

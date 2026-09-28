@@ -5,8 +5,8 @@ import { handleApiResponse } from '@/shared/lib/api';
 import {
   useCompactionThreshold,
   useSetCompactionThreshold,
-  useCompactorEngine,
-  useSetCompactorEngine,
+  useAbideGuardrailsEngine,
+  useSetAbideGuardrailsEngine,
   useLayaMode,
   useSetLayaMode,
   useLayaDockerUrl,
@@ -20,7 +20,7 @@ import {
   useLayaGuardrailsEnabled,
   useSetLayaGuardrailsEnabled,
   type CompactionThreshold,
-  type CompactorEngineType,
+  type AbideGuardrailsEngine,
 } from '@/shared/stores/useUiPreferencesStore';
 import {
   ScissorsIcon,
@@ -639,8 +639,11 @@ export function UsageSettingsSection() {
   const compactionThreshold = useCompactionThreshold();
   const setCompactionThreshold = useSetCompactionThreshold();
 
-  const compactorEngine = useCompactorEngine();
-  const setCompactorEngine = useSetCompactorEngine();
+  // The RLCD engine (Laya / Jev / both) used by the backend: memory gate,
+  // guardrails, conflict classification, handoff and session-start recall.
+  // Chat compaction is the agent's own /compact and needs no engine.
+  const rlcdEngine = useAbideGuardrailsEngine();
+  const setRlcdEngine = useSetAbideGuardrailsEngine();
   const layaMode = useLayaMode();
   const setLayaMode = useSetLayaMode();
   const layaDockerUrl = useLayaDockerUrl();
@@ -655,15 +658,15 @@ export function UsageSettingsSection() {
   const setLayaGuardrailsEnabled = useSetLayaGuardrailsEnabled();
 
   const ENGINE_OPTIONS: Array<{
-    id: CompactorEngineType;
+    id: AbideGuardrailsEngine;
     label: string;
     sublabel: string;
     badge?: string;
   }> = [
     {
-      id: 'auto',
+      id: 'adaptive',
       label: 'Auto (Jev + Laya)',
-      sublabel: 'Cloud Jev with Laya (Docker/Cloud) fallback',
+      sublabel: 'Jev first, Laya (Docker/Cloud) when Jev does not answer',
       badge: 'Recommended',
     },
     {
@@ -675,11 +678,6 @@ export function UsageSettingsSection() {
       id: 'jev',
       label: 'TypeSafe Jev',
       sublabel: 'Cloud API (Requires API Key)',
-    },
-    {
-      id: 'disabled',
-      label: 'Traditional (Off)',
-      sublabel: 'Standard LLM text summarization fallback',
     },
   ];
 
@@ -1540,29 +1538,33 @@ export function UsageSettingsSection() {
                 </span>
               </span>
               <span className="text-[11px] text-low">
-                {compactorEngine === 'auto' &&
+                {rlcdEngine === 'adaptive' &&
                   '⚡ Cloud Jev + Laya (Docker/Cloud) fallback'}
-                {compactorEngine === 'laya' &&
+                {rlcdEngine === 'laya' &&
                   (layaMode === 'cloud'
                     ? '☁️ AuraPunk Cloud Laya'
                     : '🐳 Laya Docker container')}
-                {compactorEngine === 'jev' && '🌐 TypeSafe Jev Cloud API'}
-                {compactorEngine === 'disabled' &&
-                  '⏳ Traditional LLM summary fallback'}
+                {rlcdEngine === 'jev' && '🌐 TypeSafe Jev Cloud API'}
               </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+            <p className="text-[11px] text-low">
+              Used by the memory gate, tool-call guardrails, merge-conflict
+              classification, handoff selection and the project memory given to
+              new sessions. Chat compaction does not use it — the agent compacts
+              its own session.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {ENGINE_OPTIONS.map((opt) => {
-                const isSelected = compactorEngine === opt.id;
+                const isSelected = rlcdEngine === opt.id;
                 return (
                   <button
                     key={opt.id}
                     type="button"
-                    onClick={() => setCompactorEngine(opt.id)}
+                    onClick={() => setRlcdEngine(opt.id)}
                     className={`relative flex flex-col items-start justify-center rounded-sm p-2.5 text-left transition-all border cursor-pointer ${
                       isSelected
-                        ? opt.id === 'auto'
+                        ? opt.id === 'adaptive'
                           ? 'border-brand bg-brand/15 text-brand ring-1 ring-brand/50 shadow-xs'
                           : 'border-emerald-500 bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/50 shadow-xs'
                         : 'border-border bg-panel hover:bg-secondary text-normal'
@@ -1583,7 +1585,7 @@ export function UsageSettingsSection() {
             </div>
 
             {/* Sub-configuration for Laya (Docker / Cloud) */}
-            {(compactorEngine === 'auto' || compactorEngine === 'laya') && (
+            {(rlcdEngine === 'adaptive' || rlcdEngine === 'laya') && (
               <div className="rounded-sm border border-border/50 bg-panel/60 p-2.5 space-y-2 text-xs">
                 <div className="flex items-center justify-between font-medium text-normal">
                   <span className="flex items-center gap-1.5">
@@ -1667,7 +1669,7 @@ export function UsageSettingsSection() {
             )}
 
             {/* Sub-configuration for Jev (TypeSafe) */}
-            {(compactorEngine === 'auto' || compactorEngine === 'jev') && (
+            {(rlcdEngine === 'adaptive' || rlcdEngine === 'jev') && (
               <div className="rounded-sm border border-border/50 bg-panel/60 p-2.5 space-y-2 text-xs">
                 <div className="flex items-center gap-1.5 font-medium text-normal">
                   <KeyIcon className="size-3 text-warning" />
@@ -1693,7 +1695,7 @@ export function UsageSettingsSection() {
                       TypeSafe Jev API Key:
                     </span>
                     <span className="text-[10px] text-low">
-                      {compactorEngine === 'auto'
+                      {rlcdEngine === 'adaptive'
                         ? 'Optional (Falls back to Laya if absent)'
                         : 'Required'}
                     </span>
