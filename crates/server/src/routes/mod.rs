@@ -53,6 +53,7 @@ pub mod memory_migration;
 pub mod mobile_sync;
 pub mod pipelines;
 pub mod preview;
+pub mod project_map;
 pub mod recurrent;
 pub mod repo;
 pub mod rlcd;
@@ -99,6 +100,7 @@ pub fn router(deployment: DeploymentImpl) -> IntoMakeService<Router> {
         .merge(jev::router())
         .merge(integration_errors::router())
         .merge(rlcd::router())
+        .merge(project_map::router())
         .merge(memory_migration::router())
         .merge(mobile_sync::router())
         .merge(cloud_sync::router())

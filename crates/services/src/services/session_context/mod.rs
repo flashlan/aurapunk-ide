@@ -37,10 +37,13 @@ pub(crate) const CONTEXT_TAGS: [(&str, &str); 2] = [
 
 const RECALL_REPOS: usize = 2;
 const RECALL_CANDIDATES: usize = 8;
+const RECALL_MAX_CANDIDATES: usize = 11;
 const RECALL_KEEP: usize = 5;
 const RECALL_MIN_SCORE: f64 = 0.6;
 const RECALL_QUERY_CHARS: usize = 800;
 const MEMORY_CHARS: usize = 500;
+const MAP_ENTRY_CHARS: usize = 1200;
+const MAP_PREFIX: &str = "Project map";
 const RELEVANCE_TIMEOUT: Duration = Duration::from_secs(6);
 
 /// Prefix the first message of a new agent session with its context.
@@ -161,10 +164,17 @@ async fn recall_block(
 
     let mut hits = Vec::new();
     for repo in repos.iter().take(RECALL_REPOS) {
-        match project_memory::search(&repo.name, &query, RECALL_CANDIDATES).await {
-            Ok(found) => hits.extend(found),
-            Err(error) => {
-                tracing::warn!(repo = %repo.name, %error, "project memory recall failed");
+        // Facts saved by agents, and the project map (where things live).
+        let map_user = crate::services::project_map::memory_user_id(&repo.name);
+        for (user_id, limit) in [
+            (repo.name.as_str(), RECALL_CANDIDATES),
+            (map_user.as_str(), 3),
+        ] {
+            match project_memory::search(user_id, &query, limit).await {
+                Ok(found) => hits.extend(found),
+                Err(error) => {
+                    tracing::warn!(user_id, %error, "project memory recall failed");
+                }
             }
         }
     }
@@ -179,7 +189,7 @@ async fn select_relevant(task: &str, mut hits: Vec<project_memory::Recalled>) ->
     hits.sort_by(|a, b| b.score.total_cmp(&a.score));
     let mut seen = std::collections::HashSet::new();
     hits.retain(|hit| seen.insert(hit.content.clone()));
-    hits.truncate(RECALL_CANDIDATES);
+    hits.truncate(RECALL_MAX_CANDIDATES);
     if hits.is_empty() {
         return Vec::new();
     }
@@ -226,10 +236,16 @@ fn keep_relevant(
 fn render_memory(memories: &[String]) -> String {
     let mut out = String::from(MEMORY_OPEN);
     out.push_str(
-        "\nProject memory (Mem0) that looks relevant to this task: facts earlier sessions saved. Verify against the code before relying on them; memory_search and memory_graph_traverse find more.\n",
+        "\nProject memory (Mem0) that looks relevant to this task: facts earlier sessions saved and entries of the project map. Verify against the code before relying on them; project_map shows where things live, memory_search finds more.\n",
     );
     for memory in memories {
-        out.push_str(&format!("- {}\n", truncate(memory, MEMORY_CHARS)));
+        // Map entries list an area's modules: worth more room than a fact.
+        let limit = if memory.starts_with(MAP_PREFIX) {
+            MAP_ENTRY_CHARS
+        } else {
+            MEMORY_CHARS
+        };
+        out.push_str(&format!("- {}\n", truncate(memory, limit)));
     }
     out.push_str(MEMORY_CLOSE);
     out

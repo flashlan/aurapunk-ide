@@ -392,6 +392,10 @@ const MEMORY_QUESTIONS: &[Question] = &[
         key: "secret",
         instructions: "Does this text contain a credential, API key, token or password?",
     },
+    Question {
+        key: "change_report",
+        instructions: "Is this text a report of a change someone made, like a commit message or changelog entry?",
+    },
 ];
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -419,6 +423,8 @@ fn memory_decision(p: &HashMap<&'static str, f64>) -> MemoryVerdict {
         Some("classified as raw tool output (log, compiler or test output)".to_string())
     } else if in_progress.unwrap_or(0.0) >= 0.7 && durable.unwrap_or(1.0) < 0.5 {
         Some("classified as the state of an in-progress task, not a durable fact".to_string())
+    } else if get("change_report").unwrap_or(0.0) >= 0.7 && durable.unwrap_or(1.0) < 0.5 {
+        Some("classified as a change report (what was done), not how the code works".to_string())
     } else {
         None
     };
@@ -448,6 +454,17 @@ pub async fn classify_memory(content: &str) -> MemoryVerdict {
     if !config().memory_gate.enabled {
         return stored_without("memory gate disabled");
     }
+    // Deterministic quality rules first: they work with the classifier down
+    // (the usual reason junk got in) and cost nothing.
+    if let Some(reason) = memory_lint(content) {
+        return MemoryVerdict {
+            store: false,
+            reason: Some(format!("{reason}. {MEMORY_REWRITE_HINT}")),
+            durable: None,
+            volatile: None,
+            secret: None,
+        };
+    }
     match evaluate(
         "memory_gate",
         content,
@@ -460,6 +477,122 @@ pub async fn classify_memory(content: &str) -> MemoryVerdict {
         Err(RlcdError::NotConfigured) => stored_without("no classifier configured"),
         Err(error) => stored_without(&format!("classifier unavailable: {error}")),
     }
+}
+
+/// How a memory should read, returned with every rejection so the agent can
+/// rewrite instead of giving up.
+pub const MEMORY_REWRITE_HINT: &str = "Save one self-contained fact about how the project works now: WHERE (file, module or symbol) — WHAT it does or how it behaves — WHY (constraint, decision, root cause). Example: \"`crates/git/src/lib.rs` merge_changes simulates the merge with git merge-tree before touching the target, so a conflict never leaves main conflicted (ADR-050).\" No commit hashes, dates, branch names or reports of what you did.";
+
+const CHANGELOG_PREFIXES: &[&str] = &[
+    "fix",
+    "corrig",
+    "commit",
+    "merge ",
+    "merged",
+    "verificado",
+    "verified",
+    "done",
+    "implementado",
+    "implemented",
+    "o que mudou",
+    "what changed",
+    "neste card",
+    "this card",
+    "nesta sessão",
+    "nesta sessao",
+    "this session",
+    "hoje",
+    "today",
+];
+const CHANGELOG_ANYWHERE: &[&str] = &["commitado", "committed"];
+const OPEN_WORK: &[&str] = &[
+    "não corrigid",
+    "nao corrigid",
+    "not fixed",
+    "not yet fixed",
+    "todo:",
+    "pendente",
+    "a fazer",
+    "still open",
+];
+
+static COMMIT_HASH: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\b[0-9a-f]{7,40}\b").expect("valid regex"));
+static ISO_DATE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\b20\d\d-\d\d-\d\d\b").expect("valid regex"));
+static FILE_EXTENSION: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"\.(rs|ts|tsx|js|mjs|py|toml|json|md|sql|sh|ya?ml)\b").expect("valid regex")
+});
+static CODE_IDENTIFIER: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"\b[a-z0-9]+_[a-z0-9_]+\b|\b[a-z]+[A-Z]\w*\b|\b[A-Z][a-z]+[A-Z]\w*\b")
+        .expect("valid regex")
+});
+static SECRET: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|xox[abp]-[A-Za-z0-9-]{10,})",
+    )
+    .expect("valid regex")
+});
+
+/// Whether the text says where in the code it applies: a path, a file name,
+/// a code span or an identifier. Branch names and URLs do not count.
+fn has_code_anchor(text: &str) -> bool {
+    let path = text.split_whitespace().any(|token| {
+        let token = token.trim_start_matches(['(', '`', '\'', '"']);
+        token.contains('/') && !token.starts_with("vk/") && !token.starts_with("http")
+    });
+    path || text.contains('`')
+        || text.contains("::")
+        || FILE_EXTENSION.is_match(text)
+        || CODE_IDENTIFIER.is_match(text)
+}
+
+/// Deterministic quality rules for a memory. Calibrated on the stored
+/// `aurapunk-ide` memories (2026-09-27): they reject change-log entries,
+/// dated session notes, open work and fragments with no anchor in the code,
+/// and keep facts that name where something lives and how it behaves.
+pub fn memory_lint(content: &str) -> Option<String> {
+    let text = content.trim();
+    let chars = text.chars().count();
+    if chars < 40 {
+        return Some("too short to be useful on its own".to_string());
+    }
+    if chars > 1200 {
+        return Some("too long: save one fact per call".to_string());
+    }
+    if SECRET.is_match(text) {
+        return Some("contains what looks like a credential".to_string());
+    }
+    let has_hash = COMMIT_HASH.find_iter(text).any(|m| {
+        let word = m.as_str();
+        word.bytes().any(|b| b.is_ascii_digit()) && word.bytes().any(|b| b.is_ascii_lowercase())
+    });
+    if has_hash {
+        return Some(
+            "contains a commit hash: memory is about the code, not its history".to_string(),
+        );
+    }
+    if ISO_DATE.is_match(text) {
+        return Some("contains a date: that is a session note, not a lasting fact".to_string());
+    }
+    let lower = text.to_lowercase();
+    let start = lower.trim_start_matches(|c: char| {
+        c.is_ascii_digit() || matches!(c, '*' | '-' | '#' | '>' | ')' | '(' | '.' | ' ')
+    });
+    if CHANGELOG_PREFIXES
+        .iter()
+        .any(|prefix| start.starts_with(prefix))
+        || CHANGELOG_ANYWHERE.iter().any(|word| lower.contains(word))
+    {
+        return Some("reads like a change log (what was done)".to_string());
+    }
+    if OPEN_WORK.iter().any(|phrase| lower.contains(phrase)) {
+        return Some("describes open work: that belongs in a card, not in memory".to_string());
+    }
+    if !has_code_anchor(text) {
+        return Some("does not say where in the code it applies".to_string());
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -961,6 +1094,55 @@ mod tests {
 
     /// Probabilities measured on 2026-09-26 against Laya Cloud and Jev for
     /// the same four texts; the decision must be right for both engines.
+    #[test]
+    fn memory_lint_matches_the_calibration_set() {
+        // Rejected — real entries found in the project's Mem0.
+        for (text, why) in [
+            (
+                "Fix do chat travado ao subir mensagens anteriores (commit 0cff6fcc, branch vk/3a4e-caht-da-uam-tr)",
+                "commit hash",
+            ),
+            (
+                "Fix: helper api_types::i64_from_number_or_string em crates/api-types/src/lib.rs (aceita numero)",
+                "change log",
+            ),
+            (
+                "O que mudou (2026-09-25, branch vk/4a2c-corrigir-ram):",
+                "date",
+            ),
+            (
+                "Verificado: cargo check/clippy limpos em 3 crates, 6 testes novos verdes (api-types 3, mcp 2)",
+                "change log",
+            ),
+            (
+                "Dois fixes backend commitados e verificados (cargo check + clippy limpos, crate executors)",
+                "change log",
+            ),
+            (
+                "Causas RESTANTES identificadas mas não corrigidas (escala maior que trivial, escalar): backend",
+                "open work",
+            ),
+            (
+                "Aurapunk IDE: kanban agora sincroniza por delta (WS) em vez de só poll de 30 s",
+                "where",
+            ),
+            ("short", "too short"),
+        ] {
+            let reason = memory_lint(text).unwrap_or_else(|| panic!("should reject: {text}"));
+            assert!(reason.contains(why), "{text} -> {reason}");
+        }
+        // Kept.
+        for text in [
+            "GitCli::worktree_add now runs `git update-index -q --refresh` right after `worktree add` (cost drops to ~0.01 s)",
+            "The chat transcript cache (conversationEntryCache.ts) must budget with text.length * 2; WebKit counts the quota in bytes",
+            "\"Integrado\" é definido em db::models::merge (Merge::is_integrated = merge direto ou PR em merged)",
+            "To inspect the app's localStorage SQLite under ~/Library/WebKit/ai.bloop.vibe-kanban/WebsiteData, quit the app first",
+        ] {
+            assert_eq!(memory_lint(text), None, "{text}");
+        }
+        assert!(memory_lint("token sk-abcdefghijklmnopqrstuvwxyz in crates/x.rs config").is_some());
+    }
+
     #[test]
     fn memory_decision_matches_measured_answers_for_both_engines() {
         let cases: &[(&str, [f64; 4], bool)] = &[

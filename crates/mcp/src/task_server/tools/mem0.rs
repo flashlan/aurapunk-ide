@@ -12,6 +12,10 @@ use super::McpServer;
 
 /// mem0-vk Docker container (REST + MCP). Defaults to the local mem0 server;
 /// override with `MEM0_URL` when it runs elsewhere.
+/// Vector score above which a new memory is treated as a repeat of an
+/// existing one (identical text scores ~1.0; related facts stay below 0.8).
+const DUPLICATE_SCORE: f64 = 0.93;
+
 fn mem0_url() -> String {
     memory_config::load().active_url()
 }
@@ -201,7 +205,7 @@ struct McpUnifiedSearchResult {
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct McpMemorySaveRequest {
     #[schemars(
-        description = "Self-contained, factual memory to persist. Only save VERIFIED, durable facts — never speculation."
+        description = "One self-contained, verified fact: WHERE (path/module/symbol) — WHAT/HOW — WHY. Never speculation, change logs or session notes."
     )]
     content: String,
     #[schemars(
@@ -520,6 +524,36 @@ impl McpServer {
         })
     }
 
+    /// An existing memory saying the same thing (vector score ≥
+    /// [`DUPLICATE_SCORE`]), so the store does not fill with repeats. Only for
+    /// mem0-vk; any failure means "no duplicate known".
+    async fn near_duplicate(&self, content: &str, user_id: &str) -> Option<String> {
+        if using_mem0_platform() {
+            return None;
+        }
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+            .ok()?;
+        let url = format!("{}/api/search", mem0_url());
+        let response = self
+            .authorize_mem0(client.post(&url))
+            .await
+            .json(&serde_json::json!({ "query": content, "user_id": user_id, "limit": 1 }))
+            .send()
+            .await
+            .ok()?;
+        if !response.status().is_success() {
+            return None;
+        }
+        let parsed: Mem0SearchResponse = response.json().await.ok()?;
+        parsed
+            .vector
+            .into_iter()
+            .filter(|hit| hit.score.unwrap_or(0.0) >= DUPLICATE_SCORE)
+            .find_map(|hit| hit.payload.and_then(|payload| payload.content))
+    }
+
     /// Record a Mem0 failure on the backend so it reaches the sidebar
     /// indicator. Fire-and-forget: reporting must never slow down or fail the
     /// tool call it describes.
@@ -568,6 +602,12 @@ impl McpServer {
             tracing::info!(target: "mem0", user_id, reason, "memory_save skipped by RLCD gate");
             return Ok(Err(format!("not stored: {reason}")));
         }
+        if gate && let Some(existing) = self.near_duplicate(content, user_id).await {
+            return Ok(Err(format!(
+                "not stored: near-duplicate of an existing memory: \"{}\"",
+                existing.chars().take(200).collect::<String>()
+            )));
+        }
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()
@@ -601,6 +641,9 @@ impl McpServer {
                     "content": content,
                     "user_id": user_id,
                     "commit_sha": commit_sha,
+                    // One point with the text as written (graph extraction
+                    // still runs): extracted fragments lose their subject.
+                    "verbatim": true,
                 }),
             )
         };
@@ -770,7 +813,7 @@ impl McpServer {
     /// unparseable response) degrades to an empty list instead of failing
     /// the tool call — a missing/misbehaving mem0 must never block an agent.
     #[tool(
-        description = "Search the project's shared memory (mem0) for facts relevant to a query. Use this BEFORE analyzing code or starting work to recall decisions, conventions, and lessons the project already learned. Returns at most `limit` hits (default 5) — a small, cheap call. If the results don't cover what you need, call this again with a narrower or differently-worded query rather than raising `limit`; iterating with a sharper query beats fetching more of a vague one. mem0 is optional — if it isn't running, this returns an empty list rather than an error."
+        description = "Search the project's shared memory (mem0) for facts relevant to a query. Use this BEFORE analyzing code or starting work to recall decisions, conventions, and lessons the project already learned; to find WHERE something lives, use project_map (or search with user_id `map-<repo>`). Returns at most `limit` hits (default 5) — a small, cheap call. If the results don't cover what you need, call this again with a narrower or differently-worded query rather than raising `limit`; iterating with a sharper query beats fetching more of a vague one. mem0 is optional — if it isn't running, this returns an empty list rather than an error."
     )]
     async fn memory_search(
         &self,
@@ -962,7 +1005,7 @@ impl McpServer {
     /// false memories. Best-effort: mem0 is an optional dependency, so any
     /// failure degrades to `stored: false` instead of failing the tool call.
     #[tool(
-        description = "Save a verified, durable fact to the project's shared memory (mem0). Best-effort: returns stored=false when mem0 is unreachable or misbehaving, rather than an error — mem0 is optional."
+        description = "Save ONE verified, durable fact about how the project works to its shared memory (mem0), stored verbatim. Write it as: WHERE (file, module or symbol) — WHAT it does or how it behaves — WHY (constraint, decision, root cause); self-contained, so it reads correctly with no other context. Not a change log: no commit hashes, dates, branch names, \"Fix:\" notes, test results or open work. Rejected saves return stored=false with the reason and how to rewrite; near-duplicates of an existing memory are not stored. Best-effort: mem0 unreachable also returns stored=false, not an error."
     )]
     async fn memory_save(
         &self,

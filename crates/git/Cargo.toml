@@ -1,5 +1,6 @@
 [package]
 name = "git"
+description = "Git operations: worktrees, diffs, branch status and merges (squash, with an in-memory conflict check first)."
 version.workspace = true
 edition.workspace = true
 

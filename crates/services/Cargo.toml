@@ -1,5 +1,6 @@
 [package]
 name = "services"
+description = "Backend services: containers and execution, RLCD classifiers (Laya / Jev), session context, project map, events, pipelines."
 version.workspace = true
 edition.workspace = true
 

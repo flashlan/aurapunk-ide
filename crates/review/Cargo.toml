@@ -1,5 +1,6 @@
 [package]
 name = "review"
+description = "PR review tool (review binary): fetches a GitHub pull request and runs a review session."
 version.workspace = true
 edition.workspace = true
 publish = false

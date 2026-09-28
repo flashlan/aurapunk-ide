@@ -410,7 +410,7 @@ pub async fn merge_workspace(
         .ensure_container_exists(&workspace)
         .await?;
     let workspace_path = Path::new(&container_ref);
-    let worktree_path = workspace_path.join(repo.name);
+    let worktree_path = workspace_path.join(&repo.name);
 
     // Use the merge base as the task's original HEAD. This keeps changes made
     // on the target branch after the task started out of the task scope and
@@ -618,6 +618,13 @@ pub async fn merge_workspace(
     .await?;
 
     AgentWorkDeclaration::release_workspace(pool, workspace.id).await?;
+    // The target moved: refresh its project map in Mem0 (rate-limited, only
+    // changed areas are rewritten).
+    tokio::spawn(services::services::project_map::sync_to_memory(
+        repo.path.clone(),
+        repo.name.clone(),
+        false,
+    ));
     // Integrated: the card's handoff summary in Mem0 has served its purpose.
     {
         let pool = pool.clone();

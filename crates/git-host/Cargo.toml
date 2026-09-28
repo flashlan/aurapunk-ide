@@ -1,5 +1,6 @@
 [package]
 name = "git-host"
+description = "Git hosting providers (GitHub, Gitea): detection, remotes and pull requests."
 version.workspace = true
 edition.workspace = true
 

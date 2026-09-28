@@ -1,5 +1,6 @@
 [package]
 name = "workspace-manager"
+description = "Workspace lifecycle across repositories: creating and cleaning up a workspace's worktrees."
 version.workspace = true
 edition.workspace = true
 

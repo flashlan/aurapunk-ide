@@ -1,5 +1,6 @@
 [package]
 name = "server"
+description = "HTTP API (axum routes), background workers (integration queue, cloud sync) and the server binaries."
 version.workspace = true
 edition.workspace = true
 default-run = "server"

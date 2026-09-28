@@ -47,6 +47,7 @@ mod mem0;
 mod orchestrator_prompt;
 mod pipeline;
 mod pipeline_admin;
+mod project_map;
 mod project_statuses;
 mod projects;
 mod repos;
@@ -90,6 +91,9 @@ impl McpServer {
             // mem0 project memory (recall / search / save) for the coding
             // agents driving workspaces.
             + Self::mem0_tools_router()
+            // ADR-054: where things live, from the code — the first stop
+            // before exploration agents.
+            + Self::project_map_tools_router()
             // Card-scoped pipeline resolve. Not in orchestrator_mode_router,
             // same reasoning as report_pipeline_stage: the orchestrator
             // doesn't execute a card's pipeline stages itself.
@@ -623,6 +627,8 @@ mod tests {
             "set_issue_pipeline".to_string(),
             "update_workspace".to_string(),
             "wait_for_executions".to_string(),
+            "project_map".to_string(),
+            "refresh_project_map".to_string(),
         ]);
 
         assert_eq!(actual, expected);

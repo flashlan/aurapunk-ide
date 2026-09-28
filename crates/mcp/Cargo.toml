@@ -1,5 +1,6 @@
 [package]
 name = "mcp"
+description = "MCP server (aurapunk-mcp) giving coding agents the board, workspaces, sessions, pipelines, memory and project map."
 version.workspace = true
 edition.workspace = true
 autobins = false

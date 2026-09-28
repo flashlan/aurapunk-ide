@@ -1,5 +1,6 @@
 [package]
 name = "worktree-manager"
+description = "Git worktree creation, migration and cleanup for workspaces."
 version.workspace = true
 edition.workspace = true
 

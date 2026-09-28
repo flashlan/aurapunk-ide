@@ -141,11 +141,50 @@ pub async fn search(user_id: &str, query: &str, limit: usize) -> Result<Vec<Reca
         .collect())
 }
 
+#[derive(Debug, Deserialize)]
+struct Features {
+    #[serde(default)]
+    raw: bool,
+    #[serde(default)]
+    scoped_delete: bool,
+}
+
+/// Whether the memory service stores `raw` writes verbatim and supports
+/// owner-scoped point deletes. An older `mem0-vk` ignores `raw` and splits the
+/// text into extracted facts, so raw writers must check first.
+async fn ensure_raw_support(config: &MemoryConfig) -> Result<(), String> {
+    let response = send(request(config, reqwest::Method::GET, "/api/features")?)
+        .await
+        .map_err(|_| {
+            "the memory service does not support verbatim (raw) writes yet — update mem0-vk"
+                .to_string()
+        })?;
+    let features: Features = response.json().await.map_err(|e| e.to_string())?;
+    if features.raw && features.scoped_delete {
+        Ok(())
+    } else {
+        Err(
+            "the memory service does not support verbatim (raw) writes yet — update mem0-vk"
+                .to_string(),
+        )
+    }
+}
+
+/// `Ok(false)` when project memory is off; `Err` when the service cannot
+/// store raw entries (checked before touching anything).
+pub async fn raw_writes_available() -> Result<bool, String> {
+    let Some(config) = active_config() else {
+        return Ok(false);
+    };
+    ensure_raw_support(&config).await.map(|()| true)
+}
+
 /// Replace everything stored under `user_id` with `content`, verbatim.
 pub async fn replace_raw(user_id: &str, content: &str) -> Result<(), String> {
     let Some(config) = active_config() else {
         return Ok(());
     };
+    ensure_raw_support(&config).await?;
     forget(user_id).await?;
     send(
         request(&config, reqwest::Method::POST, "/api/memories")?.json(&serde_json::json!({
@@ -156,6 +195,51 @@ pub async fn replace_raw(user_id: &str, content: &str) -> Result<(), String> {
     )
     .await
     .map(|_| ())
+}
+
+#[derive(Debug, Deserialize)]
+struct StoreResponse {
+    #[serde(default)]
+    ids: Vec<String>,
+}
+
+/// Add `content` verbatim under `user_id`; returns the new point id, or
+/// `None` when project memory is off.
+pub async fn store_raw(user_id: &str, content: &str) -> Result<Option<String>, String> {
+    let Some(config) = active_config() else {
+        return Ok(None);
+    };
+    ensure_raw_support(&config).await?;
+    let response = send(
+        request(&config, reqwest::Method::POST, "/api/memories")?.json(&serde_json::json!({
+            "content": content,
+            "user_id": user_id,
+            "raw": true,
+        })),
+    )
+    .await?;
+    let parsed: StoreResponse = response.json().await.map_err(|e| e.to_string())?;
+    parsed
+        .ids
+        .into_iter()
+        .next()
+        .map(Some)
+        .ok_or_else(|| "the memory service returned no id".to_string())
+}
+
+/// Delete one point, only if it belongs to `user_id` (the service checks).
+pub async fn delete_point(user_id: &str, id: &str) -> Result<(), String> {
+    let Some(config) = active_config() else {
+        return Ok(());
+    };
+    let path = format!(
+        "/api/memories/{}?user_id={}",
+        encode_segment(id),
+        encode_segment(user_id)
+    );
+    send(request(&config, reqwest::Method::DELETE, &path)?)
+        .await
+        .map(|_| ())
 }
 
 /// The newest entry stored under `user_id`, if any.

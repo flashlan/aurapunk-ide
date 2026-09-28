@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Project map.** Agents can ask where things live (`project_map`): the
+  repository's areas and modules, what each does and its main functions and
+  types, read from the code. The map is also kept in memory, and new
+  sessions receive the parts relevant to their task.
+- **Better memories.** Saving a memory now rejects change-log notes, commit
+  hashes, dates, open work and texts that do not say where in the code they
+  apply, explains how to rewrite them, skips duplicates, and stores the text
+  as written instead of splitting it into fragments.
+
 - **Agents start with the project memory that matters for the task.** When a
   card starts, or a new chat session begins, the app searches your Mem0
   memory itself and gives the agent the few facts relevant to the task

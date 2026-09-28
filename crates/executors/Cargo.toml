@@ -1,5 +1,6 @@
 [package]
 name = "executors"
+description = "Coding-agent executors (Claude Code, Codex, OpenCode, Gemini, ...): spawning, --resume follow-ups, log normalization, MCP config and approvals."
 version.workspace = true
 edition.workspace = true
 

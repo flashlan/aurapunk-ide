@@ -1,5 +1,6 @@
 [package]
 name = "utils"
+description = "Shared utilities: config and asset paths, memory config, message store, port file, diffs and logs."
 version.workspace = true
 edition.workspace = true
 

@@ -1,4 +1,5 @@
 [package]
 name = "client-info"
+description = "Runtime information about the local server (bound address, preview proxy port)."
 version.workspace = true
 edition.workspace = true

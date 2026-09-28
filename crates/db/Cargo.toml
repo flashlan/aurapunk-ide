@@ -1,5 +1,6 @@
 [package]
 name = "db"
+description = "SQLite models and migrations (SQLx): workspaces, sessions, execution processes, issues, merges, queues."
 version.workspace = true
 edition.workspace = true
 

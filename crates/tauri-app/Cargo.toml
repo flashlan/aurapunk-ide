@@ -1,5 +1,6 @@
 [package]
 name = "aurapunk-tauri"
+description = "Desktop app shell (Tauri): window, tray, native notifications and the bundled backend."
 version.workspace = true
 edition.workspace = true
 

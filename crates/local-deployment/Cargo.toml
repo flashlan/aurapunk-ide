@@ -1,5 +1,6 @@
 [package]
 name = "local-deployment"
+description = "Local Deployment implementation: workspace containers and worktrees, execution processes, PTY terminals."
 version.workspace = true
 edition.workspace = true
 

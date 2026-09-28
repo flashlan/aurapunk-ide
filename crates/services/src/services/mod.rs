@@ -21,6 +21,7 @@ pub mod pipeline_stage;
 pub mod pipelines;
 pub mod pr_monitor;
 pub mod project_config;
+pub mod project_map;
 pub mod qa_repos;
 pub mod queued_message;
 pub mod recurrent;

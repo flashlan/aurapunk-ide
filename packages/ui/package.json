@@ -1,5 +1,6 @@
 {
   "name": "@vibe/ui",
+  "description": "Shared UI components (@vibe/ui) used by web-core and local-web.",
   "private": true,
   "version": "0.1.0",
   "type": "module",

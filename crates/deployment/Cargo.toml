@@ -1,5 +1,6 @@
 [package]
 name = "deployment"
+description = "The Deployment trait tying the backend's services together (database, git, containers, config, events)."
 version.workspace = true
 edition.workspace = true
 

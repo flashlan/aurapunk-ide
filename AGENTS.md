@@ -854,3 +854,23 @@ fixed them. Newest last.
   nem grafo); o gateway trata `raw` como escrita vetorial (plano Free ok).
   Typecheck ok; o teste HTTP do `mem0-vk` exige Qdrant local (OrbStack estava
   parado) — não rodado. Deploy pendente.
+
+### 2026-09-27 — Mapa do projeto + qualidade do Mem0 (ADR-054)
+- **Diagnóstico da qualidade:** das 49 memórias, muitas eram changelog/commit,
+  relatório de sessão, trabalho em aberto, 4 pares duplicados e FRAGMENTOS sem
+  sujeito — o `mem0-vk` quebra todo texto em "fatos" via LLM. O motor `jev`
+  do operador não responde, e o portão falha aberto: nada filtrava.
+- **Filtro:** `rlcd::memory_lint` (regras fixas, calibradas: 18/49 recusadas,
+  nenhuma boa) + pergunta `change_report`; recusa volta com modelo
+  ONDE — O QUÊ/COMO — POR QUÊ. `memory_save`: duplicata (≥ 0,93) recusada,
+  gravação `verbatim`.
+- **Mapa:** `services::project_map` (código: `//!`, itens públicos, exports
+  TS, `description` de Cargo.toml — escrita para 15 crates —, AGENTS.md,
+  ADRs). MCP `project_map` / `refresh_project_map`; Mem0 `map-<repo>` com
+  manifesto (hash + id por área) e deletes por ponto; sync após merge (≤ 6 h).
+  Real neste repo: 23 áreas; árvore completa em profundidade 2 = 60 KB, por
+  isso o padrão sem `path` é profundidade 1.
+- **aurapunk-cloud:** `verbatim`, `raw`, DELETE por ponto com dono
+  (`?user_id=`), `GET /api/features`. O app verifica `features` antes de
+  gravar raw. Deploy pendente; teste HTTP do `mem0-vk` exige Qdrant (OrbStack
+  parado).
