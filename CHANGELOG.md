@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Agents start with the project memory that matters for the task.** When a
+  card starts, or a new chat session begins, the app searches your Mem0
+  memory itself and gives the agent the few facts relevant to the task
+  (checked by Laya / Jev), instead of waiting for the agent to remember to
+  search — which, measured, it rarely did.
+- **The handoff summary follows the card.** The summary an agent writes with
+  `/summarize` is also kept in Mem0 under the card, so a session on another
+  machine starts from it; it is removed when the card merges. Requires the
+  updated AuraPunk Cloud memory service.
+
 ## [0.3.35] - 2026-09-27
 
 ### Fixed

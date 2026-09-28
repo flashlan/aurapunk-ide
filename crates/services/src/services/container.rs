@@ -1608,6 +1608,15 @@ pub trait ContainerService {
             None
         };
 
+        // The card's first message: add the project memory relevant to it (and
+        // a handoff when this workspace already had sessions).
+        let prompt = crate::services::session_context::prepare_initial_prompt(
+            &self.db().pool,
+            &workspace,
+            session.id,
+            prompt,
+        )
+        .await;
         let coding_action = ExecutorAction::new(
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
                 prompt,

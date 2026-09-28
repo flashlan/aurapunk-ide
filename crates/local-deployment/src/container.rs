@@ -1081,6 +1081,26 @@ impl LocalContainerService {
             if turn.summary.is_none() {
                 if let Some(summary) = self.extract_last_assistant_message(exec_id) {
                     CodingAgentTurn::update_summary(&self.db.pool, *exec_id, &summary).await?;
+                    // An answer to `/summarize` is the card's handoff: keep it
+                    // in Mem0 so a session on another machine receives it.
+                    if turn.prompt.as_deref().is_some_and(|prompt| {
+                        prompt.contains(services::services::session_context::HANDOFF_SUMMARY_MARKER)
+                    }) && let Some(process) =
+                        ExecutionProcess::find_by_id(&self.db.pool, *exec_id).await?
+                        && let Some(session) =
+                            Session::find_by_id(&self.db.pool, process.session_id).await?
+                    {
+                        let workspace_id = session.workspace_id;
+                        let pool = self.db.pool.clone();
+                        tokio::spawn(async move {
+                            services::services::session_context::save_handoff_summary(
+                                &pool,
+                                workspace_id,
+                                &summary,
+                            )
+                            .await;
+                        });
+                    }
                 } else {
                     tracing::debug!("No assistant message found for execution {}", exec_id);
                 }
@@ -1269,8 +1289,15 @@ impl LocalContainerService {
                 interactive: interactive.clone(),
             })
         } else {
+            let prompt = services::services::session_context::prepare_initial_prompt(
+                &self.db.pool,
+                &ctx.workspace,
+                ctx.session.id,
+                queued_data.message.clone(),
+            )
+            .await;
             ExecutorActionType::CodingAgentInitialRequest(CodingAgentInitialRequest {
-                prompt: queued_data.message.clone(),
+                prompt,
                 executor_config: queued_data.executor_config.clone(),
                 working_dir,
                 interactive,

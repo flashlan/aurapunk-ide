@@ -13,9 +13,11 @@
 //! - the previous exchanges (prompt + final answer of each turn), selected by
 //!   the RLCD classifier (Jev / Laya) when there are too many to include.
 //!
-//! Nothing is stored: the handoff is rebuilt from the database and the branch,
-//! so it lives exactly as long as the workspace (a merge archives it). Durable
-//! knowledge goes to Mem0 when the card completes.
+//! Rebuilt from the database and the branch each time, so it lives as long as
+//! the workspace. The agent-written summary is also kept in Mem0 under the card
+//! (see [`super::save_handoff_summary`]) so another machine gets it, and is
+//! forgotten when the card merges. Durable knowledge goes to Mem0 when the card
+//! completes.
 
 use std::{path::Path, time::Duration};
 
@@ -24,16 +26,17 @@ use db::models::{
     workspace_repo::WorkspaceRepo,
 };
 use git::GitCli;
-use services::services::rlcd;
 use sqlx::SqlitePool;
 use uuid::Uuid;
+
+use crate::services::rlcd;
 
 /// Starts the prompt that asks an agent for a handoff summary. The turn's final
 /// answer becomes the summary handed to the next session.
 pub const HANDOFF_SUMMARY_MARKER: &str = "[aurapunk:handoff-summary]";
 
-const OPEN_TAG: &str = "<aurapunk-handoff>";
-const CLOSE_TAG: &str = "</aurapunk-handoff>";
+pub(super) const OPEN_TAG: &str = "<aurapunk-handoff>";
+pub(super) const CLOSE_TAG: &str = "</aurapunk-handoff>";
 const MAX_TURNS: usize = 8;
 const PROMPT_CHARS: usize = 600;
 const ANSWER_CHARS: usize = 1200;
@@ -49,24 +52,16 @@ struct Exchange {
     answer: String,
 }
 
-/// Prefix `prompt` with the handoff block when the session is new in a
-/// workspace that already had agent sessions. Slash commands pass unchanged.
-pub async fn with_handoff(
+/// Handoff block for the first message of a new session, or `None` when the
+/// workspace has no earlier session. `remote_summary` is the latest handoff
+/// summary kept in Mem0 for this card (written on another machine, or before
+/// the local history was lost); a summary in the local history wins.
+pub(super) async fn build(
     pool: &SqlitePool,
     workspace: &Workspace,
     session_id: Uuid,
-    prompt: String,
-) -> String {
-    if prompt.trim_start().starts_with('/') {
-        return prompt;
-    }
-    match build(pool, workspace, session_id).await {
-        Some(block) => format!("{block}\n\n{prompt}"),
-        None => prompt,
-    }
-}
-
-async fn build(pool: &SqlitePool, workspace: &Workspace, session_id: Uuid) -> Option<String> {
+    remote_summary: Option<String>,
+) -> Option<String> {
     let mut sessions = Session::find_by_workspace_id(pool, workspace.id)
         .await
         .ok()?
@@ -90,11 +85,12 @@ async fn build(pool: &SqlitePool, workspace: &Workspace, session_id: Uuid) -> Op
             answer,
         }));
     }
-    if exchanges.is_empty() {
+    if exchanges.is_empty() && remote_summary.is_none() {
         return None;
     }
 
     let (agent_summary, exchanges) = split_agent_summary(exchanges);
+    let agent_summary = agent_summary.or(remote_summary);
     let exchanges = if agent_summary.is_some() {
         exchanges
     } else {
@@ -136,14 +132,21 @@ async fn build(pool: &SqlitePool, workspace: &Workspace, session_id: Uuid) -> Op
     ))
 }
 
-/// A previous handoff block inside an old prompt is not history worth
-/// repeating: keep only what the user wrote after it.
-fn strip_handoff(prompt: &str) -> String {
-    match prompt.find(CLOSE_TAG) {
-        Some(end) if prompt.trim_start().starts_with(OPEN_TAG) => {
-            prompt[end + CLOSE_TAG.len()..].trim().to_string()
+/// Context blocks the app prepended to an old prompt (handoff, project
+/// memory) are not history worth repeating: keep only what the user wrote.
+pub(super) fn strip_handoff(prompt: &str) -> String {
+    let mut rest = prompt.trim();
+    loop {
+        let Some((_, close)) = super::CONTEXT_TAGS
+            .iter()
+            .find(|(open, _)| rest.starts_with(open))
+        else {
+            return rest.to_string();
+        };
+        match rest.find(close) {
+            Some(end) => rest = rest[end + close.len()..].trim_start(),
+            None => return rest.to_string(),
         }
-        _ => prompt.trim().to_string(),
     }
 }
 
@@ -385,7 +388,9 @@ mod tests {
 
     #[test]
     fn old_handoff_blocks_are_not_repeated() {
-        let prompt = format!("{OPEN_TAG}\nold context\n{CLOSE_TAG}\n\nfix the login");
+        let prompt = format!(
+            "{OPEN_TAG}\nold context\n{CLOSE_TAG}\n\n<aurapunk-memory>\nm\n</aurapunk-memory>\n\nfix the login"
+        );
         assert_eq!(strip_handoff(&prompt), "fix the login");
         assert_eq!(strip_handoff("  plain  "), "plain");
     }
@@ -540,7 +545,14 @@ mod tests {
 
         // The first session of a workspace has nothing to hand over.
         assert_eq!(
-            with_handoff(&pool, &workspace, first, "build it".into()).await,
+            super::super::prepare_initial_prompt_with(
+                &pool,
+                &workspace,
+                first,
+                "build it".into(),
+                false
+            )
+            .await,
             "build it"
         );
 
@@ -553,7 +565,14 @@ mod tests {
         )
         .await;
         let second = session(&pool, workspace_id, "2026-09-27 11:00:00").await;
-        let prompt = with_handoff(&pool, &workspace, second, "now add tests".into()).await;
+        let prompt = super::super::prepare_initial_prompt_with(
+            &pool,
+            &workspace,
+            second,
+            "now add tests".into(),
+            false,
+        )
+        .await;
         assert!(prompt.starts_with(OPEN_TAG), "{prompt}");
         assert!(prompt.contains("User: build the login page"), "{prompt}");
         assert!(
@@ -567,7 +586,14 @@ mod tests {
 
         // Slash commands are never wrapped.
         assert_eq!(
-            with_handoff(&pool, &workspace, second, "/compact".into()).await,
+            super::super::prepare_initial_prompt_with(
+                &pool,
+                &workspace,
+                second,
+                "/compact".into(),
+                false
+            )
+            .await,
             "/compact"
         );
 
@@ -580,7 +606,14 @@ mod tests {
             "Goal: login. Done: page. Open: tests.",
         )
         .await;
-        let prompt = with_handoff(&pool, &workspace, second, "go".into()).await;
+        let prompt = super::super::prepare_initial_prompt_with(
+            &pool,
+            &workspace,
+            second,
+            "go".into(),
+            false,
+        )
+        .await;
         assert!(
             prompt.contains("## Summary written by the previous agent\nGoal: login."),
             "{prompt}"

@@ -14,9 +14,9 @@ import type { IntegrationService } from 'shared/types';
 
 /**
  * Asks the agent for a handoff summary (`/summarize`, `/handoff`). The marker
- * must match `HANDOFF_SUMMARY_MARKER` in `crates/server/src/routes/sessions/
- * handoff.rs`: the backend hands this turn's answer to the next agent session
- * started in the workspace.
+ * must match `HANDOFF_SUMMARY_MARKER` in `crates/services/src/services/
+ * session_context/handoff.rs`: the backend keeps this turn's answer (also in
+ * Mem0, under the card) and hands it to the next agent session.
  */
 export const HANDOFF_SUMMARY_PROMPT = [
   '[aurapunk:handoff-summary]',

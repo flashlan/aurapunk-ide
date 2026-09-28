@@ -836,3 +836,21 @@ fixed them. Newest last.
   sessões/turnos e repositório git), vitest workspace-chat 67, `tsc` limpo,
   clippy/fmt/prettier limpos. Não validado com os dados reais do operador
   (teste interrompido a pedido).
+
+### 2026-09-27 — Memória do projeto no início da sessão + passagem no Mem0 (ADR-053)
+- **Medido:** `memory_search` só aparece nos processos que seguiram
+  `get_rules` (5 de 13); chat livre nunca consulta. O Mem0 do `aurapunk-ide`
+  tem 49 memórias, quase todas diário de correção; notas do vetor são ruidosas
+  (irrelevante 0,64–0,68, relevante ~0,74). Contagem: sidecars
+  `*.normalized.json` (`tool_name`); os `.jsonl` brutos têm JSON escapado e
+  enganam o grep.
+- **Feito:** `services::session_context` (o handoff saiu de `server` para cá):
+  `prepare_initial_prompt` nos 3 pontos de sessão nova (início de card em
+  `start_workspace`, follow-up inicial, mensagem enfileirada) adiciona
+  `<aurapunk-memory>` (busca feita pelo app, Jev/Laya filtram) e o handoff.
+  Resposta ao `/summarize` → Mem0 `handoff-<issue_id>` com `raw: true`;
+  apagado no merge; só pontos `raw` são lidos de volta.
+- **aurapunk-cloud:** `mem0-vk` ganhou `raw` (um ponto literal, sem extração
+  nem grafo); o gateway trata `raw` como escrita vetorial (plano Free ok).
+  Typecheck ok; o teste HTTP do `mem0-vk` exige Qdrant local (OrbStack estava
+  parado) — não rodado. Deploy pendente.

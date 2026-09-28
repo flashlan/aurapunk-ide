@@ -618,6 +618,14 @@ pub async fn merge_workspace(
     .await?;
 
     AgentWorkDeclaration::release_workspace(pool, workspace.id).await?;
+    // Integrated: the card's handoff summary in Mem0 has served its purpose.
+    {
+        let pool = pool.clone();
+        let workspace_id = workspace.id;
+        tokio::spawn(async move {
+            services::services::session_context::forget_handoff(&pool, workspace_id).await;
+        });
+    }
 
     // Normal manual merges retain the historical auto-move behavior. The
     // agent completion workflow defers this transition until its mandatory

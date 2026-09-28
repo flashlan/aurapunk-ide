@@ -1,4 +1,3 @@
-pub mod handoff;
 pub mod open_code_review;
 pub mod queue;
 pub mod review;
@@ -348,7 +347,10 @@ pub(crate) async fn run_follow_up(
     } else {
         // First message of a new agent session: the agent has no conversation
         // yet, so a workspace already worked on hands its context over once.
-        let prompt = handoff::with_handoff(pool, &workspace, session.id, prompt).await;
+        let prompt = services::services::session_context::prepare_initial_prompt(
+            pool, &workspace, session.id, prompt,
+        )
+        .await;
         ExecutorActionType::CodingAgentInitialRequest(
             executors::actions::coding_agent_initial::CodingAgentInitialRequest {
                 prompt,

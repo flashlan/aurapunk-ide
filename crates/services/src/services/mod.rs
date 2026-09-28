@@ -27,6 +27,7 @@ pub mod recurrent;
 pub mod repo;
 pub mod review_request;
 pub mod rlcd;
+pub mod session_context;
 pub mod speckit;
 pub mod token_telemetry;
 pub mod token_usage;
