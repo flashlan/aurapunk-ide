@@ -336,36 +336,62 @@ pub async fn merge_workspace(
         .await?
         .ok_or(RepoError::NotFound)?;
 
-    // Integration Guard cleanliness gate (validation phase): refuse a dirty
-    // target checkout with structured data instead of dying inside the CLI
-    // merge with raw stderr. Cheap and read-only, so it runs before the
-    // lease is acquired. Only tracked modifications block; untracked files
-    // are reported for visibility.
+    // Integration Guard cleanliness gate (validation phase). The target
+    // checkout is usually where the operator works, so it is almost never
+    // clean — and those uncommitted changes are the operator's, not ours.
+    // Only two things block: staged changes (the squash commit would sweep
+    // them in) and changes to files this merge writes (Git refuses to
+    // overwrite them). Everything else is left exactly as it is; the squash
+    // commits only the merge's own index. Cheap and read-only, so it runs
+    // before the lease is acquired.
     {
         let cleanliness = deployment
             .git()
             .worktree_cleanliness(&repo.path, &workspace_repo.target_branch)?;
-        if !cleanliness.modified.is_empty() {
-            let message = format!(
-                "Branch '{}' has {} uncommitted tracked file{} ({} untracked reported). Stash, commit, or delegate cleanup before retrying the merge.",
-                workspace_repo.target_branch,
-                cleanliness.modified.len(),
-                if cleanliness.modified.len() == 1 {
-                    ""
-                } else {
-                    "s"
-                },
-                cleanliness.untracked.len(),
-            );
-            return Ok(ResponseJson(
-                ApiResponse::error_with_data(GitOperationError::DirtyWorktree {
-                    message: message.clone(),
-                    branch: workspace_repo.target_branch.clone(),
-                    modified: cleanliness.modified,
-                    untracked: cleanliness.untracked,
-                })
-                .with_message(message),
-            ));
+        if !cleanliness.modified.is_empty() || !cleanliness.untracked.is_empty() {
+            let touched: std::collections::HashSet<String> = deployment
+                .git()
+                .merge_touched_paths(&repo.path, &workspace_repo.target_branch, &workspace.branch)?
+                .into_iter()
+                .collect();
+            let mut blocking: Vec<String> = cleanliness
+                .modified
+                .iter()
+                .filter(|path| cleanliness.staged.contains(path) || touched.contains(*path))
+                .cloned()
+                .collect();
+            let blocking_untracked: Vec<String> = cleanliness
+                .untracked
+                .iter()
+                .filter(|path| touched.contains(*path))
+                .cloned()
+                .collect();
+            blocking.extend(blocking_untracked.iter().cloned());
+            if blocking.is_empty() {
+                tracing::info!(
+                    workspace_id = %workspace.id,
+                    target_branch = %workspace_repo.target_branch,
+                    operator_changes = cleanliness.modified.len() + cleanliness.untracked.len(),
+                    "Target checkout has unrelated uncommitted changes; merging around them"
+                );
+            } else {
+                let message = format!(
+                    "Branch '{}' is checked out with uncommitted changes the merge would collide with: {}. \
+These are the operator's own changes (staged, or in files this card also changes). They were not touched. \
+The operator must commit or move them; an agent must NOT stash, commit, reset or discard them.",
+                    workspace_repo.target_branch,
+                    blocking.join(", "),
+                );
+                return Ok(ResponseJson(
+                    ApiResponse::error_with_data(GitOperationError::DirtyWorktree {
+                        message: message.clone(),
+                        branch: workspace_repo.target_branch.clone(),
+                        modified: blocking,
+                        untracked: blocking_untracked,
+                    })
+                    .with_message(message),
+                ));
+            }
         }
     }
 

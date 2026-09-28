@@ -223,7 +223,11 @@ impl McpServer {
                  tool again."
             }
             "dirty_worktree" => {
-                "Stash, commit or delegate the listed files, then call this tool again."
+                "The listed files are the OPERATOR'S uncommitted work in the target checkout \
+                 and the merge would overwrite them (or they are staged). They are not yours: \
+                 do NOT stash, commit, reset, checkout or discard them, and do not touch the \
+                 target checkout at all. Leave the card open, tell the operator exactly which \
+                 files collide, and stop; they will commit or move them and retry."
             }
             "merge_conflicts" => {
                 "The target branch was NOT touched. Resolve on your branch, in this workspace: run \

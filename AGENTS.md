@@ -64,6 +64,14 @@ A card whose description has no such reference has nothing to fetch — proceed 
 
 When the selected pipeline reaches `Integration Guard → Done`, the execution agent must commit its verified work in the workspace and call `complete_workspace_card` itself as the final action. Do not stop after committing, ask the operator to click Merge or Done, wait for the UI, or claim integration without a successful tool response. Do not run `git merge`, `git rebase`, `git update-ref`, or `git push` manually for this stage. If the tool reports a conflict, dirty target, concurrent integration, or Mem0 failure, leave the card open and report the blocker.
 
+> **Never touch the operator's uncommitted work in the target checkout.** The
+> target branch (usually `main`) is checked out where the operator works. Its
+> uncommitted changes are theirs: never stash, commit, reset or discard them
+> to get a merge through (on 2026-09-28 an agent stashed the owner's book WIP
+> this way and it vanished from their folder). The Integration Guard merges
+> around unrelated changes; it only refuses when the operator's changes
+> collide with the merge — then leave the card open and report the files.
+>
 > **Merge blocks are delegable, not dead ends.** Since 2026-09-17 the merge
 > endpoints return structured refusals (`DirtyWorktree`, `MergeConflicts`)
 > and the kanban UI offers *Stash & retry* / *Delegate to agent*. An agent
@@ -895,3 +903,19 @@ fixed them. Newest last.
   serve` quando a inicialização falhava — o código do `main` não fazia isso (o
   `?` retornava e o processo ficava órfão, ~100–300 MB). Corrigido em
   `spawn_server` (`kill_process_group` nos dois caminhos de erro).
+
+### 2026-09-28 — Integration Guard mexia no trabalho do operador (stash do livro)
+- **Sintoma:** card "trocar imagem no README" integrou (`b9669b77` no `main`
+  local), mas o agente fez `git stash` do WIP do livro do dono no checkout do
+  `main` ("livro WIP — temp stash to unblock merge"): os arquivos sumiram da
+  pasta e pareceu trabalho perdido. Restaurado com `stash pop` (sem sobreposição).
+- **Causa:** o portão recusava o merge com QUALQUER alteração rastreada no
+  checkout do alvo — onde o dono trabalha, então quase sempre — e o MCP mandava
+  o agente "Stash, commit or delegate the listed files".
+- **Correção:** o portão só bloqueia por arquivos staged (o squash os levaria)
+  ou alterados pelo próprio merge (`merge_touched_paths`, `git diff base...branch`);
+  o resto fica intocado (o `merge --squash` convive com eles e o commit grava só
+  o índice do merge). O MCP e o `AGENTS.md` proíbem stash/commit/reset do
+  trabalho do operador. Teste `merge_goes_around_unrelated_operator_changes` +
+  cenário real: card no README integra com `book.md`/`cover.jpg` sujos
+  intactos; card no `book.md` é recusado listando só `book.md`, sem stash.

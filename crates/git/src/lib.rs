@@ -23,8 +23,13 @@ pub use validation::is_valid_branch_prefix;
 pub struct WorktreeCleanliness {
     /// Where the branch is checked out, if anywhere.
     pub checkout_path: Option<std::path::PathBuf>,
-    /// Tracked files with staged or unstaged modifications (block merges).
+    /// Tracked files with staged or unstaged modifications. They block a
+    /// merge only when staged (a squash commit would include them) or when
+    /// the merge itself changes them; otherwise they are the operator's own
+    /// work and are left untouched.
     pub modified: Vec<String>,
+    /// Paths with staged changes (subset of `modified`).
+    pub staged: Vec<String>,
     /// Untracked files (reported for visibility, never block merges).
     pub untracked: Vec<String>,
 }
@@ -702,22 +707,47 @@ impl GitService {
             .get_worktree_status(&path)
             .map_err(|e| GitServiceError::InvalidRepository(format!("git status failed: {e}")))?;
         let mut modified = Vec::new();
+        let mut staged = Vec::new();
         let mut untracked = Vec::new();
         for entry in status.entries {
             let display = String::from_utf8_lossy(&entry.path).to_string();
             if entry.is_untracked {
                 untracked.push(display);
             } else if entry.staged != ' ' || entry.unstaged != ' ' {
+                if entry.staged != ' ' {
+                    staged.push(display.clone());
+                }
                 modified.push(display);
             }
         }
         modified.sort();
+        staged.sort();
         untracked.sort();
         Ok(WorktreeCleanliness {
             checkout_path: Some(path),
             modified,
+            staged,
             untracked,
         })
+    }
+
+    /// Paths a squash of `from_branch` into `base_branch` writes: everything
+    /// the branch changed since their merge base (renames as delete + add).
+    pub fn merge_touched_paths(
+        &self,
+        repo_path: &Path,
+        base_branch: &str,
+        from_branch: &str,
+    ) -> Result<Vec<String>, GitServiceError> {
+        let range = format!("{base_branch}...{from_branch}");
+        let out = GitCli::new()
+            .git(repo_path, ["diff", "--name-only", "--no-renames", &range])
+            .map_err(|e| GitServiceError::InvalidRepository(format!("git diff failed: {e}")))?;
+        Ok(out
+            .lines()
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect())
     }
 
     /// Merge changes from a task branch into the base branch.

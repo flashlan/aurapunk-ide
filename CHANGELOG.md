@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.39] - 2026-09-28
+
+### Fixed
+
+- **Merging a card no longer touches your uncommitted work.** The Integration
+  Guard refused to merge whenever the main checkout had any uncommitted
+  change — which is almost always, since that is where you work — and agents
+  were told to stash those files to get through, so your work disappeared
+  from your folder. Merges now go around unrelated changes and leave them
+  exactly as they are; they only stop when your uncommitted changes touch the
+  same files as the card, and agents are forbidden to stash, commit or
+  discard your work.
+
 ## [0.3.38] - 2026-09-28
 
 ### Added

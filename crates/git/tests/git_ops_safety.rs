@@ -1424,3 +1424,71 @@ fn merge_tree_check_reports_clean_merges() {
         None
     );
 }
+
+/// The operator works in the target checkout: uncommitted changes to files
+/// the merge does not touch must neither block the merge nor be swept into
+/// the squash commit, and must survive it untouched (2026-09-28: an agent
+/// stashed the owner's WIP to get past a gate that refused any dirty file).
+#[test]
+fn merge_goes_around_unrelated_operator_changes() {
+    let td = TempDir::new().unwrap();
+    let (repo_path, worktree_path) = setup_repo_with_worktree(&td);
+    let main_repo = Repository::open(&repo_path).unwrap();
+    checkout_branch(&main_repo, "main");
+    write_file(&repo_path, "book.md", "chapter 1\n");
+    commit_all(&main_repo, "main adds the book");
+
+    write_file(&worktree_path, "README.md", "new logo\n");
+    let wt_repo = Repository::open(&worktree_path).unwrap();
+    commit_all(&wt_repo, "feature changes the README");
+
+    // Operator's uncommitted work: a modified tracked file and a new file.
+    write_file(&repo_path, "book.md", "chapter 1\nchapter 2 (draft)\n");
+    write_file(&repo_path, "cover.jpg", "binary-ish\n");
+
+    let service = GitService::new();
+    let touched = service
+        .merge_touched_paths(&repo_path, "main", "feature")
+        .unwrap();
+    assert!(touched.contains(&"README.md".to_string()), "{touched:?}");
+    assert!(!touched.iter().any(|p| p == "book.md" || p == "cover.jpg"));
+    let cleanliness = service.worktree_cleanliness(&repo_path, "main").unwrap();
+    assert_eq!(cleanliness.modified, vec!["book.md".to_string()]);
+    assert!(cleanliness.staged.is_empty());
+
+    let sha = service
+        .merge_changes(&repo_path, &worktree_path, "feature", "main", "squash")
+        .unwrap();
+    let files = std::process::Command::new("git")
+        .args([
+            "-C",
+            repo_path.to_str().unwrap(),
+            "show",
+            "--name-only",
+            "--format=",
+            &sha,
+        ])
+        .output()
+        .unwrap();
+    let committed = String::from_utf8_lossy(&files.stdout).to_string();
+    assert!(committed.lines().any(|l| l == "README.md"), "{committed}");
+    assert!(
+        !committed
+            .lines()
+            .any(|l| l == "book.md" || l == "cover.jpg"),
+        "the operator's changes must not be swept into the squash: {committed}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(repo_path.join("book.md")).unwrap(),
+        "chapter 1\nchapter 2 (draft)\n",
+        "the operator's edit stays in the working tree"
+    );
+    assert!(repo_path.join("cover.jpg").exists());
+    let status = std::process::Command::new("git")
+        .args(["-C", repo_path.to_str().unwrap(), "status", "--porcelain"])
+        .output()
+        .unwrap();
+    let status = String::from_utf8_lossy(&status.stdout);
+    assert!(status.contains(" M book.md"), "{status}");
+    assert!(status.contains("?? cover.jpg"), "{status}");
+}
