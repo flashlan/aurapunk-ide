@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.38] - 2026-09-28
+
+### Added
+
+- **Account footer in the sidebar.** The bottom of the sidebar is now one
+  card: your initials, your name ("Account" when signed out — click to log
+  in), the cloud sync state (Cloud synced, Syncing, Sync error or Local only),
+  the Mem0 and RLCD health indicators, and a menu with the dashboard, mobile
+  pairing, settings and sign-out.
+- **AuraPunk ADE logo** in the top bar.
+
+### Fixed
+
+- **The new-release badge no longer adds a row to the board header.** It is a
+  single compact pill beside Agent Activity.
+- **A failed OpenCode start no longer leaves its server running.** The
+  `opencode serve` process (100–300 MB) was orphaned when it did not come up.
+
 ## [0.3.37] - 2026-09-27
 
 ### Fixed
