@@ -874,3 +874,12 @@ fixed them. Newest last.
   (`?user_id=`), `GET /api/features`. O app verifica `features` antes de
   gravar raw. Deploy pendente; teste HTTP do `mem0-vk` exige Qdrant (OrbStack
   parado).
+- **Correção (deploy):** o código-fonte do `mem0-vk` em produção é
+  `aurapunk-ide/mem0-vk` (idêntico a `/opt/mem0-vk` no LXC 102,
+  `root@192.168.1.168`); a cópia em `aurapunk-cloud/mem0-vk` é antiga (1.454 vs
+  2.253 linhas) — não faça deploy dela. `/opt/mem0-vk` não é git: deploy =
+  `npm run build` local, backup em `/opt/mem0-vk/backups/deploy-<ts>`, `scp` de
+  `src/index.ts` e `dist/*`, `systemctl restart mem0-vk`. Verbatim usa o
+  `POST /api/memories/index` já existente (`source: direct_index`). Testado pelo
+  gateway: index intacto, recall, delete de outro dono 404, delete do dono 1,
+  `verbatim` = 1 ponto intacto com entidades no grafo.

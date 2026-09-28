@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted — implemented 2026-09-27. Writing the map and verbatim entries to the
-hosted Mem0 needs the `mem0-vk` / gateway update deployed (aurapunk-cloud).
+Accepted — implemented and deployed 2026-09-27 (mem0-vk on the memory LXC;
+verified through the Cloud gateway).
 
 ## Date
 
@@ -52,10 +52,14 @@ push is limited by what is stored, and the store was poor:
    `change_report` question. `memory_save` refuses near-duplicates (vector
    score ≥ 0.93) and asks `mem0-vk` for a **verbatim** write: one point with
    the text as written, graph extraction still running.
-3. **`mem0-vk` / gateway**: `verbatim` and `raw` writes, owner-scoped
-   `DELETE /api/memories/{id}?user_id=`, and `GET /api/features` so clients
-   check support before relying on it (the IDE never writes raw entries to a
-   server that would fragment them).
+3. **`mem0-vk`** (source of truth: `aurapunk-ide/mem0-vk`, deployed at
+   `/opt/mem0-vk` on the memory LXC): `verbatim` queued writes (one point, graph
+   still fed), owner-scoped `DELETE /api/memories/{id}?user_id=`, and
+   `GET /api/features` so clients check support first. Verbatim map and
+   handoff entries use the existing `POST /api/memories/index` (no LLM, no
+   graph, `source: direct_index`), which the Cloud gateway allows on every
+   plan. The IDE only reads back `direct_index` entries, so extracted
+   fragments are never used as a handoff.
 
 ## Consequences
 

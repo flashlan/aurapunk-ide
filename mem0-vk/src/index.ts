@@ -1530,7 +1530,8 @@ async function graphOverview(userId: string): Promise<
 async function memoryStore(
   content: string,
   userId: string,
-  commitSha?: string
+  commitSha?: string,
+  verbatim = false
 ): Promise<{
   stored: string[];
   ids: string[];
@@ -1540,7 +1541,12 @@ async function memoryStore(
 }> {
   const uid = userId || config.defaultUser;
   await ensureCollection();
-  const { facts, entities, relations } = await extractStructure(content);
+  const extracted = await extractStructure(content);
+  const { entities, relations } = extracted;
+  // verbatim: one point with the text as written (the caller already checked
+  // it is one self-contained fact). Extraction still feeds the graph, but the
+  // vector entry is not split into fragments that lose their subject.
+  const facts = verbatim ? [content] : extracted.facts;
 
   const stored: string[] = [];
   const ids: string[] = [];
@@ -1600,6 +1606,7 @@ type MemoryStoreJobData = {
   content: string;
   userId: string;
   commitSha?: string;
+  verbatim?: boolean;
 };
 
 const memoryQueueConnection = new IORedis(config.redisUrl, {
@@ -1622,8 +1629,8 @@ const memoryStoreQueue = new Queue<MemoryStoreJobData>(MEMORY_STORE_QUEUE_NAME, 
 const memoryStoreWorker = new Worker<MemoryStoreJobData>(
   MEMORY_STORE_QUEUE_NAME,
   async (job: Job<MemoryStoreJobData>) => {
-    const { content, userId, commitSha } = job.data;
-    return memoryStore(content, userId, commitSha);
+    const { content, userId, commitSha, verbatim } = job.data;
+    return memoryStore(content, userId, commitSha, verbatim === true);
   },
   { connection: memoryQueueConnection, concurrency: 4 }
 );
@@ -2051,6 +2058,12 @@ app.all("/mcp", async (c) => {
 
 // ── REST routes ─────────────────────────────────────────────────────────────
 
+// Capabilities, so clients can rely on a behaviour instead of falling back
+// silently (AuraPunk IDE checks this before writing the project map).
+app.get("/api/features", (c) =>
+  c.json({ ok: true, direct_index: true, verbatim: true, scoped_delete: true })
+);
+
 app.post("/api/memories", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const content: string = body?.content;
@@ -2064,6 +2077,7 @@ app.post("/api/memories", async (c) => {
     content,
     userId: user_id || "",
     commitSha: commit_sha,
+    verbatim: body?.verbatim === true,
   });
   return c.json({ ok: true, queued: true, job_id: job.id }, 202);
 });
@@ -2225,6 +2239,24 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 app.delete("/api/memories/:id", async (c) => {
   const raw = c.req.param("id");
   if (UUID_RE.test(raw)) {
+    // `?user_id=` scopes the delete: the point must belong to that user, so a
+    // multi-tenant gateway can forward per-memory deletes safely. Only that
+    // user's points are scanned, not the whole collection.
+    const ownerParam = c.req.query("user_id");
+    if (ownerParam !== undefined) {
+      const owner = scopedMemoryUserId(c, ownerParam);
+      const owned = owner
+        ? (await getAllPoints(owner)).some((p: any) => p.id === raw)
+        : false;
+      if (!owned) return c.json({ deleted: 0, scope: "none" }, 404);
+      // Ownership already proved the point exists: skip memoryForget's
+      // whole-collection existence scan.
+      await deletePoint(raw);
+      if (config.graphUrl) {
+        await graphProxy("POST", "/graph/remove_node", { node_id: raw }).catch(() => {});
+      }
+      return c.json({ deleted: 1, scope: "point" });
+    }
     const res = await memoryForget(raw);
     return c.json(res);
   }

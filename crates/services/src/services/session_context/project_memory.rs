@@ -17,6 +17,8 @@ use serde::Deserialize;
 use utils::memory_config::{self, MemoryAdapter, MemoryConfig};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
+/// Payload `source` of entries stored verbatim (no extraction, no graph).
+const DIRECT_INDEX: &str = "direct_index";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Recalled {
@@ -28,11 +30,10 @@ pub struct Recalled {
 struct Payload {
     content: Option<String>,
     created_at: Option<String>,
-    /// Set by `mem0-vk` for verbatim writes. A server without raw support
-    /// splits the text into extracted facts instead; those are never used as
-    /// a handoff.
-    #[serde(default)]
-    raw: bool,
+    /// `direct_index` for entries written verbatim through
+    /// `/api/memories/index`; extracted facts (split by the service's LLM) have
+    /// none and are never used as a handoff.
+    source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -144,7 +145,7 @@ pub async fn search(user_id: &str, query: &str, limit: usize) -> Result<Vec<Reca
 #[derive(Debug, Deserialize)]
 struct Features {
     #[serde(default)]
-    raw: bool,
+    direct_index: bool,
     #[serde(default)]
     scoped_delete: bool,
 }
@@ -160,7 +161,7 @@ async fn ensure_raw_support(config: &MemoryConfig) -> Result<(), String> {
                 .to_string()
         })?;
     let features: Features = response.json().await.map_err(|e| e.to_string())?;
-    if features.raw && features.scoped_delete {
+    if features.direct_index && features.scoped_delete {
         Ok(())
     } else {
         Err(
@@ -186,21 +187,12 @@ pub async fn replace_raw(user_id: &str, content: &str) -> Result<(), String> {
     };
     ensure_raw_support(&config).await?;
     forget(user_id).await?;
-    send(
-        request(&config, reqwest::Method::POST, "/api/memories")?.json(&serde_json::json!({
-            "content": content,
-            "user_id": user_id,
-            "raw": true,
-        })),
-    )
-    .await
-    .map(|_| ())
+    store_raw(user_id, content).await.map(|_| ())
 }
 
 #[derive(Debug, Deserialize)]
-struct StoreResponse {
-    #[serde(default)]
-    ids: Vec<String>,
+struct IndexResponse {
+    id: Option<String>,
 }
 
 /// Add `content` verbatim under `user_id`; returns the new point id, or
@@ -211,18 +203,15 @@ pub async fn store_raw(user_id: &str, content: &str) -> Result<Option<String>, S
     };
     ensure_raw_support(&config).await?;
     let response = send(
-        request(&config, reqwest::Method::POST, "/api/memories")?.json(&serde_json::json!({
+        request(&config, reqwest::Method::POST, "/api/memories/index")?.json(&serde_json::json!({
             "content": content,
             "user_id": user_id,
-            "raw": true,
         })),
     )
     .await?;
-    let parsed: StoreResponse = response.json().await.map_err(|e| e.to_string())?;
+    let parsed: IndexResponse = response.json().await.map_err(|e| e.to_string())?;
     parsed
-        .ids
-        .into_iter()
-        .next()
+        .id
         .map(Some)
         .ok_or_else(|| "the memory service returned no id".to_string())
 }
@@ -256,7 +245,12 @@ pub async fn latest(user_id: &str) -> Result<Option<String>, String> {
 fn newest_raw(points: Vec<Point>) -> Option<String> {
     points
         .into_iter()
-        .filter(|point| point.payload.as_ref().is_some_and(|payload| payload.raw))
+        .filter(|point| {
+            point
+                .payload
+                .as_ref()
+                .is_some_and(|payload| payload.source.as_deref() == Some(DIRECT_INDEX))
+        })
         .filter_map(content_of)
         .max_by(|a, b| a.1.cmp(&b.1))
         .map(|(_, _, content)| content)
@@ -281,9 +275,9 @@ mod tests {
     fn only_raw_points_count_and_newest_wins() {
         let parsed: RecallResponse = serde_json::from_value(serde_json::json!({
             "memories": [
-                { "id": "a", "payload": { "content": "old", "raw": true, "created_at": "2026-09-27T10:00:00Z" } },
-                { "id": "b", "payload": { "content": "  ", "raw": true } },
-                { "id": "c", "payload": { "content": "new", "raw": true, "created_at": "2026-09-27T11:00:00Z" } },
+                { "id": "a", "payload": { "content": "old", "source": "direct_index", "created_at": "2026-09-27T10:00:00Z" } },
+                { "id": "b", "payload": { "content": "  ", "source": "direct_index" } },
+                { "id": "c", "payload": { "content": "new", "source": "direct_index", "created_at": "2026-09-27T11:00:00Z" } },
                 { "id": "d", "payload": { "content": "extracted fact", "created_at": "2026-09-27T12:00:00Z" } },
                 { "id": "e" }
             ]
