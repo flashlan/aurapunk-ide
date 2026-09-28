@@ -5,7 +5,9 @@
 <h1 align="center">AuraPunk ADE</h1>
 
 <p align="center">
-  <b>The free, self-hosted Agent Development Environment (ADE) for Kanban-driven multi-agent development.</b>
+  <b>The full-workflow Agent Development Environment (ADE) for multi-agent development — free and self-hosted.</b>
+  <br />
+  Plan on a Kanban board → run many coding agents in parallel, each in its own branch → review → merge, with shared project memory. The whole workflow, in one place.
 </p>
 
 <p align="center">
@@ -135,6 +137,11 @@ Following the [shutdown of Bloop's hosted servers](https://vibekanban.com/blog/s
 > pipeline, several in parallel; you review their diffs, merge, and keep a
 > shared project memory. An IDE is built around your editor — an ADE is built
 > around the agents doing the work and you steering them.
+>
+> **Full workflow, multi-agent.** AuraPunk covers the whole cycle, not one
+> step of it: planning and routing work, running agents in parallel,
+> reviewing, integrating through a merge queue that resolves conflicts on the
+> branch, and remembering what the project learned — for every agent you use.
 
 Software engineering increasingly means directing coding agents — planning work, spawning a model to implement it, reviewing its diff, and shipping. `AuraPunk ADE` is a kanban board that plans and tracks agent work, plus a workspace runtime that turns each card into a real branch, terminal, and dev server where any of 11+ coding agents (CommandCode, Claude Code, OpenCode, Qwen Code, Codex, Gemini CLI, Antigravity, Copilot, Amp, Cursor, Droid, CCR) executes the plan.
 
