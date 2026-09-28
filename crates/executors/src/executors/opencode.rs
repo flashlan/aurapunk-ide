@@ -175,11 +175,24 @@ impl Opencode {
         env: &ExecutionEnv,
     ) -> Result<OpencodeServer, ExecutorError> {
         let (mut child, server_password) = self.spawn_server_process(current_dir, env).await?;
-        let server_stdout = child.inner().stdout.take().ok_or_else(|| {
-            ExecutorError::Io(std::io::Error::other("OpenCode server missing stdout"))
-        })?;
+        // On any failure below the child is not yet owned by an
+        // `OpencodeServer` (whose Drop kills it), and `kill_on_drop` is not
+        // reliable: kill the process group explicitly so a failed start never
+        // leaves an orphaned `opencode serve` (Node, ~100-300 MB) behind.
+        let Some(server_stdout) = child.inner().stdout.take() else {
+            let _ = workspace_utils::process::kill_process_group(&mut child).await;
+            return Err(ExecutorError::Io(std::io::Error::other(
+                "OpenCode server missing stdout",
+            )));
+        };
 
-        let base_url = wait_for_server_url(server_stdout, None).await?;
+        let base_url = match wait_for_server_url(server_stdout, None).await {
+            Ok(url) => url,
+            Err(error) => {
+                let _ = workspace_utils::process::kill_process_group(&mut child).await;
+                return Err(error);
+            }
+        };
 
         Ok(OpencodeServer {
             child: Some(child),

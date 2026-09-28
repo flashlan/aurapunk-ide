@@ -883,3 +883,15 @@ fixed them. Newest last.
   `POST /api/memories/index` já existente (`source: direct_index`). Testado pelo
   gateway: index intacto, recall, delete de outro dono 404, delete do dono 1,
   `verbatim` = 1 ponto intacto com entidades no grafo.
+
+### 2026-09-28 — Limpeza do Mem0 do `aurapunk-ide` + vazamento do OpenCode
+- **Backup antes:** `~/.vibe-kanban/mem0-backups/aurapunk-ide-20260928-004244.json`
+  (49 memórias, com ids).
+- **Removidas 20** (18 do filtro: changelog/commit/data/aberto/sem âncora, 1
+  duplicata, 1 falsa) e **7 reescritas** no formato ONDE — O QUÊ — POR QUÊ
+  (verificadas no código antes). Resultado: 37 memórias, 0 duplicatas, 0
+  recusadas pelo filtro; busca "scroll do chat" passou a achar a certa (0,82).
+- **Memória falsa encontrada:** dizia que `opencode.rs` matava o `opencode
+  serve` quando a inicialização falhava — o código do `main` não fazia isso (o
+  `?` retornava e o processo ficava órfão, ~100–300 MB). Corrigido em
+  `spawn_server` (`kill_process_group` nos dois caminhos de erro).
