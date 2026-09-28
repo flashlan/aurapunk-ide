@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="aurapunk-logo.png" alt="Aurapunk IDE logo" width="320" />
+  <img src="aurapunk-logo.png" alt="AuraPunk ADE logo" width="320" />
 </p>
 
-<h1 align="center">AuraPunk IDE</h1>
+<h1 align="center">AuraPunk ADE</h1>
 
 <p align="center">
-  <b>The free, self-hosted agentic IDE for Kanban-driven multi-agent development.</b>
+  <b>The free, self-hosted Agent Development Environment (ADE) for Kanban-driven multi-agent development.</b>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-  <img src="packages/public/aurapunk-hero-desktop-mobile.png" alt="AuraPunk IDE desktop app and AuraPunk Mobile Android app, showing the Kanban board and multi-agent workspace" width="900" />
+  <img src="packages/public/aurapunk-hero-desktop-mobile.png" alt="AuraPunk ADE desktop app and AuraPunk Mobile Android app, showing the Kanban board and multi-agent workspace" width="900" />
 </p>
 
 ## Download
@@ -58,7 +58,7 @@ npx aurapunk-ide
 
 ### macOS
 
-Open the DMG and drag **Aurapunk IDE** to **Applications**. If macOS shows
+Open the DMG and drag **Aurapunk IDE** (the app bundle keeps that name, like the `aurapunk-ide` package) to **Applications**. If macOS shows
 “Apple cannot verify the developer”, open **System Settings → Privacy &
 Security → Open Anyway**, or run:
 
@@ -99,7 +99,7 @@ in [release `v0.3.2`](https://github.com/flashlan/aurapunk-ide/releases/tag/v0.3
 
 ## Website and Hosted Plans
 
-**[aurapunk.dev](https://aurapunk.dev)** — AuraPunk IDE itself is free and open source, full stop; nothing above requires an account or a subscription. The website additionally offers optional hosted plans for people who want AuraPunk Mobile to work without a Desktop instance running at home:
+**[aurapunk.dev](https://aurapunk.dev)** — AuraPunk ADE itself is free and open source, full stop; nothing above requires an account or a subscription. The website additionally offers optional hosted plans for people who want AuraPunk Mobile to work without a Desktop instance running at home:
 
 - **Free plan** — an account with limited mem0 memory quota, no VM hosting required.
 - **Paid hosted instances** — your own cloud VM running the full cockpit, with a larger mem0 quota and disk space for building workspace worktrees, so AuraPunk Mobile can create and drive cards on its own instead of depending on your Desktop being online.
@@ -125,11 +125,18 @@ in [release `v0.3.2`](https://github.com/flashlan/aurapunk-ide/releases/tag/v0.3
 
 ## Background and Credits
 
-Following the [shutdown of Bloop's hosted servers](https://vibekanban.com/blog/shutdown), developers were left with orphaned workspaces and broken dependencies. **AuraPunk IDE** is an actively maintained, independent evolution of [BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban) and [dexloom/vibe-kanban-indie](https://github.com/dexloom/vibe-kanban-indie), built for a single-developer workflow: no cloud accounts, no team auth, no remote telemetry. Everything runs on your own machine.
+Following the [shutdown of Bloop's hosted servers](https://vibekanban.com/blog/shutdown), developers were left with orphaned workspaces and broken dependencies. **AuraPunk ADE** is an actively maintained, independent evolution of [BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban) and [dexloom/vibe-kanban-indie](https://github.com/dexloom/vibe-kanban-indie), built for a single-developer workflow: no cloud accounts, no team auth, no remote telemetry. Everything runs on your own machine.
 
 ## Overview
 
-Software engineering increasingly means directing coding agents — planning work, spawning a model to implement it, reviewing its diff, and shipping. `AuraPunk IDE` is a kanban board that plans and tracks agent work, plus a workspace runtime that turns each card into a real branch, terminal, and dev server where any of 11+ coding agents (CommandCode, Claude Code, OpenCode, Qwen Code, Codex, Gemini CLI, Antigravity, Copilot, Amp, Cursor, Droid, CCR) executes the plan.
+> **What is an ADE?** An **Agent Development Environment** is built around
+> directing coding agents instead of editing code yourself. You plan the work
+> as cards; agents run each card in its own branch and workspace, following a
+> pipeline, several in parallel; you review their diffs, merge, and keep a
+> shared project memory. An IDE is built around your editor — an ADE is built
+> around the agents doing the work and you steering them.
+
+Software engineering increasingly means directing coding agents — planning work, spawning a model to implement it, reviewing its diff, and shipping. `AuraPunk ADE` is a kanban board that plans and tracks agent work, plus a workspace runtime that turns each card into a real branch, terminal, and dev server where any of 11+ coding agents (CommandCode, Claude Code, OpenCode, Qwen Code, Codex, Gemini CLI, Antigravity, Copilot, Amp, Cursor, Droid, CCR) executes the plan.
 
 - **Kanban planning** — boards, columns, priorities, tags, sub-issues, and pipelines.
 - **Agent workspaces** — each card launches a branch, terminal, dev server, and an agent following a configurable pipeline.
@@ -139,7 +146,7 @@ Software engineering increasingly means directing coding agents — planning wor
 - **Workspaces, PRs, and merge** — open PRs (GitHub or Gitea/Forgejo) with AI-generated descriptions.
 - **Terminal and phone control** — a [TUI cockpit](#terminal-ui-tui) and [Telegram escalation](#telegram-orchestration).
 
-![AuraPunk IDE kanban board overview, showing columns of cards with agent status](packages/public/vibe-kanban-alternative-screenshot-overview.png)
+![AuraPunk ADE kanban board overview, showing columns of cards with agent status](packages/public/vibe-kanban-alternative-screenshot-overview.png)
 
 ![Workspace view showing an agent session, terminal, and diff review panel](packages/public/vibe-kanban-screenshot-workspace.png)
 
@@ -159,7 +166,7 @@ Software engineering increasingly means directing coding agents — planning wor
 
 ## Project Memory (mem0)
 
-`AuraPunk IDE` gives every coding agent driving a workspace a durable, semantic memory of the repositories it works in — graph-based (mem0 + Qdrant + NetworkX), scoped per repository, and shared across every agent that touches that project.
+`AuraPunk ADE` gives every coding agent driving a workspace a durable, semantic memory of the repositories it works in — graph-based (mem0 + Qdrant + NetworkX), scoped per repository, and shared across every agent that touches that project.
 
 - **Agentic recall, not auto-injection** — the "Project memory" pipeline stage instructs the agent to call `memory_search` before starting, scoped to the card's files or module — a targeted lookup, not a full dump.
 - **Verified fact save-back** — agents persist only self-contained, verified facts (architectural decisions, patterns, root causes) via `memory_save`; chatter is filtered out.
@@ -299,7 +306,7 @@ flowchart LR
 
 ## Supported Coding Agents
 
-`AuraPunk IDE` integrates natively with 10+ coding agents:
+`AuraPunk ADE` integrates natively with 10+ coding agents:
 
 1. **CommandCode (`command-code`)** (new) — provider/model selection from `command-code --list-models` (for example `deepseek/deepseek-v4-flash` or `anthropic/claude-opus-5`), reasoning-effort control, YOLO mode for autonomous runs, and MCP tools wired through `~/.commandcode/mcp.json`.
 2. **Google Antigravity (`agy`)** — full stream-JSON protocol, native visual cards for file inspection, search, bash commands, and edits; reasoning-effort controls; YOLO mode.
@@ -395,7 +402,7 @@ without rebuilding it.
 
 ## Credits and Acknowledgments
 
-Aurapunk IDE is built upon the foundational work of the open-source community:
+AuraPunk ADE is built upon the foundational work of the open-source community:
 - **[BloopAI/vibe-kanban](https://github.com/BloopAI/vibe-kanban)** — the original multi-agent Kanban workspace architecture created by the Bloop team.
 - **[dexloom/vibe-kanban-indie](https://github.com/dexloom/vibe-kanban-indie)** — the single-developer, local-first evolution and independent maintainer foundation.
 
