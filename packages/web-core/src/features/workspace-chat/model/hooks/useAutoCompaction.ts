@@ -4,54 +4,16 @@ import type { PatchTypeWithKey } from '@/shared/hooks/useConversationHistory/typ
 import {
   useCompactorEngine,
   useCompactionThreshold,
-  useLayaMode,
-  useLayaDockerUrl,
-  useLayaCloudUrl,
-  useJevApiKey,
-  useJevTypesafeUrl,
-  readCloudAccessToken,
 } from '@/shared/stores/useUiPreferencesStore';
 import {
+  buildAgentCompactionMarker,
   compactionService,
-  executeSessionCompaction,
 } from '../sessionCompactor';
 import { reportIntegrationError } from '@/shared/lib/integrationErrors';
 
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 min cooldown between automatic compactions
 const HYSTERESIS_PCT = 10; // Must drop 10% below threshold before re-arming
 const SCHEDULE_DELAY_MS = 1500; // Let the current render/stream settle before running
-/**
- * Hard ceiling on a single compaction attempt. The classifiers already have
- * their own timeouts (Jev 30s, Laya 15s) and 'auto' can chain them, so this is
- * only a backstop: without it a wedged classifier call would hold the
- * in-flight latch forever and auto-compaction would never run again.
- */
-const COMPACTION_TIMEOUT_MS = 120 * 1000;
-
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () =>
-        reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)),
-      ms
-    );
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      }
-    );
-  });
-}
-
 /**
  * Cooldown/arming state deliberately lives at module scope, keyed by session.
  *
@@ -72,10 +34,9 @@ export interface UseAutoCompactionOptions {
   entries: PatchTypeWithKey[];
   setEntries: (entries: PatchTypeWithKey[]) => void;
   /**
-   * Ask the agent to compact its own session (sends `/compact`). Without it
-   * auto-compaction only produced the local Fast Jev marker: the prompt was
-   * reshaped but the agent's context window stayed full, so the usage meter
-   * never dropped. Resolves to whether the request was delivered.
+   * Ask the agent to compact its own session (sends `/compact`) — the only
+   * compaction that shrinks the context. Resolves to whether the request was
+   * delivered. Without it (no session yet) nothing is compacted.
    */
   requestAgentCompaction?: () => Promise<boolean>;
 }
@@ -89,8 +50,9 @@ function thresholdToNumber(t: string | null | undefined): number | null {
 /**
  * Proactive Auto-Compaction Hook:
  * Monitors token usage against the configured threshold (e.g. 50%, 65%, 85%).
- * When exceeded and idle, triggers Fast Jev & Laya compaction, injecting
- * the compaction_marker into the chat and isolating past context.
+ * When exceeded and idle, asks the agent to `/compact` its session and records
+ * a compaction marker in the chat (ADR-052). Nothing is added to later
+ * prompts: the agent keeps its own (now compacted) context.
  */
 export function useAutoCompaction({
   sessionId,
@@ -105,11 +67,6 @@ export function useAutoCompaction({
   requestAgentCompactionRef.current = requestAgentCompaction;
   const threshold = useCompactionThreshold();
   const engine = useCompactorEngine();
-  const layaMode = useLayaMode();
-  const layaDockerUrl = useLayaDockerUrl();
-  const layaCloudUrl = useLayaCloudUrl();
-  const jevApiKey = useJevApiKey();
-  const jevTypesafeUrl = useJevTypesafeUrl();
 
   // Backed by the module-scoped maps so the cooldown/arming survive re-mounts.
   const lastCompactAtRef = useRef(lastCompactAtBySession);
@@ -120,26 +77,8 @@ export function useAutoCompaction({
   // Latest inputs for the deferred run. The effect re-runs on every streamed
   // patch, so the scheduled callback must read current values instead of the
   // closure captured at scheduling time.
-  const latestRef = useRef({
-    entries,
-    engine,
-    layaMode,
-    layaDockerUrl,
-    layaCloudUrl,
-    jevApiKey,
-    jevTypesafeUrl,
-    isRunning,
-  });
-  latestRef.current = {
-    entries,
-    engine,
-    layaMode,
-    layaDockerUrl,
-    layaCloudUrl,
-    jevApiKey,
-    jevTypesafeUrl,
-    isRunning,
-  };
+  const latestRef = useRef({ entries, engine, isRunning, tokenUsageInfo });
+  latestRef.current = { entries, engine, isRunning, tokenUsageInfo };
 
   // Unmount only: drop a pending (not yet started) compaction and release the
   // latch so a remount starts from a clean state.
@@ -205,64 +144,34 @@ export function useAutoCompaction({
           return;
         }
 
-        console.log(
-          `[auto-compact] Token usage reached ${pct.toFixed(1)}% (threshold: ${thresholdPct}%). Executing compaction via ${latest.engine}...`
-        );
-        // 1) The compaction that actually shrinks the context: the agent's own.
         const requestAgent = requestAgentCompactionRef.current;
-        if (requestAgent) {
-          const delivered = await requestAgent().catch(() => false);
-          if (!delivered) {
-            void reportIntegrationError(
-              compactionService(latest.engine),
-              'auto-compaction (asking the agent to /compact)',
-              'the /compact request was not delivered to the agent'
-            );
-          }
+        if (!requestAgent) {
+          armedRef.current.set(armedKey, true);
+          return;
+        }
+        console.log(
+          `[auto-compact] Token usage reached ${pct.toFixed(1)}% (threshold: ${thresholdPct}%). Asking the agent to /compact...`
+        );
+        const delivered = await requestAgent().catch(() => false);
+        if (!delivered) {
+          throw new Error(
+            'the /compact request was not delivered to the agent'
+          );
         }
 
-        // 2) Fast Jev / Laya: the visible summary and the local isolation
-        //    marker used when building later prompts.
-        const token = readCloudAccessToken() ?? undefined;
-        const run = (mode: 'docker' | 'cloud') =>
-          executeSessionCompaction({
-            entries: latest.entries,
-            engine: latest.engine,
-            layaMode: mode,
-            layaDockerUrl: latest.layaDockerUrl,
-            layaCloudUrl: latest.layaCloudUrl,
-            layaAuthToken: token,
-            jevApiKey: latest.jevApiKey,
-            jevTypesafeUrl: latest.jevTypesafeUrl,
-          });
-
-        const result = await withTimeout(
-          run(latest.layaMode).catch((firstErr) => {
-            // Fall back to the hosted Laya gateway when this Desktop is signed in.
-            if (token && latest.layaMode !== 'cloud') {
-              // The fallback may succeed, but the configured engine failed —
-              // surface that instead of hiding it behind the retry.
-              void reportIntegrationError(
-                compactionService(latest.engine),
-                `auto-compaction (${latest.layaMode}, retrying on cloud)`,
-                firstErr
-              );
-              return run('cloud');
-            }
-            throw firstErr;
-          }),
-          COMPACTION_TIMEOUT_MS,
-          'auto-compaction'
-        );
-
-        // Inject marker into chat, appending to the latest entries rather than
+        // Record it in the chat, appending to the latest entries rather than
         // the ones captured when this run was scheduled.
-        setEntries([...latestRef.current.entries, result.markerPatch]);
+        setEntries([
+          ...latestRef.current.entries,
+          buildAgentCompactionMarker(
+            latestRef.current.tokenUsageInfo?.total_tokens
+          ),
+        ]);
         lastCompactAtRef.current.set(sessionId, Date.now());
       } catch (err) {
         void reportIntegrationError(
           compactionService(latestRef.current.engine),
-          'auto-compaction',
+          'auto-compaction (asking the agent to /compact)',
           err
         );
         armedRef.current.set(armedKey, true);
@@ -288,10 +197,5 @@ export function useAutoCompaction({
     executorConfig,
     entries,
     setEntries,
-    layaMode,
-    layaDockerUrl,
-    layaCloudUrl,
-    jevApiKey,
-    jevTypesafeUrl,
   ]);
 }

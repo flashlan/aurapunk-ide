@@ -4,25 +4,18 @@ import { renderHook, act } from '@testing-library/react';
 import type { ExecutorConfig, TokenUsageInfo } from 'shared/types';
 import type { PatchTypeWithKey } from '@/shared/hooks/useConversationHistory/types';
 
-// The hook's job is to decide *when* to compact and to call the compactor; the
-// compactor itself (classifiers, Jev/Laya HTTP) is not under test here.
-const executeSessionCompaction = vi.fn();
-
-vi.mock('../sessionCompactor', () => ({
-  executeSessionCompaction: (...args: unknown[]) =>
-    executeSessionCompaction(...args),
-  compactionService: () => 'laya',
-}));
+// The hook's job is to decide *when* to compact: it asks the agent to
+// `/compact` (the only compaction that shrinks its context) and records a
+// marker in the chat.
+const requestAgentCompaction = vi.fn(async () => true);
 
 vi.mock('@/shared/stores/useUiPreferencesStore', () => ({
   useCompactionThreshold: () => '50',
   useCompactorEngine: () => 'laya',
-  useLayaMode: () => 'docker',
-  useLayaDockerUrl: () => 'http://localhost:8080',
-  useLayaCloudUrl: () => 'http://cloud.example/api/memory/v1',
-  useJevApiKey: () => '',
-  useJevTypesafeUrl: () => 'https://api.typesafe.ai/v1/systemone',
-  readCloudAccessToken: () => null,
+}));
+
+vi.mock('@/shared/lib/integrationErrors', () => ({
+  reportIntegrationError: vi.fn(),
 }));
 
 import { useAutoCompaction } from './useAutoCompaction';
@@ -51,25 +44,15 @@ function baseProps(
     isRunning: false,
     entries: entries(4),
     setEntries,
+    requestAgentCompaction,
   };
 }
 
 describe('useAutoCompaction', () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    executeSessionCompaction.mockReset();
-    executeSessionCompaction.mockResolvedValue({
-      markerPatch: {
-        type: 'NORMALIZED_ENTRY',
-        patchKey: 'marker',
-        content: {},
-      },
-      summary: 'compacted',
-      tokensBefore: 600,
-      tokensAfter: 300,
-      reductionRatio: 0.5,
-      providerUsed: 'laya',
-    });
+    requestAgentCompaction.mockReset();
+    requestAgentCompaction.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -94,7 +77,7 @@ describe('useAutoCompaction', () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
 
-    expect(executeSessionCompaction).toHaveBeenCalledTimes(1);
+    expect(requestAgentCompaction).toHaveBeenCalledTimes(1);
     expect(setEntries).toHaveBeenCalledTimes(1);
     expect(setEntries.mock.calls[0][0]).toHaveLength(8);
   });
@@ -112,7 +95,7 @@ describe('useAutoCompaction', () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
 
-    expect(executeSessionCompaction).not.toHaveBeenCalled();
+    expect(requestAgentCompaction).not.toHaveBeenCalled();
   });
 
   it('stays below the threshold without compacting', async () => {
@@ -131,7 +114,7 @@ describe('useAutoCompaction', () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
 
-    expect(executeSessionCompaction).not.toHaveBeenCalled();
+    expect(requestAgentCompaction).not.toHaveBeenCalled();
   });
 
   it('keeps the cooldown across a re-mount instead of compacting again', async () => {
@@ -142,7 +125,7 @@ describe('useAutoCompaction', () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
-    expect(executeSessionCompaction).toHaveBeenCalledTimes(1);
+    expect(requestAgentCompaction).toHaveBeenCalledTimes(1);
 
     // Leaving the chat and coming back used to reset the per-mount cooldown and
     // inject another "context compacted" marker on arrival.
@@ -152,31 +135,13 @@ describe('useAutoCompaction', () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
 
-    expect(executeSessionCompaction).toHaveBeenCalledTimes(1);
+    expect(requestAgentCompaction).toHaveBeenCalledTimes(1);
   });
 
-  it('asks the agent to compact before building the local marker', async () => {
-    const order: string[] = [];
-    const requestAgentCompaction = vi.fn(async () => {
-      order.push('agent');
-      return true;
-    });
-    executeSessionCompaction.mockImplementation(async () => {
-      order.push('fast-jev');
-      return {
-        markerPatch: { type: 'NORMALIZED_ENTRY', patchKey: 'm', content: {} },
-        summary: 'compacted',
-        tokensBefore: 600,
-        tokensAfter: 300,
-        reductionRatio: 0.5,
-        providerUsed: 'laya',
-      };
-    });
+  it('records a marker with the context size once the agent got /compact', async () => {
+    const setEntries = vi.fn();
     renderHook(() =>
-      useAutoCompaction({
-        ...baseProps(vi.fn(), 'session-agent-compact'),
-        requestAgentCompaction,
-      })
+      useAutoCompaction(baseProps(setEntries, 'session-agent-compact'))
     );
 
     await act(async () => {
@@ -184,6 +149,25 @@ describe('useAutoCompaction', () => {
     });
 
     expect(requestAgentCompaction).toHaveBeenCalledTimes(1);
-    expect(order).toEqual(['agent', 'fast-jev']);
+    const marker = setEntries.mock.calls[0][0].at(-1);
+    expect(marker.content.entry_type).toMatchObject({
+      type: 'compaction_marker',
+      previous_tokens: 600,
+    });
+  });
+
+  it('adds no marker when /compact was not delivered, and re-arms', async () => {
+    requestAgentCompaction.mockResolvedValue(false);
+    const setEntries = vi.fn();
+    renderHook(() =>
+      useAutoCompaction(baseProps(setEntries, 'session-undelivered'))
+    );
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+
+    expect(requestAgentCompaction).toHaveBeenCalledTimes(1);
+    expect(setEntries).not.toHaveBeenCalled();
   });
 });

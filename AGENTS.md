@@ -816,3 +816,23 @@ fixed them. Newest last.
   real com 3 workspaces (roteiro `parallel-scenario.sh` no scratchpad da
   sessão): A reserva, B espera na fila, C integra, A resolve e integra, B
   retoma e reserva a própria resolução; `main` sempre limpo.
+
+### 2026-09-27 — Contexto do agente: sem prefixo, compactação real, passagem (ADR-052)
+- **Achado:** depois de um marcador de compactação, TODA mensagem ia ao agente
+  com o "resumo" + últimos 4 turnos (`prepareCloudPromptWithIsolation`). O
+  agente já tem o próprio histórico (`--resume <id>` / terminal vivo), então
+  isso só engordava o contexto; e o "resumo" do Fast Jev era estatística —
+  Jev/Laya são classificadores, não escrevem texto.
+- **Agora:** mensagem vai limpa; `/compact` (manual ou pelo limite) só pede ao
+  agente que compacte e registra um marcador honesto. `/summarize` ou
+  `/handoff` pede ao agente um resumo de passagem.
+- **Passagem** (`routes/sessions/handoff.rs`): primeira mensagem de uma sessão
+  NOVA num workspace já trabalhado recebe, uma vez, `<aurapunk-handoff>` com o
+  resumo do agente (se pedido), estado da branch (commits/arquivos/não
+  commitados), etapa da pipeline e as trocas anteriores (prompt + resposta
+  final de `coding_agent_turns`; acima de 8, Jev/Laya escolhem as do meio).
+  Nada é gravado: some com o workspace no merge. Mem0 fica só com o durável.
+- **Verificado:** `cargo test -p server handoff` 8 (inclui banco real com
+  sessões/turnos e repositório git), vitest workspace-chat 67, `tsc` limpo,
+  clippy/fmt/prettier limpos. Não validado com os dados reais do operador
+  (teste interrompido a pedido).

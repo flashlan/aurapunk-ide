@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.35] - 2026-09-27
+
+### Fixed
+
+- **Compacting the chat no longer makes the agent's context bigger.** After a
+  compaction, every message you sent was prefixed with a "summary" (which was
+  only statistics) and the last few turns, adding a copy to the agent's
+  context each time. Messages now go to the agent exactly as you write them,
+  and `/compact` simply asks the agent to compact its own session.
+
+### Added
+
+- **A new agent picks up where the previous one stopped.** When you start a
+  new session in a workspace that was already worked on (for example with a
+  different agent), its first message carries a handoff: what was asked, what
+  the previous agent answered, the branch's commits and changed files, and
+  the pipeline stage. Type `/summarize` (or `/handoff`) in the chat to have
+  the current agent write a handoff summary, which the next session then
+  receives first.
+
 ## [0.3.34] - 2026-09-27
 
 ### Fixed

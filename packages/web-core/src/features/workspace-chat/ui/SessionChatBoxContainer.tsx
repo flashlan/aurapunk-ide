@@ -53,22 +53,13 @@ import {
   useWorkspacePanelState,
   RIGHT_MAIN_PANEL_MODES,
   useAnimateRunningOutline,
-  useCompactorEngine,
-  useLayaMode,
-  useLayaDockerUrl,
-  useLayaCloudUrl,
-  useJevApiKey,
-  useJevTypesafeUrl,
-  readCloudAccessToken,
 } from '@/shared/stores/useUiPreferencesStore';
 import { useAutoCompaction } from '../model/hooks/useAutoCompaction';
 import {
-  compactionService,
-  executeSessionCompaction,
-  prepareCloudPromptWithIsolation,
+  buildAgentCompactionMarker,
   buildCompactionNotice,
+  HANDOFF_SUMMARY_PROMPT,
 } from '../model/sessionCompactor';
-import { reportIntegrationError } from '@/shared/lib/integrationErrors';
 import { useInspectModeStore } from '../model/store/useInspectModeStore';
 import { Actions } from '@/shared/actions';
 import {
@@ -569,13 +560,6 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     executorConfig,
   });
 
-  const compactorEngine = useCompactorEngine();
-  const layaMode = useLayaMode();
-  const layaDockerUrl = useLayaDockerUrl();
-  const layaCloudUrl = useLayaCloudUrl();
-  const jevApiKey = useJevApiKey();
-  const jevTypesafeUrl = useJevTypesafeUrl();
-
   // Auto-compaction when context usage crosses the user threshold
   useAutoCompaction({
     sessionId: isNewSessionMode ? undefined : sessionId,
@@ -603,105 +587,52 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
       return;
     }
 
-    // Direct /compress, /autocompress, /compact, /autocompact command.
+    // /compress, /autocompress, /compact, /autocompact: ask the agent to
+    // compact its own session — the only compaction that shrinks its context
+    // (OpenCode accepts every alias natively). The chat records a marker;
+    // nothing is prepended to later prompts (ADR-052).
     //
-    // This used to be swallowed client-side, which is why the command looked
-    // like it did nothing: Fast Jev only reshapes the NEXT prompt, it never
-    // touches the agent's own context window (so the context meter stayed
-    // full). The agent is asked to compact too — OpenCode implements /compact
-    // natively and accepts every alias (opencode/slash_commands.rs), and that
-    // is the compaction that actually shrinks the context and emits the
-    // persisted CompactionMarker.
-    if (
+    // /summarize, /handoff: ask the agent for a handoff summary. Its answer is
+    // what the next agent session in this workspace receives first.
+    const isCompact =
       /^\/(?:compress|autocompress|compact|autocompact)(?:\s.*)?$/i.test(
         trimmed
-      )
-    ) {
+      );
+    const isHandoff = /^\/(?:summarize|handoff)\s*$/i.test(trimmed);
+    if (isCompact || isHandoff) {
       cancelDebouncedSave();
       setLocalMessage('');
       clearUploadedAttachments();
       await clearDraft();
       onScrollToBottom('auto');
 
-      // 1) Ask the agent to compact its session. Only an existing session has
-      //    context to compact (the executor requires one).
-      const forwardedToAgent =
-        !isNewSessionMode && Boolean(sessionId)
-          ? await send('/compact')
-          : false;
-
-      // 2) Also run Fast Jev: it produces the visible summary and the local
-      //    isolation marker used when building later prompts.
-      const runCompaction = (mode: 'docker' | 'cloud', token?: string) =>
-        executeSessionCompaction({
-          entries,
-          engine: compactorEngine,
-          layaMode: mode,
-          layaDockerUrl,
-          layaCloudUrl,
-          layaAuthToken: token,
-          jevApiKey,
-          jevTypesafeUrl,
-        });
-
-      try {
-        let result: Awaited<ReturnType<typeof runCompaction>>;
-        const token = readCloudAccessToken() ?? undefined;
-        try {
-          result = await runCompaction(layaMode, token);
-        } catch (firstErr) {
-          // If the configured endpoint is unreachable but this Desktop is signed
-          // into AuraPunk Cloud, retry through the hosted Laya gateway.
-          if (token && layaMode !== 'cloud') {
-            void reportIntegrationError(
-              compactionService(compactorEngine),
-              `compaction (${layaMode}, retrying on cloud)`,
-              firstErr
-            );
-            result = await runCompaction('cloud', token);
-          } else {
-            throw firstErr;
-          }
-        }
-        setEntries([...entries, result.markerPatch]);
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
-        void reportIntegrationError(
-          compactionService(compactorEngine),
-          'compaction',
-          err
-        );
-        if (forwardedToAgent) {
-          // The agent-side compaction already ran; don't alarm the user with a
-          // client-side isolation failure on top of it.
-          console.warn(
-            '[compact] Fast Jev isolation failed; the agent still compacted:',
-            detail
-          );
-        } else {
-          setEntries([
-            ...entries,
-            buildCompactionNotice(
-              `**Context compaction could not run.** ${detail}\n\n` +
-                'Fix it in **Settings → Usage → Laya Execution Mode**: choose **Cloud** ' +
-                '(sign in to AuraPunk Cloud), start the Laya Docker container, or add a ' +
-                '**Jev (TypeSafe)** API key. The context was left unchanged.'
-            ),
-          ]);
-        }
+      // Only an existing session has context to compact or summarize.
+      if (isNewSessionMode || !sessionId) {
+        setEntries([
+          ...entries,
+          buildCompactionNotice(
+            isCompact
+              ? '**Nada a compactar.** Esta sessão ainda não tem contexto.'
+              : '**Nada a resumir.** Esta sessão ainda não tem contexto.'
+          ),
+        ]);
+        return;
+      }
+      const delivered = await send(
+        isCompact ? '/compact' : HANDOFF_SUMMARY_PROMPT
+      );
+      if (isCompact && delivered) {
+        setEntries([
+          ...entries,
+          buildAgentCompactionMarker(tokenUsageInfo?.total_tokens),
+        ]);
       }
       return;
     }
 
-    const { prompt: rawPrompt, isSlashCommand } = buildAgentPrompt(
-      localMessage,
-      [reviewMarkdown]
-    );
-
-    // Isolate context: everything above the latest compaction marker is dropped!
-    const prompt = isSlashCommand
-      ? rawPrompt
-      : prepareCloudPromptWithIsolation(rawPrompt, entries);
+    const { prompt, isSlashCommand } = buildAgentPrompt(localMessage, [
+      reviewMarkdown,
+    ]);
 
     onScrollToBottom('auto');
 
@@ -735,12 +666,7 @@ export function SessionChatBoxContainer(props: SessionChatBoxContainerProps) {
     reviewContext,
     entries,
     setEntries,
-    compactorEngine,
-    layaMode,
-    layaDockerUrl,
-    layaCloudUrl,
-    jevApiKey,
-    jevTypesafeUrl,
+    tokenUsageInfo,
     isNewSessionMode,
     sessionId,
   ]);
