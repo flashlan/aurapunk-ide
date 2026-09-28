@@ -52,24 +52,41 @@ async fn send_now(
     Json(payload): Json<QueueMessageRequest>,
 ) -> Result<ResponseJson<ApiResponse<QueueStatus>>, ApiError> {
     let pool = &deployment.db().pool;
-    let running = ExecutionProcess::find_latest_running_coding_agent_for_session(pool, session.id)
-        .await?
-        .ok_or_else(|| {
-            ApiError::Workspace(db::models::workspace::WorkspaceError::ValidationError(
-                "No running coding-agent execution to interrupt".to_string(),
-            ))
-        })?;
+    let running =
+        ExecutionProcess::find_latest_running_coding_agent_for_session(pool, session.id).await?;
 
-    let is_interactive = running
-        .executor_action()
-        .ok()
-        .and_then(|action| action.interactive_config().cloned())
-        .is_some();
-    if is_interactive {
-        return Err(ApiError::Workspace(WorkspaceError::ValidationError(
-            "Interactive sessions already deliver follow-ups live".to_string(),
-        )));
-    }
+    // Nothing to interrupt (the turn ended between queueing and clicking), or
+    // a headed session that takes follow-ups live: "send now" just sends.
+    let is_interactive = running.as_ref().is_some_and(|running| {
+        running
+            .executor_action()
+            .ok()
+            .and_then(|action| action.interactive_config().cloned())
+            .is_some()
+    });
+    let Some(running) = running.filter(|_| !is_interactive) else {
+        let workspace = Workspace::find_by_id(pool, session.workspace_id)
+            .await?
+            .ok_or(ApiError::Session(
+                db::models::session::SessionError::WorkspaceNotFound,
+            ))?;
+        // A message queued earlier for this session is superseded by this one.
+        deployment
+            .queued_message_service()
+            .cancel_queued(session.id);
+        let _ = super::run_follow_up(
+            &deployment,
+            session,
+            workspace,
+            payload.message,
+            payload.executor_config,
+            None,
+            None,
+            None,
+        )
+        .await?;
+        return Ok(ResponseJson(ApiResponse::success(QueueStatus::Empty)));
+    };
 
     let data = DraftFollowUpData {
         message: payload.message,

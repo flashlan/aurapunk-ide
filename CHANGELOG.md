@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **"Send now" sends even when the agent already stopped.** It failed with
+  "No running coding-agent execution to interrupt" whenever the turn ended
+  between queueing and clicking; it now simply sends the message. In terminal
+  (headed) sessions it delivers the message live instead of refusing.
+
 ## [0.3.42] - 2026-09-28
 
 ### Fixed
