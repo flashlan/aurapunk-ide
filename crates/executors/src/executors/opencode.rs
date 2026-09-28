@@ -1139,7 +1139,9 @@ mod startup_retry_tests {
 
     #[test]
     fn recognizes_a_locked_database() {
-        assert!(is_database_locked("Error: Unexpected error database is locked"));
+        assert!(is_database_locked(
+            "Error: Unexpected error database is locked"
+        ));
         assert!(is_database_locked("SQLITE_BUSY: database is busy"));
         assert!(!is_database_locked("Error: port already in use"));
     }
@@ -1148,7 +1150,10 @@ mod startup_retry_tests {
     #[tokio::test]
     async fn failed_start_reports_the_server_stderr() {
         let mut child = tokio::process::Command::new("sh")
-            .args(["-c", "echo 'Error: Unexpected error database is locked' >&2; exit 1"])
+            .args([
+                "-c",
+                "echo 'Error: Unexpected error database is locked' >&2; exit 1",
+            ])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .group_spawn()
