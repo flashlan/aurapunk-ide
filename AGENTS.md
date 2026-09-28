@@ -955,3 +955,16 @@ fixed them. Newest last.
 - **Testado:** provisionamento POSIX real sem npm no PATH (baixou, conferiu,
   `npm --version` ok). Os scripts PowerShell NÃO rodaram aqui (sem Windows):
   a validação real é a nova submissão.
+
+### 2026-09-28 — OpenCode "database is locked" ao iniciar vários agentes
+- **Sintoma:** "Error: Unexpected error database is locked" + "OpenCode server
+  exited before printing listening URL" com tail vazio.
+- **Causa:** todo `opencode serve` abre o mesmo `~/.local/share/opencode/opencode.db`
+  (do operador: 4,5 GB — 743 sessões, 825 mil eventos, `event` = 2,7 GB); com
+  vários agentes subindo juntos, um segura o banco na inicialização e os outros
+  morrem. O erro vinha no stderr, que o app não lia (só stdout) — daí o tail vazio.
+- **Correção (`executors/opencode.rs`):** subidas serializadas (mutex só até a
+  URL), até 4 tentativas com espera crescente quando o stderr diz
+  `database is locked`/`SQLITE_BUSY`, e o stderr passa a entrar no erro.
+- **Pendente (operador):** o banco do OpenCode cresce sem limite; apagar
+  sessões antigas pelo próprio OpenCode reduziria o tempo de inicialização.

@@ -9,7 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.42] - 2026-09-28
+
 ### Fixed
+
+- **OpenCode agents no longer fail to start with "database is locked" when
+  several start at once.** Every OpenCode server opens the same database, and
+  a large one stays locked while a server initializes; the others exited
+  before starting. Server starts now take turns and retry a locked start, and
+  a failed start shows OpenCode's own error instead of an empty output.
 
 - **The compaction settings say what really happens.** Chat auto-compaction
   asks the agent to compact its own session (`/compact`); the card no longer

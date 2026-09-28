@@ -67,6 +67,25 @@ pub struct Opencode {
     pub approvals: Option<Arc<dyn ExecutorApprovalService>>,
 }
 
+fn is_database_locked(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("database is locked") || lower.contains("sqlite_busy")
+}
+
+/// Up to the last 4 KB the (already exited or failing) server wrote to
+/// stderr, read with a short timeout.
+async fn read_stderr_tail(child: &mut AsyncGroupChild) -> String {
+    use tokio::io::AsyncReadExt;
+    let Some(mut stderr) = child.inner().stderr.take() else {
+        return String::new();
+    };
+    let mut buffer = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(2), stderr.read_to_end(&mut buffer)).await;
+    let text = String::from_utf8_lossy(&buffer).to_string();
+    let chars: Vec<char> = text.chars().collect();
+    chars[chars.len().saturating_sub(4096)..].iter().collect()
+}
+
 /// Represents a spawned OpenCode server with its base URL
 struct OpencodeServer {
     #[allow(unused)]
@@ -169,36 +188,88 @@ impl Opencode {
     }
 
     /// Handles process spawning, waiting for the server URL
+    /// Start an `opencode serve` process and wait for its URL.
+    ///
+    /// Every server opens the same OpenCode database (`opencode.db`, easily
+    /// gigabytes). When several agents start at once, one server holds the
+    /// database while initializing and the others die with "database is
+    /// locked" before printing their URL. Starts are therefore serialized
+    /// (the lock is held only until the URL appears) and a locked start is
+    /// retried with a growing delay.
     async fn spawn_server(
         &self,
         current_dir: &Path,
         env: &ExecutionEnv,
     ) -> Result<OpencodeServer, ExecutorError> {
-        let (mut child, server_password) = self.spawn_server_process(current_dir, env).await?;
+        const ATTEMPTS: u64 = 4;
+        static STARTUP: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+            std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let started = {
+                let _serialized = STARTUP.lock().await;
+                self.spawn_server_once(current_dir, env).await
+            };
+            match started {
+                Ok(server) => return Ok(server),
+                Err((error, stderr)) if is_database_locked(&stderr) && attempt < ATTEMPTS => {
+                    tracing::warn!(
+                        attempt,
+                        "OpenCode server start hit a locked database; retrying"
+                    );
+                    drop(error);
+                    tokio::time::sleep(Duration::from_millis(1_500 * attempt)).await;
+                }
+                Err((error, stderr)) => {
+                    return Err(if stderr.trim().is_empty() {
+                        error
+                    } else {
+                        ExecutorError::Io(std::io::Error::other(format!(
+                            "{error}\nServer error output:\n{}",
+                            stderr.trim()
+                        )))
+                    });
+                }
+            }
+        }
+    }
+
+    /// One start attempt. On failure returns the error and whatever the
+    /// server wrote to stderr (where OpenCode reports why it exited).
+    async fn spawn_server_once(
+        &self,
+        current_dir: &Path,
+        env: &ExecutionEnv,
+    ) -> Result<OpencodeServer, (ExecutorError, String)> {
+        let (mut child, server_password) = self
+            .spawn_server_process(current_dir, env)
+            .await
+            .map_err(|error| (error, String::new()))?;
         // On any failure below the child is not yet owned by an
         // `OpencodeServer` (whose Drop kills it), and `kill_on_drop` is not
         // reliable: kill the process group explicitly so a failed start never
         // leaves an orphaned `opencode serve` (Node, ~100-300 MB) behind.
         let Some(server_stdout) = child.inner().stdout.take() else {
             let _ = workspace_utils::process::kill_process_group(&mut child).await;
-            return Err(ExecutorError::Io(std::io::Error::other(
-                "OpenCode server missing stdout",
-            )));
+            return Err((
+                ExecutorError::Io(std::io::Error::other("OpenCode server missing stdout")),
+                String::new(),
+            ));
         };
 
-        let base_url = match wait_for_server_url(server_stdout, None).await {
-            Ok(url) => url,
+        match wait_for_server_url(server_stdout, None).await {
+            Ok(base_url) => Ok(OpencodeServer {
+                child: Some(child),
+                base_url,
+                server_password,
+            }),
             Err(error) => {
+                let stderr = read_stderr_tail(&mut child).await;
                 let _ = workspace_utils::process::kill_process_group(&mut child).await;
-                return Err(error);
+                Err((error, stderr))
             }
-        };
-
-        Ok(OpencodeServer {
-            child: Some(child),
-            base_url,
-            server_password,
-        })
+        }
     }
 
     async fn spawn_inner(
@@ -1057,5 +1128,35 @@ impl StandardCodingAgentExecutor for OpencodeHeaded {
 
     fn get_availability_info(&self) -> AvailabilityInfo {
         self.inner.get_availability_info()
+    }
+}
+
+#[cfg(test)]
+mod startup_retry_tests {
+    use command_group::AsyncCommandGroup;
+
+    use super::*;
+
+    #[test]
+    fn recognizes_a_locked_database() {
+        assert!(is_database_locked("Error: Unexpected error database is locked"));
+        assert!(is_database_locked("SQLITE_BUSY: database is busy"));
+        assert!(!is_database_locked("Error: port already in use"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_start_reports_the_server_stderr() {
+        let mut child = tokio::process::Command::new("sh")
+            .args(["-c", "echo 'Error: Unexpected error database is locked' >&2; exit 1"])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .group_spawn()
+            .unwrap();
+        let stdout = child.inner().stdout.take().unwrap();
+        let error = wait_for_server_url(stdout, None).await.unwrap_err();
+        assert!(error.to_string().contains("exited before printing"));
+        let stderr = read_stderr_tail(&mut child).await;
+        assert!(is_database_locked(&stderr), "{stderr}");
     }
 }
