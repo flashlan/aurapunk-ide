@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="aurapunk-logo.png" alt="AuraPunk ADE logo" width="320" />
+  <img src="aurapunk-logo-ade.png" alt="AuraPunk ADE logo" width="320" />
 </p>
 
 <h1 align="center">AuraPunk ADE</h1>
