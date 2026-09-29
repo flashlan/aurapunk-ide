@@ -5,7 +5,7 @@
 <h1 align="center">AuraPunk ADE</h1>
 
 <p align="center">
-  <b>The full-workflow Agent Development Environment (ADE) for multi-agent development — free and self-hosted.</b>
+  <b>The full-workflow Agentic Development Environment (ADE) for multi-agent development — free and self-hosted.</b>
   <br />
   Plan on a Kanban board → run many coding agents in parallel, each in its own branch → review → merge, with shared project memory. The whole workflow, in one place.
 </p>
@@ -29,6 +29,13 @@
 <p align="center">
   <img src="packages/public/aurapunk-hero-desktop-mobile.png" alt="AuraPunk ADE desktop app and AuraPunk Mobile Android app, showing the Kanban board and multi-agent workspace" width="900" />
 </p>
+
+## Getting started
+
+1. Go to [Releases](https://github.com/flashlan/aurapunk-ide/releases/latest) and download AuraPunk ADE for your operating system.
+2. Create a free account at [aurapunk.dev](https://aurapunk.dev).
+
+Your free account includes limited Mem0 memory backed by Qdrant and limited Laya usage — enough to explore AuraPunk's workflow, memory, and agents without installing Docker or running additional services locally.
 
 ## Download
 
@@ -109,6 +116,7 @@ in [release `v0.3.2`](https://github.com/flashlan/aurapunk-ide/releases/tag/v0.3
 
 ## Table of Contents
 
+- [Getting started](#getting-started)
 - [Website and Hosted Plans](#website-and-hosted-plans)
 - [Background and Credits](#background-and-credits)
 - [Overview](#overview)
@@ -131,7 +139,7 @@ Following the [shutdown of Bloop's hosted servers](https://vibekanban.com/blog/s
 
 ## Overview
 
-> **What is an ADE?** An **Agent Development Environment** is built around
+> **What is an ADE?** An **Agentic Development Environment** is built around
 > directing coding agents instead of editing code yourself. You plan the work
 > as cards; agents run each card in its own branch and workspace, following a
 > pipeline, several in parallel; you review their diffs, merge, and keep a
