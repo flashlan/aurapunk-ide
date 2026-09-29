@@ -376,6 +376,20 @@ function envRuntimeConfig(): RuntimeConfigShape {
 
 let runtimeConfig: RuntimeConfigShape = envRuntimeConfig();
 
+// A hosted (shared, multi-account) server must never run Jev: the TypeSafe
+// key belongs to one user, so using it here would bill that user for every
+// account's extractions and send everyone's memories under their key. Jev runs
+// on the user's machine (the desktop memory gate / RLCD, with their own key);
+// the hosted server extracts with the server-owned Laya.
+const HOSTED = ["1", "true", "yes"].includes(
+  (process.env.MEM0_HOSTED || "").trim().toLowerCase()
+);
+
+function effectiveProvider(): LLMProvider {
+  const provider = runtimeConfig.provider as LLMProvider;
+  return HOSTED && provider === "jev" ? "laya" : provider;
+}
+
 function loadRuntimeConfig(): void {
   try {
     if (fs.existsSync(RUNTIME_CONFIG_PATH)) {
@@ -413,7 +427,7 @@ function persistRuntimeConfig(): void {
 loadRuntimeConfig();
 
 function activeLlm(): { url: string; key: string; model: string } {
-  const p = runtimeConfig.provider as LLMProvider;
+  const p = effectiveProvider();
   const pick = runtimeConfig.providers[p] ?? providerFromEnv(p);
   return {
     url: (pick.url || providerFromEnv(p).url).replace(/\/$/, ""),
@@ -430,8 +444,10 @@ function activeLlm(): { url: string; key: string; model: string } {
  */
 function llmCandidates(): { provider: string; url: string; key: string; model: string }[] {
   const order: LLMProvider[] = ["jev", "laya", "groq", "openrouter", "llama", "openai"];
-  const primary = runtimeConfig.provider as LLMProvider;
-  const ordered = [primary, ...order.filter((p) => p !== primary)];
+  const primary = effectiveProvider();
+  const ordered = [primary, ...order.filter((p) => p !== primary)].filter(
+    (p) => !(HOSTED && p === "jev")
+  );
   const out: { provider: string; url: string; key: string; model: string }[] = [];
   for (const p of ordered) {
     const c = runtimeConfig.providers[p] ?? providerFromEnv(p);
@@ -1093,6 +1109,7 @@ const KEEP_THRESHOLD = 0.6;
 const MAX_CANDIDATES = 20;
 
 function jevHttpConfig(): { url: string; key: string; model: string } | null {
+  if (HOSTED) return null;
   const provider = runtimeConfig.providers?.jev ?? config.llm.jev;
   const envUrl = (process.env.TYPESAFE_JEV_URL || "").trim();
   const envKey = (process.env.TYPESAFE_API_KEY || "").trim();
@@ -1252,7 +1269,7 @@ async function extractWithLayaModel(
 
 async function extractStructure(text: string): Promise<Extracted> {
   const fallback: Extracted = { facts: [text], entities: [], relations: [] };
-  const provider = runtimeConfig.provider as LLMProvider;
+  const provider = effectiveProvider();
 
   // Jev: refine the deterministic candidates with the real TypeSafe model when a
   // key is configured; otherwise (or on any failure) stay deterministic at 0 tokens.
@@ -1666,7 +1683,18 @@ async function memoryRecall(userId: string): Promise<any[]> {
  * LLM was configured (their payload.entities is empty). Retroactively fills the
  * entity/relation payloads and pushes the accumulated graph in one shot.
  */
-async function reExtractGraph(userId: string): Promise<{
+type ReExtractProgress = {
+  scanned: number;
+  processed: number;
+  updated: number;
+  entities: number;
+  relations: number;
+};
+
+async function reExtractGraph(
+  userId: string,
+  onProgress: (progress: ReExtractProgress) => void = () => {}
+): Promise<{
   scanned: number;
   updated: number;
   entities: number;
@@ -1678,8 +1706,20 @@ async function reExtractGraph(userId: string): Promise<{
   const allEntities: { name: string; type: string; description: string }[] = [];
   const allRelations: { subject: string; predicate: string; object: string }[] = [];
   let updated = 0;
+  let processed = 0;
+  const report = () =>
+    onProgress({
+      scanned: points.length,
+      processed,
+      updated,
+      entities: allEntities.length,
+      relations: allRelations.length,
+    });
+  report();
 
   for (const point of points) {
+    processed += 1;
+    report();
     const payload = point.payload || {};
     const content: string = typeof payload.content === "string" ? payload.content : "";
     const hasEntities =
@@ -2146,10 +2186,55 @@ app.post("/api/graph/overview", async (c) => {
   return c.json({ ok: true, user_id, ...res });
 });
 
+// Re-extraction runs one LLM call per memory (seconds each), so a repository
+// takes minutes — longer than any proxy in front of us will hold a request.
+// POST starts a background job (or reports the one already running) and
+// returns at once; GET reports its progress until it finishes.
+type ReExtractJob = ReExtractProgress & {
+  status: "running" | "done" | "failed";
+  started_at: string;
+  finished_at?: string;
+  error?: string;
+};
+const reExtractJobs = new Map<string, ReExtractJob>();
+
+function startReExtract(uid: string): ReExtractJob {
+  const current = reExtractJobs.get(uid);
+  if (current?.status === "running") return current;
+  const job: ReExtractJob = {
+    status: "running",
+    started_at: new Date().toISOString(),
+    scanned: 0,
+    processed: 0,
+    updated: 0,
+    entities: 0,
+    relations: 0,
+  };
+  reExtractJobs.set(uid, job);
+  reExtractGraph(uid, (progress) => Object.assign(job, progress))
+    .then((res) => Object.assign(job, res, { status: "done" }))
+    .catch((err) => {
+      job.status = "failed";
+      job.error = (err as Error).message;
+      console.error(`[re-extract] ${uid} failed: ${job.error}`);
+    })
+    .finally(() => {
+      job.finished_at = new Date().toISOString();
+    });
+  return job;
+}
+
 app.post("/api/re-extract/:user_id", async (c) => {
   const user_id = scopedMemoryUserId(c, c.req.param("user_id") || "");
-  const res = await reExtractGraph(user_id);
-  return c.json({ ok: true, ...res });
+  const job = startReExtract(user_id || config.defaultUser);
+  return c.json({ ok: true, ...job }, 202);
+});
+
+app.get("/api/re-extract/:user_id", async (c) => {
+  const user_id = scopedMemoryUserId(c, c.req.param("user_id") || "");
+  const job = reExtractJobs.get(user_id || config.defaultUser);
+  if (!job) return c.json({ ok: true, status: "idle", scanned: 0, processed: 0, updated: 0, entities: 0, relations: 0 });
+  return c.json({ ok: true, ...job });
 });
 
 app.get("/api/usage/tokens", async (c) => {
@@ -2169,7 +2254,8 @@ app.get("/api/config", async (c) => {
   }
   return c.json({
     ok: true,
-    provider: runtimeConfig.provider,
+    provider: effectiveProvider(),
+    hosted: HOSTED,
     graph_enabled: runtimeConfig.graph_enabled,
     graph_url: config.graphUrl || "",
     providers,
@@ -2179,6 +2265,12 @@ app.get("/api/config", async (c) => {
 
 app.post("/api/config", async (c) => {
   const body = await c.req.json().catch(() => ({}));
+  if (HOSTED && (body?.provider === "jev" || body?.providers?.jev)) {
+    return c.json(
+      { error: "Jev runs on the user's machine with their own key; this hosted server extracts with Laya" },
+      400
+    );
+  }
   if (typeof body?.provider === "string") {
     const p = body.provider as LLMProvider;
     if (runtimeConfig.providers[p]) runtimeConfig.provider = p;

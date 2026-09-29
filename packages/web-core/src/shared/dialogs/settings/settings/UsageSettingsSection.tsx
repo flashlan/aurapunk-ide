@@ -209,12 +209,16 @@ export interface IssueLifecycleSummary {
   avg_lifecycle_seconds: number;
 }
 
+/** Background re-extraction job: POST starts it, GET reports progress. */
 export interface ReExtractResponse {
   ok: boolean;
+  status: 'idle' | 'running' | 'done' | 'failed';
   scanned: number;
+  processed: number;
   updated: number;
   entities: number;
   relations: number;
+  error?: string;
 }
 
 export async function fetchUsageSummary(): Promise<UsageSummary> {
@@ -234,6 +238,18 @@ export async function triggerReExtract(
   );
   return handleApiResponse<ReExtractResponse>(response);
 }
+
+export async function fetchReExtractStatus(
+  userId: string
+): Promise<ReExtractResponse> {
+  const response = await makeRequest(
+    `/api/usage/re-extract?user_id=${encodeURIComponent(userId)}`,
+    { method: 'GET', cache: 'no-store' }
+  );
+  return handleApiResponse<ReExtractResponse>(response);
+}
+
+const RE_EXTRACT_POLL_MS = 2000;
 
 /** Report accumulated token usage for a given agent. Best-effort, fire-and-forget. */
 export async function reportTokenTelemetry(data: {
@@ -582,9 +598,19 @@ export function UsageSettingsSection() {
     setReExtractResult(null);
     try {
       setError(null);
-      const res = await triggerReExtract(userId);
+      let res = await triggerReExtract(userId);
       setReExtractResult(res);
-      await load();
+      // One LLM call per memory: a repository takes minutes, so the server
+      // runs it in the background and we poll until it settles.
+      while (res.status === 'running') {
+        await new Promise((r) => setTimeout(r, RE_EXTRACT_POLL_MS));
+        res = await fetchReExtractStatus(userId);
+        setReExtractResult(res);
+      }
+      if (res.status === 'failed') {
+        setError(res.error ?? 'Re-extraction failed');
+      }
+      await Promise.all([load(), loadMemoryGraph(userId)]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Re-extraction failed');
     } finally {
@@ -1504,6 +1530,8 @@ export function UsageSettingsSection() {
           </div>
           {reExtractResult && (
             <div className="mt-2 text-xs text-low">
+              {reExtractResult.status === 'running' &&
+                `${reExtractResult.processed}/${reExtractResult.scanned} · `}
               {t('settings.usage.reExtractResult', 'Scanned', {
                 count: reExtractResult.scanned,
               })}{' '}

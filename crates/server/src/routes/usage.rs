@@ -304,14 +304,27 @@ pub struct Mem0TokenProvider {
     pub completion: i64,
 }
 
-/// Body-free result of `POST /api/usage/re-extract`.
+/// State of the background re-extraction job: `POST /api/usage/re-extract`
+/// starts it and `GET` polls it (`status`: idle | running | done | failed).
+/// Older mem0-vk servers ran it synchronously and omit `status`/`processed`.
 #[derive(Debug, Serialize, Deserialize, TS)]
 pub struct ReExtractResponse {
     pub ok: bool,
+    #[serde(default = "re_extract_done")]
+    pub status: String,
     pub scanned: i64,
+    #[serde(default)]
+    pub processed: i64,
     pub updated: i64,
     pub entities: i64,
     pub relations: i64,
+    #[serde(default)]
+    #[ts(optional)]
+    pub error: Option<String>,
+}
+
+fn re_extract_done() -> String {
+    "done".to_string()
 }
 
 /// mem0 runtime config (sanitized — keys never leave the mem0 container).
@@ -363,7 +376,7 @@ pub struct Mem0ProviderPatch {
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/usage/summary", get(usage_summary))
-        .route("/usage/re-extract", post(re_extract))
+        .route("/usage/re-extract", get(re_extract_status).post(re_extract))
         .route(
             "/usage/mem0-config",
             get(get_mem0_config).post(put_mem0_config),
@@ -1350,14 +1363,26 @@ async fn usage_summary(
     }))
 }
 
-/// Proxy to the mem0 server's `POST /api/re-extract/:user_id` — re-runs graph
-/// extraction for memories stored before an extraction LLM was configured.
+/// Proxy to the mem0 server's `POST /api/re-extract/:user_id` — starts graph
+/// re-extraction for memories stored before an extraction LLM was configured.
 /// `?user_id=` selects which repository's memories to re-extract.
 async fn re_extract(
-    State(deployment): State<DeploymentImpl>,
     axum::extract::Query(q): axum::extract::Query<ReExtractQuery>,
 ) -> ResponseJson<ApiResponse<ReExtractResponse>> {
-    let _ = deployment;
+    proxy_re_extract(reqwest::Method::POST, q).await
+}
+
+/// Proxy to `GET /api/re-extract/:user_id` — progress of the running job.
+async fn re_extract_status(
+    axum::extract::Query(q): axum::extract::Query<ReExtractQuery>,
+) -> ResponseJson<ApiResponse<ReExtractResponse>> {
+    proxy_re_extract(reqwest::Method::GET, q).await
+}
+
+async fn proxy_re_extract(
+    method: reqwest::Method,
+    q: ReExtractQuery,
+) -> ResponseJson<ApiResponse<ReExtractResponse>> {
     if !memory_config::load().enabled {
         return ResponseJson(ApiResponse::error("memory endpoints are disabled"));
     }
@@ -1367,7 +1392,7 @@ async fn re_extract(
         ));
     }
     let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
+        .timeout(std::time::Duration::from_secs(30))
         .build()
     {
         Ok(c) => c,
@@ -1377,7 +1402,7 @@ async fn re_extract(
     };
     let user_id = q.user_id.unwrap_or_else(|| "default".to_string());
     let url = format!("{}/api/re-extract/{}", mem0_url(), user_id);
-    match authorize_mem0(client.post(&url)).send().await {
+    match authorize_mem0(client.request(method, &url)).send().await {
         Ok(r) if r.status().is_success() => match r.json::<ReExtractResponse>().await {
             Ok(res) => ResponseJson(ApiResponse::success(res)),
             Err(_) => ResponseJson(ApiResponse::error(

@@ -153,11 +153,14 @@ export const JevLayaSuitePanel: React.FC = () => {
     setPrimaryNotice(null);
     try {
       setPrimaryBusy(true);
-      await updateMem0ExtractionProvider(
+      const serverProvider = await updateMem0ExtractionProvider(
         primaryEngineMapping(engine).mem0Provider
       );
       setPrimaryNotice(
-        `Applied to compactor, guardrails and mem0 extraction (${engine}).`
+        serverProvider === 'aurapunk_cloud' ||
+          serverProvider === 'mem0_platform'
+          ? `Applied to compactor and guardrails (${engine}), which run on this machine. Hosted memory keeps its own extraction (AuraPunk Cloud uses Laya): your Jev key never leaves this machine.`
+          : `Applied to compactor, guardrails and mem0 extraction (${engine}).`
       );
     } catch (e) {
       setPrimaryNotice(
