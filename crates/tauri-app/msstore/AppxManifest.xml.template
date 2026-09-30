@@ -15,6 +15,9 @@
   </Resources>
   <Dependencies>
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+    <!-- Rust binaries built with the MSVC toolchain (including the bundled
+         TUI) need this Store-provisioned desktop C/C++ runtime on clean PCs. -->
+    <PackageDependency Name="Microsoft.VCLibs.140.00.UWPDesktop" Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" MinVersion="14.0.0.0" />
   </Dependencies>
   <Applications>
     <Application Id="__APPLICATION_ID__" Executable="aurapunk-tauri.exe" EntryPoint="Windows.FullTrustApplication">

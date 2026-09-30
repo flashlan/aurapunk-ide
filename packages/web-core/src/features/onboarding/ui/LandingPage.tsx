@@ -166,6 +166,9 @@ export function LandingPage() {
     refreshDependencies();
   }, [refreshDependencies]);
   const [installError, setInstallError] = useState<string | null>(null);
+  const [manualDownloadUrl, setManualDownloadUrl] = useState<string | null>(
+    null
+  );
   const [availabilityReady, setAvailabilityReady] = useState(false);
   const hasRedirectedToRootRef = useRef(false);
 
@@ -313,6 +316,7 @@ export function LandingPage() {
     const key = `${kind}:${id}`;
     setInstallingTool(key);
     setInstallError(null);
+    setManualDownloadUrl(null);
 
     try {
       await configApi.installTool(kind, id);
@@ -332,11 +336,21 @@ export function LandingPage() {
         }));
       }
     } catch (error) {
-      setInstallError(
+      const message =
         error instanceof Error
           ? error.message
-          : `Could not install ${name}. Check the environment and try again.`
-      );
+          : `Could not install ${name}. Check the environment and try again.`;
+      const downloadUrl =
+        kind === 'editor' ? EDITOR_DOWNLOAD_LINKS[id as EditorType] : undefined;
+
+      if (kind === 'editor' && /winget is required/i.test(message)) {
+        setInstallError(
+          'Windows App Installer (winget) is unavailable on this PC. A code editor is optional; you can continue now or download it manually.'
+        );
+        setManualDownloadUrl(downloadUrl ?? null);
+      } else {
+        setInstallError(message);
+      }
     } finally {
       setInstallingTool(null);
     }
@@ -348,15 +362,11 @@ export function LandingPage() {
     void previewSound(value);
   };
 
-  const isCustomEditorValid =
-    editorType !== EditorType.CUSTOM || customCommand.trim() !== '';
   const hasInstalledAgent = isAgentInstalled(agentAvailability[selectedAgent]);
-  const hasInstalledEditor =
-    isLinuxEnvironment ||
-    editorType === EditorType.CUSTOM ||
-    editorAvailability[editorType] === true;
-  const canContinue =
-    !saving && isCustomEditorValid && hasInstalledAgent && hasInstalledEditor;
+  // A graphical editor is useful for opening worktrees, but it is never a
+  // prerequisite for running an agent. In particular, Store installations
+  // must remain usable when App Installer/winget is absent.
+  const canContinue = !saving && hasInstalledAgent;
 
   const handleContinue = async () => {
     if (!config || !canContinue) return;
@@ -708,12 +718,21 @@ export function LandingPage() {
               <p className="text-xs text-low">
                 {isLinuxEnvironment
                   ? 'Cloud/Linux workspaces are CLI-first; graphical editors are optional and are not installed automatically.'
-                  : 'Graphical editors are installed on this machine when a supported package manager is available.'}
+                  : 'Graphical editors are optional. They are installed on this machine when a supported package manager is available.'}
               </p>
               {installError && (
-                <p className="rounded-sm border border-warning/60 bg-warning/10 p-base text-xs text-warning">
-                  {installError}
-                </p>
+                <div className="space-y-half rounded-sm border border-warning/60 bg-warning/10 p-base text-xs text-warning">
+                  <p>{installError}</p>
+                  {manualDownloadUrl && (
+                    <button
+                      type="button"
+                      onClick={() => openExternalLink(manualDownloadUrl)}
+                      className="text-brand hover:underline"
+                    >
+                      Open official download page
+                    </button>
+                  )}
+                </div>
               )}
             </section>
 
