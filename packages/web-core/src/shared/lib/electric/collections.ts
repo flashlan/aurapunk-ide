@@ -48,8 +48,17 @@ type SyncParams = {
   truncate: () => void;
 };
 
+/**
+ * A completed local mutation must be confirmed by a fallback read even if the
+ * WebSocket previously supplied a snapshot. An idle socket can become stale
+ * without immediately emitting `close` while a create-card dialog is open.
+ */
+type RefreshOptions = {
+  force?: boolean;
+};
+
 type SourceRuntime = {
-  refreshers: Set<() => Promise<void>>;
+  refreshers: Set<(options?: RefreshOptions) => Promise<void>>;
 };
 
 const DEFAULT_GC_TIME_MS = 5 * 60 * 1000;
@@ -226,7 +235,7 @@ export function refreshShapeSource(
 
 function registerFallbackRefresher(
   sourceKey: string,
-  refresher: () => Promise<void>
+  refresher: (options?: RefreshOptions) => Promise<void>
 ): () => void {
   const runtime = getOrCreateSourceRuntime(sourceKey);
   runtime.refreshers.add(refresher);
@@ -239,10 +248,13 @@ function invalidateFallbackCache(sourceKey: string): void {
   fallbackSnapshotCache.delete(sourceKey);
 }
 
-function refreshFallbackSource(sourceKey: string): Promise<void> {
+function refreshFallbackSource(
+  sourceKey: string,
+  options?: RefreshOptions
+): Promise<void> {
   const runtime = getOrCreateSourceRuntime(sourceKey);
   const promises = Array.from(runtime.refreshers).map((refresher) =>
-    refresher()
+    refresher(options)
   );
   return Promise.all(promises).then(() => {});
 }
@@ -351,6 +363,7 @@ function createFallbackSync(args: {
     let isCleanedUp = false;
     let refreshPromise: Promise<void> | null = null;
     let hasPendingRefresh = false;
+    let hasPendingForcedRefresh = false;
     // Rows the collection currently holds. Deltas need it to choose between
     // `insert` and `update`, and to drop fan-out tombstones for ids that were
     // never on this board (the server broadcasts junction-table deletes to
@@ -403,14 +416,17 @@ function createFallbackSync(args: {
       syncParams.commit();
     };
 
-    const refreshNow = async () => {
+    const refreshNow = async ({ force = false }: RefreshOptions = {}) => {
       // While the delta stream is live it delivers every change already; a
       // truncate-based snapshot on top of it would only re-download the whole
-      // table and race with in-flight deltas.
-      if (deltaLive) return;
+      // table and race with in-flight deltas. A successful local mutation is
+      // the exception: it needs a read-after-write confirmation in case an
+      // idle WebSocket stopped forwarding events while a dialog was open.
+      if (deltaLive && !force) return;
 
       if (refreshPromise) {
         hasPendingRefresh = true;
+        hasPendingForcedRefresh ||= force;
         return refreshPromise;
       }
 
@@ -418,8 +434,10 @@ function createFallbackSync(args: {
       refreshPromise = (async () => {
         try {
           let latestRows: Array<ElectricRow> | null = null;
+          let forceCurrentRefresh = force;
           do {
             hasPendingRefresh = false;
+            hasPendingForcedRefresh = false;
             const response = await makeRequest(
               buildFallbackRequestPath(args.shape.fallbackUrl, args.params),
               { method: 'GET', cache: 'no-store' }
@@ -436,6 +454,7 @@ function createFallbackSync(args: {
             const payload = (await response.json()) as unknown;
             latestRows = extractFallbackRows(payload, args.shape.table);
             fallbackSnapshotCache.set(args.sourceKey, latestRows);
+            forceCurrentRefresh ||= hasPendingForcedRefresh;
           } while (hasPendingRefresh && !isCleanedUp);
 
           if (isCleanedUp || !latestRows) return;
@@ -449,7 +468,10 @@ function createFallbackSync(args: {
           // visually reverting the card the operator just moved. Clearing
           // first lets that refresh start a genuinely new fetch.
           refreshPromise = null;
-          if (deltaSnapshotGeneration !== generationAtStart) {
+          if (
+            !forceCurrentRefresh &&
+            deltaSnapshotGeneration !== generationAtStart
+          ) {
             // A WebSocket snapshot overtook this read: ours is stale, and the
             // socket (plus the deltas still to come) is already the truth.
             return;
@@ -459,7 +481,7 @@ function createFallbackSync(args: {
           // A caller asked for freshness while we were applying: run once
           // more so the state it expected (its own write) is what lands.
           if (hasPendingRefresh && !isCleanedUp) {
-            await refreshNow();
+            await refreshNow({ force: hasPendingForcedRefresh });
           }
         } catch (error) {
           if (isAbortError(error)) return;
@@ -566,7 +588,11 @@ function buildMutationHandlers(
       );
 
       invalidateFallbackCache(sourceKey);
-      refreshFallbackSource(sourceKey);
+      // The POST only confirms that the database accepted the card. Await a
+      // read-after-write snapshot before resolving `persisted`, so callers
+      // receive the server-generated issue id and the new Todo card is shown
+      // even when a long-open dialog left the delta socket stale.
+      await refreshFallbackSource(sourceKey, { force: true });
     },
 
     onUpdate: async ({ transaction }: MutationFnParams): Promise<void> => {

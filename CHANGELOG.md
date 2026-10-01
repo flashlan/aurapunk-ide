@@ -9,7 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.44] - 2026-10-01
+
 ### Fixed
+
+- **Cards created after a long edit now appear immediately in Todo.** Saving
+  now confirms the card with the local backend even if an idle board WebSocket
+  stopped forwarding events while the create dialog was open; restarting the
+  app is no longer needed to see it.
 
 - **"Send now" sends even when the agent already stopped.** It failed with
   "No running coding-agent execution to interrupt" whenever the turn ended
