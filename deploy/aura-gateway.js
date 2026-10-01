@@ -1,15 +1,10 @@
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
-import { createReadStream } from 'node:fs';
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import { URL } from 'node:url';
 
 const gatewayPort = Number.parseInt(process.env.PORT ?? '3000', 10);
 const websiteOrigin = process.env.WEBSITE_ORIGIN ?? 'http://127.0.0.1:3200';
 const vibeOrigin = process.env.VIBE_ORIGIN ?? 'http://127.0.0.1:3100';
-const demoRoot = process.env.DEMO_ROOT ?? '/opt/vibe-kanban-demo/frontend-demo';
-const demoPrefix = '/demo';
 const apexHost = (process.env.APEX_HOST ?? 'aurapunk.dev')
   .trim()
   .toLowerCase()
@@ -30,25 +25,6 @@ const cloudIdeAllowedUpstreamHosts = new Set(
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean),
 );
-
-const MIME_TYPES = {
-  '.css': 'text/css; charset=utf-8',
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.map': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-};
-
-function isDemoRequest(pathname) {
-  return pathname === demoPrefix || pathname.startsWith(`${demoPrefix}/`);
-}
 
 function isVibeApiRequest(pathname) {
   return pathname === '/api' || pathname.startsWith('/api/') || pathname === '/v1' || pathname.startsWith('/v1/');
@@ -236,44 +212,6 @@ function proxyRequest(request, response, origin, options = {}) {
   });
 }
 
-async function serveDemo(request, response) {
-  const requestPath = new URL(request.url ?? '/', 'http://localhost').pathname;
-  const relativePath = requestPath.slice(demoPrefix.length).replace(/^\/+/, '');
-  const candidate = path.resolve(demoRoot, relativePath || 'index.html');
-  const root = path.resolve(demoRoot);
-  const safeCandidate = candidate === root || candidate.startsWith(`${root}${path.sep}`);
-
-  if (!safeCandidate) {
-    response.writeHead(400);
-    response.end('Invalid demo path');
-    return;
-  }
-
-  let filePath = candidate;
-  try {
-    const stat = await fs.stat(filePath);
-    if (!stat.isFile()) throw new Error('not a file');
-  } catch {
-    filePath = path.join(root, 'index.html');
-  }
-
-  try {
-    const extension = path.extname(filePath).toLowerCase();
-    response.writeHead(200, {
-      'Cache-Control': extension === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable',
-      'Content-Type': MIME_TYPES[extension] ?? 'application/octet-stream',
-      // The demo is a client-routed SPA: every /demo/* path falls back to the
-      // same index.html. Without this, Google treats each path as an indexable
-      // page with no canonical ("Duplicate without user-selected canonical").
-      'X-Robots-Tag': 'noindex, nofollow',
-    });
-    createReadStream(filePath).pipe(response);
-  } catch {
-    response.writeHead(404);
-    response.end('Demo frontend not found');
-  }
-}
-
 const server = createServer((request, response) => {
   const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
 
@@ -288,11 +226,6 @@ const server = createServer((request, response) => {
 
   if (cloudIdeTenant) {
     void proxyCloudIde(request, response, cloudIdeTenant);
-    return;
-  }
-
-  if (isDemoRequest(pathname)) {
-    void serveDemo(request, response);
     return;
   }
 

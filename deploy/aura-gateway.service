@@ -1,6 +1,6 @@
 [Unit]
 Description=AuraPunk website and Vibe Kanban gateway
-After=network-online.target aurapunk-website.service vibe-kanban-demo.service
+After=network-online.target aurapunk-website.service
 Wants=network-online.target
 
 [Service]
@@ -13,7 +13,6 @@ Environment=PATH=/home/aurapunk/.local/node22/bin:/home/aurapunk/.opencode/bin:/
 Environment=PORT=3000
 Environment=WEBSITE_ORIGIN=http://127.0.0.1:3200
 Environment=VIBE_ORIGIN=http://127.0.0.1:3100
-Environment=DEMO_ROOT=/opt/vibe-kanban-demo/frontend-demo
 ExecStart=/home/aurapunk/.local/node22/bin/node /opt/vibe-kanban-demo/aura-gateway.js
 Restart=on-failure
 RestartSec=3
