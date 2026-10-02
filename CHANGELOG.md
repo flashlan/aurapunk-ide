@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.45] - 2026-10-02
+
+### Added
+
+- **The README now shows the agent workflow in the product itself.** It covers
+  per-agent MCP servers, project-wide pre-work and finish rules, and complex
+  pipelines editable as either a visual form or raw TOML, with current UI
+  screenshots.
+
+### Changed
+
+- **Windows downloads now direct people to the Microsoft Store.** The
+  repository uses the official AuraPunk ADE Store listing instead of an
+  installer link.
+
+### Removed
+
+- **The obsolete public demo deployment assets and route were removed.**
+
 ## [0.3.44] - 2026-10-01
 
 ### Fixed
