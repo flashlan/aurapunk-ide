@@ -365,6 +365,18 @@ per-agent workflow. Choose an agent CLI — Codex, Claude Code, OpenCode, Gemini
 or another supported executor — and manage the MCP servers that *that agent*
 can use, directly from **Settings → MCP Servers**.
 
+<table>
+  <tr>
+    <td width="42%" valign="middle">
+      <strong>The right tools for the right agent.</strong><br /><br />
+      Select an agent, inspect its native configuration, add a server from the popular catalog, and save directly to the exact local file that agent uses.
+    </td>
+    <td width="58%">
+      <img src="docs/images/readme/mcp-servers-per-agent.png" alt="AuraPunk MCP Servers settings with OpenCode selected, editable JSON configuration, destination file path, and popular server cards" />
+    </td>
+  </tr>
+</table>
+
 - **Configuration you can see and control.** The editor shows the exact JSON
   configuration for the selected agent and clearly states the local file that
   will be updated before you save.
@@ -420,6 +432,18 @@ prompt or an improvised set of manual handoffs.
 Project-level instructions keep every agent aligned without copying the same
 prompt into every card. In **Project Settings → Instructions & Rules**, define
 two complementary rule sets that AuraPunk exposes to agents through its MCP:
+
+<table>
+  <tr>
+    <td width="58%">
+      <img src="docs/images/readme/project-rules.png" alt="AuraPunk project instructions and rules settings with editable pre-work guidelines and closing checklist and prohibitions" />
+    </td>
+    <td width="42%" valign="middle">
+      <strong>Project knowledge that actively governs work.</strong><br /><br />
+      Keep architecture constraints present during implementation, then require verification and enforce prohibitions before an agent can finish.
+    </td>
+  </tr>
+</table>
 
 - **Pre-work guidelines** are active throughout implementation: coding
   conventions, architecture boundaries, repository-specific commands and
