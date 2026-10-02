@@ -8,8 +8,8 @@ use std::time::Duration;
 
 use axum::{
     Json, Router,
-    extract::State,
-    response::Json as ResponseJson,
+    extract::{Query, State},
+    response::{IntoResponse, Json as ResponseJson},
     routing::{get, post},
 };
 use deployment::Deployment;
@@ -22,6 +22,7 @@ use services::services::{
     mem0_relevance::Mem0RelevanceSummary,
 };
 use sqlx::FromRow;
+use sqlx::SqlitePool;
 use ts_rs::TS;
 use utils::{
     memory_config::{self, MemoryAdapter},
@@ -204,6 +205,134 @@ pub struct TokenUsageBreakdown {
     pub cache_creation_tokens: i64,
 }
 
+/// Totals for a filtered token-usage report.
+#[derive(Debug, Default, Serialize, TS)]
+pub struct TokenUsageTotals {
+    pub executions: i64,
+    pub total_tokens: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_creation_tokens: i64,
+}
+
+/// Stable local-first token report returned from `/api/v1/usage/tokens`.
+/// Tenant/team/user scoping is intentionally resolved by the serving backend
+/// when this contract is later exposed remotely; it is implicit locally.
+#[derive(Debug, Serialize, TS)]
+pub struct TokenUsageReport {
+    pub days: u16,
+    pub totals: TokenUsageTotals,
+    pub rows: Vec<TokenUsageBreakdown>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct TokenUsageQuery {
+    days: Option<u16>,
+    agent: Option<String>,
+    provider: Option<String>,
+    model: Option<String>,
+    issue_id: Option<Uuid>,
+}
+
+impl TokenUsageQuery {
+    fn days(&self) -> u16 {
+        self.days.unwrap_or(30).clamp(1, 365)
+    }
+
+    fn report_from_rows(&self, rows: Vec<TokenUsageBreakdown>) -> TokenUsageReport {
+        let totals = rows
+            .iter()
+            .fold(TokenUsageTotals::default(), |mut totals, row| {
+                totals.executions += row.executions;
+                totals.total_tokens += row.total_tokens;
+                totals.input_tokens += row.input_tokens;
+                totals.output_tokens += row.output_tokens;
+                totals.cache_read_tokens += row.cache_read_tokens;
+                totals.cache_creation_tokens += row.cache_creation_tokens;
+                totals
+            });
+        TokenUsageReport {
+            days: self.days(),
+            totals,
+            rows,
+        }
+    }
+}
+
+#[derive(FromRow)]
+struct TokenUsageRow {
+    issue_id: Option<Uuid>,
+    issue_title: Option<String>,
+    agent: String,
+    provider: Option<String>,
+    model: Option<String>,
+    executions: i64,
+    total_tokens: i64,
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_read_tokens: i64,
+    cache_creation_tokens: i64,
+}
+
+async fn fetch_token_usage(
+    pool: &SqlitePool,
+    filters: &TokenUsageQuery,
+) -> Vec<TokenUsageBreakdown> {
+    sqlx::query_as::<_, TokenUsageRow>(
+        r#"WITH latest_per_execution AS (
+               SELECT tur.*, ROW_NUMBER() OVER (
+                   PARTITION BY tur.execution_process_id ORDER BY tur.entry_index DESC
+               ) AS observation_rank
+               FROM token_usage_records tur
+               WHERE tur.observed_at >= datetime('now', printf('-%d days', ?))
+                 AND (? IS NULL OR tur.agent = ?)
+                 AND (? IS NULL OR tur.provider = ?)
+                 AND (? IS NULL OR tur.model = ?)
+                 AND (? IS NULL OR tur.issue_id = ?)
+           )
+           SELECT tur.issue_id, i.title AS issue_title, tur.agent, tur.provider, tur.model,
+                  COUNT(*) AS executions,
+                  COALESCE(SUM(tur.total_tokens), 0) AS total_tokens,
+                  COALESCE(SUM(tur.input_tokens), 0) AS input_tokens,
+                  COALESCE(SUM(tur.output_tokens), 0) AS output_tokens,
+                  COALESCE(SUM(tur.cache_read_tokens), 0) AS cache_read_tokens,
+                  COALESCE(SUM(tur.cache_creation_tokens), 0) AS cache_creation_tokens
+           FROM latest_per_execution tur
+           LEFT JOIN issues i ON i.id = tur.issue_id
+           WHERE tur.observation_rank = 1
+           GROUP BY tur.issue_id, i.title, tur.agent, tur.provider, tur.model
+           ORDER BY total_tokens DESC"#,
+    )
+    .bind(i64::from(filters.days()))
+    .bind(&filters.agent)
+    .bind(&filters.agent)
+    .bind(&filters.provider)
+    .bind(&filters.provider)
+    .bind(&filters.model)
+    .bind(&filters.model)
+    .bind(filters.issue_id)
+    .bind(filters.issue_id)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|row| TokenUsageBreakdown {
+        issue_id: row.issue_id.map(|id| id.to_string()),
+        issue_title: row.issue_title,
+        agent: row.agent,
+        provider: row.provider,
+        model: row.model,
+        executions: row.executions,
+        total_tokens: row.total_tokens,
+        input_tokens: row.input_tokens,
+        output_tokens: row.output_tokens,
+        cache_read_tokens: row.cache_read_tokens,
+        cache_creation_tokens: row.cache_creation_tokens,
+    })
+    .collect()
+}
+
 /// One minute of observed memory-recall quality and agent failures. No memory
 /// text or prompt data is retained in this telemetry stream.
 #[derive(Debug, Serialize, TS)]
@@ -376,6 +505,8 @@ pub struct Mem0ProviderPatch {
 pub fn router() -> Router<DeploymentImpl> {
     Router::new()
         .route("/usage/summary", get(usage_summary))
+        .route("/v1/usage/tokens", get(usage_tokens))
+        .route("/v1/usage/tokens.csv", get(usage_tokens_csv))
         .route("/usage/re-extract", get(re_extract_status).post(re_extract))
         .route(
             "/usage/mem0-config",
@@ -393,6 +524,67 @@ pub fn router() -> Router<DeploymentImpl> {
         .route("/usage/mem0-relevance", post(report_mem0_relevance))
         .route("/usage/memory-graph", post(memory_graph_overview))
         .route("/usage/token-telemetry", post(report_token_telemetry))
+}
+
+/// Durable token totals, reconciled to one latest observation per execution.
+///
+/// This is the local-first API contract used by reports and exports. It is
+/// deliberately separate from provider billing and plan-quota data.
+async fn usage_tokens(
+    State(deployment): State<DeploymentImpl>,
+    Query(filters): Query<TokenUsageQuery>,
+) -> ResponseJson<ApiResponse<TokenUsageReport>> {
+    let rows = fetch_token_usage(&deployment.db().pool, &filters).await;
+    ResponseJson(ApiResponse::success(filters.report_from_rows(rows)))
+}
+
+async fn usage_tokens_csv(
+    State(deployment): State<DeploymentImpl>,
+    Query(filters): Query<TokenUsageQuery>,
+) -> impl IntoResponse {
+    let rows = fetch_token_usage(&deployment.db().pool, &filters).await;
+    let csv = render_token_usage_csv(&rows);
+    (
+        [
+            ("content-type", "text/csv; charset=utf-8"),
+            (
+                "content-disposition",
+                "attachment; filename=aurapunk-token-usage.csv",
+            ),
+        ],
+        csv,
+    )
+        .into_response()
+}
+
+fn render_token_usage_csv(rows: &[TokenUsageBreakdown]) -> String {
+    let mut csv = String::from(
+        "issue_id,issue_title,agent,provider,model,executions,total_tokens,input_tokens,output_tokens,cache_read_tokens,cache_creation_tokens\n",
+    );
+    for row in rows {
+        let fields = [
+            row.issue_id.as_deref().unwrap_or_default().to_string(),
+            row.issue_title.as_deref().unwrap_or_default().to_string(),
+            row.agent.clone(),
+            row.provider.as_deref().unwrap_or_default().to_string(),
+            row.model.as_deref().unwrap_or_default().to_string(),
+            row.executions.to_string(),
+            row.total_tokens.to_string(),
+            row.input_tokens.to_string(),
+            row.output_tokens.to_string(),
+            row.cache_read_tokens.to_string(),
+            row.cache_creation_tokens.to_string(),
+        ];
+        csv.push_str(
+            &fields
+                .iter()
+                .map(|value| format!("\"{}\"", value.replace('"', "\"\"")))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        csv.push('\n');
+    }
+    csv
 }
 
 /// mem0 health-status indicator payload for the UI header dot. Reflects the
@@ -1290,56 +1482,7 @@ async fn usage_summary(
     )
     .collect();
 
-    #[derive(FromRow)]
-    struct TokenUsageRow {
-        issue_id: Option<Uuid>,
-        issue_title: Option<String>,
-        agent: String,
-        provider: Option<String>,
-        model: Option<String>,
-        executions: i64,
-        total_tokens: i64,
-        input_tokens: i64,
-        output_tokens: i64,
-        cache_read_tokens: i64,
-        cache_creation_tokens: i64,
-    }
-    let token_usage = sqlx::query_as::<_, TokenUsageRow>(
-        r#"SELECT tur.issue_id,
-                  i.title AS issue_title,
-                  tur.agent,
-                  tur.provider,
-                  tur.model,
-                  COUNT(DISTINCT tur.execution_process_id) AS executions,
-                  COALESCE(SUM(tur.total_tokens), 0) AS total_tokens,
-                  COALESCE(SUM(tur.input_tokens), 0) AS input_tokens,
-                  COALESCE(SUM(tur.output_tokens), 0) AS output_tokens,
-                  COALESCE(SUM(tur.cache_read_tokens), 0) AS cache_read_tokens,
-                  COALESCE(SUM(tur.cache_creation_tokens), 0) AS cache_creation_tokens
-           FROM token_usage_records tur
-           LEFT JOIN issues i ON i.id = tur.issue_id
-           WHERE tur.observed_at >= datetime('now', '-30 days')
-           GROUP BY tur.issue_id, i.title, tur.agent, tur.provider, tur.model
-           ORDER BY total_tokens DESC"#,
-    )
-    .fetch_all(pool)
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .map(|row| TokenUsageBreakdown {
-        issue_id: row.issue_id.map(|id| id.to_string()),
-        issue_title: row.issue_title,
-        agent: row.agent,
-        provider: row.provider,
-        model: row.model,
-        executions: row.executions,
-        total_tokens: row.total_tokens,
-        input_tokens: row.input_tokens,
-        output_tokens: row.output_tokens,
-        cache_read_tokens: row.cache_read_tokens,
-        cache_creation_tokens: row.cache_creation_tokens,
-    })
-    .collect();
+    let token_usage = fetch_token_usage(pool, &TokenUsageQuery::default()).await;
 
     // Provider quota is account state reported by the executor process rather
     // than usage inferred from our local token ledger. Keep the distinction
@@ -1425,6 +1568,114 @@ struct ReExtractQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn token_usage_test_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("in-memory sqlite pool");
+        sqlx::query(
+            r#"CREATE TABLE issues (id BLOB PRIMARY KEY, title TEXT NOT NULL);
+               CREATE TABLE token_usage_records (
+                   execution_process_id BLOB NOT NULL,
+                   issue_id BLOB,
+                   entry_index INTEGER NOT NULL,
+                   agent TEXT NOT NULL,
+                   provider TEXT,
+                   model TEXT,
+                   total_tokens INTEGER NOT NULL,
+                   input_tokens INTEGER NOT NULL,
+                   output_tokens INTEGER NOT NULL,
+                   cache_read_tokens INTEGER NOT NULL,
+                   cache_creation_tokens INTEGER NOT NULL,
+                   observed_at TEXT NOT NULL DEFAULT (datetime('now'))
+               );"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("token usage schema");
+        pool
+    }
+
+    #[tokio::test]
+    async fn token_report_uses_the_latest_observation_per_execution() {
+        let pool = token_usage_test_pool().await;
+        let issue_id = Uuid::new_v4();
+        let first_execution = Uuid::new_v4();
+        let second_execution = Uuid::new_v4();
+
+        sqlx::query("INSERT INTO issues (id, title) VALUES (?, ?)")
+            .bind(issue_id)
+            .bind("Usage report")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        for (execution_id, entry_index, agent, total, input, output) in [
+            (first_execution, 1_i64, "claude", 100_i64, 70_i64, 30_i64),
+            // Claude emits cumulative snapshots. This must replace 100, not
+            // be summed with it, otherwise reports overcount long sessions.
+            (first_execution, 2_i64, "claude", 300_i64, 220_i64, 80_i64),
+            (second_execution, 1_i64, "codex", 80_i64, 50_i64, 30_i64),
+        ] {
+            sqlx::query(
+                r#"INSERT INTO token_usage_records (
+                    execution_process_id, issue_id, entry_index, agent, provider,
+                    model, total_tokens, input_tokens, output_tokens,
+                    cache_read_tokens, cache_creation_tokens
+                ) VALUES (?, ?, ?, ?, 'openai', 'test-model', ?, ?, ?, 0, 0)"#,
+            )
+            .bind(execution_id)
+            .bind(issue_id)
+            .bind(entry_index)
+            .bind(agent)
+            .bind(total)
+            .bind(input)
+            .bind(output)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let all_filters = TokenUsageQuery::default();
+        let report = all_filters.report_from_rows(fetch_token_usage(&pool, &all_filters).await);
+        assert_eq!(report.totals.executions, 2);
+        assert_eq!(report.totals.total_tokens, 380);
+        assert_eq!(report.totals.input_tokens, 270);
+        assert_eq!(report.totals.output_tokens, 110);
+
+        let claude_filters = TokenUsageQuery {
+            agent: Some("claude".to_string()),
+            ..Default::default()
+        };
+        let claude_report =
+            claude_filters.report_from_rows(fetch_token_usage(&pool, &claude_filters).await);
+        assert_eq!(claude_report.rows.len(), 1);
+        assert_eq!(claude_report.totals.executions, 1);
+        assert_eq!(claude_report.totals.total_tokens, 300);
+    }
+
+    #[test]
+    fn token_usage_csv_escapes_text_and_keeps_all_token_dimensions() {
+        let csv = render_token_usage_csv(&[TokenUsageBreakdown {
+            issue_id: Some("issue-1".to_string()),
+            issue_title: Some("Quote \"and comma,\"".to_string()),
+            agent: "codex".to_string(),
+            provider: Some("openai".to_string()),
+            model: Some("gpt-5".to_string()),
+            executions: 2,
+            total_tokens: 42,
+            input_tokens: 30,
+            output_tokens: 12,
+            cache_read_tokens: 8,
+            cache_creation_tokens: 3,
+        }]);
+        assert!(csv.starts_with("issue_id,issue_title,agent"));
+        assert!(csv.contains("\"Quote \"\"and comma,\"\"\""));
+        assert!(csv.ends_with("\"2\",\"42\",\"30\",\"12\",\"8\",\"3\"\n"));
+    }
 
     #[test]
     fn url_host_extracts_host_without_port() {

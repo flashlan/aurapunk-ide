@@ -28,6 +28,7 @@ import {
   CpuIcon,
   ShieldCheckIcon,
   KeyIcon,
+  DownloadSimpleIcon,
 } from '@phosphor-icons/react';
 
 export interface DailyAgentActivity {
@@ -123,6 +124,21 @@ export interface TokenUsageBreakdown {
   output_tokens: number;
   cache_read_tokens: number;
   cache_creation_tokens: number;
+}
+
+export interface TokenUsageTotals {
+  executions: number;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+}
+
+export interface TokenUsageReport {
+  days: number;
+  totals: TokenUsageTotals;
+  rows: TokenUsageBreakdown[];
 }
 
 export interface AgentProgressPoint {
@@ -227,6 +243,19 @@ export async function fetchUsageSummary(): Promise<UsageSummary> {
     cache: 'no-store',
   });
   return handleApiResponse<UsageSummary>(response);
+}
+
+export async function fetchTokenUsageReport(
+  days: number,
+  agent?: string
+): Promise<TokenUsageReport> {
+  const params = new URLSearchParams({ days: String(days) });
+  if (agent) params.set('agent', agent);
+  const response = await makeRequest(`/api/v1/usage/tokens?${params}`, {
+    method: 'GET',
+    cache: 'no-store',
+  });
+  return handleApiResponse<TokenUsageReport>(response);
 }
 
 export async function triggerReExtract(
@@ -549,6 +578,10 @@ function ProgressScatterChart({ points }: { points: AgentProgressPoint[] }) {
 export function UsageSettingsSection() {
   const { t } = useTranslation('settings');
   const [summary, setSummary] = useState<UsageSummary | null>(null);
+  const [tokenReport, setTokenReport] = useState<TokenUsageReport | null>(null);
+  const [tokenReportDays, setTokenReportDays] = useState(30);
+  const [tokenReportAgent, setTokenReportAgent] = useState('');
+  const [tokenReportLoading, setTokenReportLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reExtractUser, setReExtractUser] = useState('');
   const [reExtractBusy, setReExtractBusy] = useState(false);
@@ -572,6 +605,28 @@ export function UsageSettingsSection() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let active = true;
+    setTokenReportLoading(true);
+    void fetchTokenUsageReport(tokenReportDays, tokenReportAgent || undefined)
+      .then((report) => {
+        if (active) setTokenReport(report);
+      })
+      .catch((e) => {
+        if (active) {
+          setError(
+            e instanceof Error ? e.message : 'Failed to load token report'
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setTokenReportLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [tokenReportAgent, tokenReportDays]);
 
   const loadMemoryGraph = useCallback(async (userId: string) => {
     setMemoryGraphLoading(true);
@@ -652,6 +707,20 @@ export function UsageSettingsSection() {
     );
   }
   const agents = [...agentTotals.entries()].sort((a, b) => b[1] - a[1]);
+  const tokenReportAgents = [
+    ...new Set((summary?.token_usage ?? []).map((row) => row.agent)),
+  ].sort();
+
+  const exportTokenReport = () => {
+    const params = new URLSearchParams({ days: String(tokenReportDays) });
+    if (tokenReportAgent) params.set('agent', tokenReportAgent);
+    const link = document.createElement('a');
+    link.href = `/api/v1/usage/tokens.csv?${params}`;
+    link.download = 'aurapunk-token-usage.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
 
   const issueCreated = new Map<string, number>();
   const issueCompleted = new Map<string, number>();
@@ -1196,19 +1265,76 @@ export function UsageSettingsSection() {
         </div>
       </section>
 
-      {/* Durable token ledger — grouped by issue, CLI and model. */}
+      {/* Durable token ledger — filtered report, grouped by issue, CLI and model. */}
       <section>
-        <h3 className="mb-2 text-sm font-medium text-high">
-          {t('settings.usage.tokenUsageByIssue', 'Token usage by issue')}
-        </h3>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-medium text-high">
+            {t('settings.usage.tokenUsageByIssue', 'Token usage report')}
+          </h3>
+          <button
+            type="button"
+            onClick={exportTokenReport}
+            className="inline-flex items-center gap-1.5 rounded-sm border border-border px-2 py-1 text-xs text-normal transition-colors hover:bg-secondary"
+          >
+            <DownloadSimpleIcon size={14} weight="bold" />
+            {t('settings.usage.exportCsv', 'Export CSV')}
+          </button>
+        </div>
         <div className="rounded-sm border border-border bg-panel p-3">
-          <p className="mb-3 text-xs text-low">
-            {t(
-              'settings.usage.tokenUsageNote',
-              'Observed normalized usage over the last 30 days. This is not provider billing or remaining plan quota.'
-            )}
-          </p>
-          {(summary?.token_usage ?? []).length === 0 ? (
+          <div className="mb-3 flex flex-wrap items-end gap-3 border-b border-border pb-3">
+            <label className="flex flex-col gap-1 text-[10px] uppercase text-low">
+              {t('settings.usage.period', 'Period')}
+              <select
+                value={tokenReportDays}
+                onChange={(e) => setTokenReportDays(Number(e.target.value))}
+                className="rounded-sm border border-border bg-base px-2 py-1 text-xs normal-case text-normal"
+              >
+                <option value={7}>Last 7 days</option>
+                <option value={30}>Last 30 days</option>
+                <option value={90}>Last 90 days</option>
+                <option value={365}>Last 12 months</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-[10px] uppercase text-low">
+              {t('settings.usage.agent', 'Agent')}
+              <select
+                value={tokenReportAgent}
+                onChange={(e) => setTokenReportAgent(e.target.value)}
+                className="min-w-32 rounded-sm border border-border bg-base px-2 py-1 text-xs normal-case text-normal"
+              >
+                <option value="">All agents</option>
+                {tokenReportAgents.map((agent) => (
+                  <option key={agent} value={agent}>
+                    {agent}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="max-w-xl text-xs normal-case text-low">
+              {t(
+                'settings.usage.tokenUsageNote',
+                'Reconciled local observations. Provider billing and remaining plan quota are intentionally separate.'
+              )}
+            </p>
+          </div>
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[
+              ['Total', tokenReport?.totals.total_tokens ?? 0],
+              ['Input', tokenReport?.totals.input_tokens ?? 0],
+              ['Output', tokenReport?.totals.output_tokens ?? 0],
+              ['Cache read', tokenReport?.totals.cache_read_tokens ?? 0],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-sm bg-base px-2 py-2">
+                <div className="text-[10px] uppercase text-low">{label}</div>
+                <div className="mt-0.5 text-sm font-medium text-high">
+                  {formatTokens(Number(value))}
+                </div>
+              </div>
+            ))}
+          </div>
+          {tokenReportLoading ? (
+            <div className="text-sm text-low">Loading token report…</div>
+          ) : (tokenReport?.rows ?? []).length === 0 ? (
             <div className="text-sm text-low">
               {t(
                 'settings.usage.noTokenUsage',
@@ -1226,7 +1352,7 @@ export function UsageSettingsSection() {
                 </span>
               </div>
               <div className="divide-y divide-border">
-                {(summary?.token_usage ?? []).map((row, index) => (
+                {(tokenReport?.rows ?? []).map((row, index) => (
                   <div
                     key={`${row.issue_id ?? 'unlinked'}-${row.agent}-${row.model ?? 'default'}-${index}`}
                     className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1.1fr)_minmax(0,1.4fr)_auto] gap-x-3 py-2 text-xs"

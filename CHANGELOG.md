@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.46] - 2026-10-02
+
+### Added
+
+- **Professional local token reports.** Settings → Usage now has a reconciled
+  report with 7/30/90-day and annual views, an agent filter, separate input,
+  output and cache totals, per-card/model rows, and CSV export.
+
+- **A versioned usage API for future team integrations.** Local consumers can
+  read the same report from `GET /api/v1/usage/tokens` or download it from
+  `GET /api/v1/usage/tokens.csv`, filtered by period, agent, provider, model
+  or card. It reports observed local usage, not provider billing or quota.
+
+### Fixed
+
+- **Long-running agent sessions no longer inflate usage totals.** Repeated
+  cumulative snapshots are reconciled to the latest observation per execution.
+
 ## [0.3.45] - 2026-10-02
 
 ### Added
