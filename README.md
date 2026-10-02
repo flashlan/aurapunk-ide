@@ -47,7 +47,7 @@ Your free account includes limited Mem0 memory backed by Qdrant and limited Laya
   <a href="https://github.com/flashlan/aurapunk-ide/releases/latest/download/Aurapunk-IDE-linux-x64.deb"><img alt="Debian/Ubuntu deb" src="https://img.shields.io/badge/Debian%2FUbuntu-.deb-A81D33?style=for-the-badge&logo=debian&logoColor=white" /></a>
   <a href="https://github.com/flashlan/aurapunk-ide/releases/latest/download/Aurapunk-IDE-linux-x64.rpm"><img alt="Fedora rpm" src="https://img.shields.io/badge/Fedora-.rpm-51A2DA?style=for-the-badge&logo=fedora&logoColor=white" /></a>
   <br/>
-  <a href="https://github.com/flashlan/aurapunk-ide/releases/latest/download/Aurapunk-IDE-windows-x64.exe"><img alt="Windows x64" src="https://img.shields.io/badge/Windows-x64_installer-0078D6?style=for-the-badge&logo=windows&logoColor=white" /></a>
+  <a href="https://apps.microsoft.com/detail/9nktks4g5bxl?cid=DevShareMCLPCS&amp;hl=pt-BR&amp;gl=BR"><img alt="Download for Windows from the Microsoft Store" src="https://img.shields.io/badge/Windows-Microsoft_Store-0078D6?style=for-the-badge&logo=windows&logoColor=white" /></a>
   <br/>
   <a href="https://pub-80572bbc4ab94346be24d128e6b22a0f.r2.dev/aurapunk-mobile/aurapunk-mobile-beta.apk"><img alt="Android beta APK" src="https://img.shields.io/badge/Android-Beta_APK-3DDC84?style=for-the-badge&logo=android&logoColor=white" /></a>
 </p>
@@ -93,7 +93,7 @@ Or `sudo apt install ./Aurapunk-IDE-linux-x64.deb` / `sudo dnf install ./Aurapun
 
 ### Windows
 
-Run the installer and follow the setup wizard (x64 only).
+Install AuraPunk ADE from the [Microsoft Store](https://apps.microsoft.com/detail/9nktks4g5bxl?cid=DevShareMCLPCS&hl=pt-BR&gl=BR).
 
 ### Android (Beta) — AuraPunk Mobile
 
@@ -121,9 +121,12 @@ in [release `v0.3.2`](https://github.com/flashlan/aurapunk-ide/releases/tag/v0.3
 - [Background and Credits](#background-and-credits)
 - [Overview](#overview)
 - [What This Fork Adds](#what-this-fork-adds)
+- [Agent Pipelines: Visual Form or Raw TOML](#agent-pipelines-visual-form-or-raw-toml)
 - [Project Memory (mem0)](#project-memory-mem0)
 - [Fast Jev and Laya: zero-token context compression](#fast-jev-and-laya-zero-token-context-compression)
 - [Supported Coding Agents](#supported-coding-agents)
+- [MCP Servers: Give Each Agent the Right Tools](#mcp-servers-give-each-agent-the-right-tools)
+- [Project Rules: Pre-Work Guidance and a Closing Gate](#project-rules-pre-work-guidance-and-a-closing-gate)
 - [Chat and Terminal Interaction](#chat-and-terminal-interaction)
 - [Usage and Observability](#usage-and-observability)
 - [Terminal UI (TUI)](#terminal-ui-tui)
@@ -286,6 +289,28 @@ Long agent sessions rot in two ways: the context window fills with stale tool ou
 
 The engine ships as [`@aurapunk/jev-plugin`](packages/jev-plugin) (also usable from Claude Code) and is driven from **Settings → Add-ons → Fast Jev & Laya AI Suite**.
 
+### RLCD: a System-One decision layer for agents
+
+<table>
+  <tr>
+    <td width="42%" valign="middle">
+      <strong>Fast judgment, chosen on your terms.</strong><br /><br />
+      Use the recommended Jev-first mode with Laya fallback, run Laya locally in Docker, or configure the official TypeSafe Jev API. Guardrails remain visible and controllable in the product.
+    </td>
+    <td width="58%">
+      <img src="docs/images/readme/rlcd-jev-laya.png" alt="AuraPunk RLCD engine settings showing Auto Jev plus Laya fallback, local or cloud Laya selection, TypeSafe Jev API configuration, and autonomous guardrails" />
+    </td>
+  </tr>
+</table>
+
+RLCD (Rule-Level Contextual Decisions) gives an agent a fast decision layer
+instead of sending every small judgment to a generative model. In **Settings →
+Usage**, choose **Auto (Jev + Laya)** for Jev-first decisions with a Laya
+fallback, use a self-hosted Laya Docker container, or connect the official
+TypeSafe Jev API. The same configurable layer powers memory quality gates,
+tool-call guardrails, merge-conflict classification, handoff selection and the
+project context supplied to new sessions.
+
 ### Fast Jev Compaction (`/compress`, `/autocompact`)
 
 - **Nothing is rewritten.** User and assistant text stays 100% verbatim — exact file paths, literal compiler errors, and constraints survive.
@@ -299,7 +324,8 @@ The engine ships as [`@aurapunk/jev-plugin`](packages/jev-plugin) (also usable f
 - **Laya** — a non-autoregressive ModernBERT model (`convaiinnovations/laya`), self-hosted as a **Docker container** (see [Laya decision engine](#laya-decision-engine-second-image)) or via the **AuraPunk Cloud gateway** (device-token authenticated).
 - **Jev** — TypeSafe's System One evaluation model, called over the TypeSafe API.
 
-When both are configured, RLCD escalates to Jev for complex semantic rules and falls back to Laya. Neither is ever a silent in-process heuristic.
+When both are configured, RLCD uses Jev first and falls back to Laya. Neither
+is ever a silent in-process heuristic.
 
 ### Abide rule guardrails
 
@@ -331,6 +357,81 @@ flowchart LR
 6. **Qwen Code** — high-performance local and cloud agent workflows.
 7. **Google Gemini CLI** — native Gemini execution.
 8. **GitHub Copilot CLI, Cursor Agent, Droid, and Amp**.
+
+## MCP Servers: Give Each Agent the Right Tools
+
+AuraPunk makes MCP (Model Context Protocol) server configuration a visual,
+per-agent workflow. Choose an agent CLI — Codex, Claude Code, OpenCode, Gemini
+or another supported executor — and manage the MCP servers that *that agent*
+can use, directly from **Settings → MCP Servers**.
+
+- **Configuration you can see and control.** The editor shows the exact JSON
+  configuration for the selected agent and clearly states the local file that
+  will be updated before you save.
+- **One-click popular servers.** Add a preconfigured server from the catalog
+  directly into that agent's JSON, or paste any standard MCP configuration.
+- **Purpose-built agent toolsets.** Give a coding agent documentation,
+  browser automation, observability, source control, code intelligence or the
+  AuraPunk board itself — without giving every agent every tool.
+- **Your setup stays yours.** AuraPunk writes the selected agent's normal MCP
+  configuration file; there is no hosted relay, account requirement, or
+  proprietary configuration format.
+
+This is especially useful for a focused setup: for example, equip a frontend
+agent with Playwright and Context7, an operations agent with Sentry and GitHub,
+or a codebase-heavy agent with CodeGraph. MCP servers can be added or removed
+per agent at any time from the UI.
+
+## Agent Pipelines: Visual Form or Raw TOML
+
+<table>
+  <tr>
+    <td width="58%">
+      <img src="docs/images/readme/agent-pipeline-editor.png" alt="AuraPunk pipeline editor in visual form mode, with ordered stages, agent executor, model, reasoning effort and prompt fragment controls" />
+    </td>
+    <td width="42%" valign="middle">
+      <strong>Complex orchestration without a config-file tax.</strong><br /><br />
+      Build a repeatable agent workflow visually, then switch to Raw TOML whenever a project needs precise, versionable control.
+    </td>
+  </tr>
+</table>
+
+Turn a card into a repeatable engineering workflow. AuraPunk pipelines split
+work into ordered stages — such as orchestration, project-memory recall,
+specification, implementation, review and integration — and can assign the
+right executor, model and reasoning effort to each one.
+
+- **Visual form for everyday editing.** Add, remove and reorder stages; choose
+  the agent executor; set a model or inherit the default; mark heavier stages;
+  and edit each stage's prompt fragment without hand-authoring configuration.
+- **Raw TOML for full control.** Switch to the textual representation whenever
+  you need precise, versionable configuration or want to paste an existing
+  pipeline.
+- **Guarded workflow semantics.** Protected stage IDs preserve the system's
+  orchestration contract, while custom stages let each project add its own
+  review, release or validation steps.
+
+Pipelines make the agent crew reproducible: the same card type can follow the
+same deliberate sequence every time, rather than relying on a single giant
+prompt or an improvised set of manual handoffs.
+
+## Project Rules: Pre-Work Guidance and a Closing Gate
+
+Project-level instructions keep every agent aligned without copying the same
+prompt into every card. In **Project Settings → Instructions & Rules**, define
+two complementary rule sets that AuraPunk exposes to agents through its MCP:
+
+- **Pre-work guidelines** are active throughout implementation: coding
+  conventions, architecture boundaries, repository-specific commands and
+  constraints the agent must keep in mind.
+- **Closing checklist and prohibitions** are checked before the agent finishes:
+  required verification, documentation or memory updates, and actions that are
+  forbidden unless explicitly requested.
+
+The rules apply to every existing and future card across the project's
+pipelines. This makes project knowledge operational: an agent does not merely
+receive a long initial prompt; it retrieves the current rules before work and
+is held to the closing gate before it declares completion.
 
 ## Chat and Terminal Interaction
 
