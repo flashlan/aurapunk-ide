@@ -46,6 +46,16 @@
       "stdio"
     ]
   },
+  "obsidian": {
+    "command": "npx",
+    "args": [
+      "-y",
+      "obsidian-mcp@2",
+      "serve",
+      "--vault",
+      "aurapunk=/absolute/path/to/your/obsidian-vault"
+    ]
+  },
   "meta": {
     "aurapunk": {
       "name": "AuraPunk",
@@ -82,6 +92,11 @@
       "description": "Launch and manage multiple dev servers in parallel with automatic port allocation",
       "url": "https://github.com/BloopAI/dev-manager-mcp",
       "icon": "mcp/dev_manager_logo.svg"
+    },
+    "obsidian": {
+      "name": "Obsidian",
+      "description": "Read and manage an explicitly configured local Obsidian vault",
+      "url": "https://github.com/StevenStavrakis/obsidian-mcp"
     }
   }
 }

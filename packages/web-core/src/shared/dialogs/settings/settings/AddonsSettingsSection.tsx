@@ -4,6 +4,7 @@ import { ArrowSquareOutIcon } from '@phosphor-icons/react';
 import { SettingsCard, SettingsCheckbox } from './SettingsComponents';
 import { MemoryGraphViewer } from './MemoryGraphViewer';
 import { JevLayaSuitePanel } from './JevLayaSuitePanel';
+import { ObsidianMcpPanel } from './ObsidianMcpPanel';
 
 /**
  * Settings → Add-ons: registry of optional integrations.
@@ -35,6 +36,12 @@ const ADDONS: AddonDefinition[] = [
     homepage: 'https://github.com/Graphify-Labs/graphify',
     defaultEnabled: true,
     renderPanel: () => <MemoryGraphViewer />,
+  },
+  {
+    id: 'obsidian_mcp',
+    homepage: 'https://github.com/StevenStavrakis/obsidian-mcp',
+    defaultEnabled: false,
+    renderPanel: () => <ObsidianMcpPanel />,
   },
 ];
 

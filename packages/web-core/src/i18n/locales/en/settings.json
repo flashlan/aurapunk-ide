@@ -58,6 +58,11 @@
         "tagline": "Memory graph renderer",
         "description": "Renders the mem0 knowledge graph as an interactive, queryable map — nodes, relations and communities you can click, search and traverse — in the spirit of Graphify's graph.html."
       },
+      "obsidian_mcp": {
+        "name": "Obsidian shared vault",
+        "tagline": "Additional memory for agents",
+        "description": "Connect selected coding agents to the same local Obsidian vault through MCP."
+      },
       "viewer": {
         "userId": "Memory user",
         "userIdHint": "Bare repository slug — cloud accounts are scoped automatically, so never paste the full accountId:slug form.",
