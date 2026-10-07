@@ -302,7 +302,11 @@ export function CreateChatBoxContainer({
   // Wait for initial value to be applied before rendering
   // This ensures the editor mounts with content ready, so autoFocus works correctly
   if (!hasInitialValue) {
-    return null;
+    return (
+      <div className="flex min-h-[120px] items-center justify-center p-4 text-sm text-low">
+        Loading workspace form…
+      </div>
+    );
   }
 
   return (

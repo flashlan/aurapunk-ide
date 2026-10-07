@@ -300,7 +300,12 @@ export function useCreateModeState({
   // ============================================================================
   useEffect(() => {
     if (hasInitialized.current) return;
-    if (scratchLoading) return;
+    // An inline composer opened from a card already has a complete seed
+    // (prompt, linked issue and repo defaults). Do not leave that composer as
+    // an empty box while its optional draft WebSocket connects: a fresh draft
+    // does not exist on the server yet, and waiting for its initial snapshot
+    // can otherwise block this whole UI indefinitely after a reconnect.
+    if (scratchLoading && !seedStateRef.current) return;
     if (systemLoading) return;
     if (!profiles) return;
 
