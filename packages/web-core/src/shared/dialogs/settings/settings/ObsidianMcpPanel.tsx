@@ -249,10 +249,19 @@ export function ObsidianMcpPanel() {
       </p>
       {error && <p className="text-sm text-error">{error}</p>}
       {success && (
-        <p className="flex items-center gap-1.5 text-sm text-success">
-          <CheckCircleIcon weight="fill" />
-          {success}
-        </p>
+        <div
+          role="status"
+          className="flex gap-2 rounded-md border border-success/40 bg-success/10 p-3 text-sm text-success"
+        >
+          <CheckCircleIcon className="mt-0.5 size-4 shrink-0" weight="fill" />
+          <div>
+            <p className="font-medium">Obsidian Vault activated.</p>
+            <p className="mt-0.5 text-low">
+              {success} You do not need to restart AuraPunk — only end and start
+              again any agent session that was already open.
+            </p>
+          </div>
+        </div>
       )}
       <PrimaryButton
         onClick={() => void save()}
