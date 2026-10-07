@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircleIcon, FloppyDiskIcon } from '@phosphor-icons/react';
+import {
+  CheckCircleIcon,
+  FloppyDiskIcon,
+  FolderOpenIcon,
+} from '@phosphor-icons/react';
+import { Button } from '@vibe/ui/components/Button';
 import type { BaseCodingAgent, McpConfig } from 'shared/types';
 import { PrimaryButton } from '@vibe/ui/components/PrimaryButton';
 import { useUserSystem } from '@/shared/hooks/useUserSystem';
@@ -7,6 +12,7 @@ import { McpConfigStrategyGeneral } from '@/shared/lib/mcpStrategies';
 import { toPrettyCase } from '@/shared/lib/string';
 import { useSettingsMachineClient } from './SettingsHostContext';
 import { SettingsCheckbox, SettingsField } from './SettingsComponents';
+import { FolderPickerDialog } from '@/shared/dialogs/shared/FolderPickerDialog';
 import {
   createObsidianMcpServer,
   isAbsoluteVaultPath,
@@ -116,6 +122,18 @@ export function ObsidianMcpPanel() {
     });
   };
 
+  const chooseVaultFolder = async () => {
+    const selectedPath = await FolderPickerDialog.show({
+      value: vaultPath,
+      title: 'Choose Obsidian vault',
+      description:
+        'Choose the folder containing your Obsidian vault (.obsidian).',
+    });
+    if (selectedPath) {
+      setVaultPath(selectedPath);
+    }
+  };
+
   const save = async () => {
     if (!machineClient || vaultError || vaultIdError) return;
     setSaving(true);
@@ -169,12 +187,23 @@ export function ObsidianMcpPanel() {
         error={vaultError}
         description="The folder must be an existing Obsidian vault (it contains .obsidian) and must use an absolute path."
       >
-        <input
-          value={vaultPath}
-          onChange={(event) => setVaultPath(event.target.value)}
-          placeholder="/Users/you/Documents/Knowledge"
-          className="w-full rounded border border-border bg-secondary px-3 py-2 text-sm text-normal placeholder:text-low focus:outline-none focus:ring-1 focus:ring-brand"
-        />
+        <div className="flex gap-2">
+          <input
+            value={vaultPath}
+            onChange={(event) => setVaultPath(event.target.value)}
+            placeholder="/Users/you/Documents/Knowledge"
+            className="min-w-0 flex-1 rounded border border-border bg-secondary px-3 py-2 text-sm text-normal placeholder:text-low focus:outline-none focus:ring-1 focus:ring-brand"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void chooseVaultFolder()}
+            className="shrink-0"
+          >
+            <FolderOpenIcon className="mr-1.5 size-4" />
+            Browse
+          </Button>
+        </div>
       </SettingsField>
       <SettingsField
         label="Vault ID"

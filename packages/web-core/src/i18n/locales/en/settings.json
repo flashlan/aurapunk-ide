@@ -46,6 +46,9 @@
     "addons": {
       "subtitle": "Enable optional add-ons. Each add-on extends the app with a focused integration.",
       "enable": "Enabled",
+      "configure": "Configure add-on",
+      "enableFirst": "Enable this add-on first",
+      "backToList": "Back to add-ons",
       "homepage": "View on GitHub",
       "disabledHint": "Enable this add-on to use it.",
       "jev_laya_suite": {
