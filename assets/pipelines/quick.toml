@@ -1,5 +1,5 @@
 name = "Quick"
-description = "Minimal flow for trivial cards: no spec, no plan, no subagent fan-out — the execution agent implements directly from the card, verifies, and merges. Routed by classify-task for tier `trivial`; anything that grows beyond a trivial change escalates instead of pushing through."
+description = "Minimal flow for trivial cards: no spec, no plan, no subagent fan-out. Quick is prepared for target-checkout execution, so it verifies that it is on main rather than a disposable worktree before changing code."
 
 [[stage]]
 id = "orchestrate"
@@ -12,6 +12,12 @@ id = "memory"
 label = "Project memory (mem0)"
 default_enabled = true
 prompt = "General project rules: call `get_rules` before starting this card and keep its `pre` guidance in mind throughout; run through `post` as a closing checklist before finishing."
+
+[[stage]]
+id = "target-checkout"
+label = "Verify target checkout (main)"
+default_enabled = true
+prompt = "Before reading or editing project code, prove this Quick run is operating in the repository's real target checkout, not a generated workspace worktree. Run `git rev-parse --show-toplevel`, `git branch --show-current`, and `git worktree list --porcelain`. The current directory must be the checkout reported for the target branch (normally `main`), and the current branch must equal that target branch. Inspect `git status --short` too: do not absorb unrelated operator changes. If any check says you are in a `vk/...` branch, an AuraPunk worktree, a detached HEAD, or any checkout other than the target checkout, STOP before changing files; do not try to switch branches yourself. Emit `VK-ESCALATE: quick-target-checkout-required — <observed branch and directory>` as the first line of the final message so the Integration Guard can route or repair the run. Only after all checks pass and the checkout is clean, record the recovery point with `git commit --allow-empty -m \"chore(quick): checkpoint before <card id or title>\"`; report its SHA to the Integration Guard and continue."
 
 [[stage]]
 id = "implement"
