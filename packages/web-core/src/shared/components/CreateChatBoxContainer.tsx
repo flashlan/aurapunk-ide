@@ -287,11 +287,17 @@ export function CreateChatBoxContainer({
       ? 'Add at least one repository to create a workspace'
       : hasAttemptedSubmit && !hasSelectedBranchesForAllRepos
         ? 'Select a branch for every repository before creating a workspace. Tip: set a Default Target Branch per repo in Settings → Repositories so this fills in automatically next time.'
-        : createWorkspace.error
-          ? createWorkspace.error instanceof Error
-            ? createWorkspace.error.message
-            : 'Failed to create workspace'
-          : null;
+        : hasAttemptedSubmit && !message.trim()
+          ? 'Describe the task before creating a workspace.'
+          : hasAttemptedSubmit && !effectiveExecutor
+            ? 'Select a coding agent before creating a workspace.'
+            : hasAttemptedSubmit && !executorConfig
+              ? 'Finish configuring the selected coding agent before creating a workspace.'
+              : createWorkspace.error
+                ? createWorkspace.error instanceof Error
+                  ? createWorkspace.error.message
+                  : 'Failed to create workspace'
+                : null;
 
   // Wait for initial value to be applied before rendering
   // This ensures the editor mounts with content ready, so autoFocus works correctly
