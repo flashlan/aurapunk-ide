@@ -822,11 +822,18 @@ export const useConversationHistory = ({
     for (const process of executionProcessesForConversation) {
       const previousStatus = previousStatusMapRef.current.get(process.id);
       const currentStatus = process.status;
+      const displayed = displayedExecutionProcesses.current[process.id];
+      const arrivedFinishedAfterInitialLoad =
+        loadedInitialEntries.current &&
+        previousStatus === undefined &&
+        currentStatus !== ExecutionProcessStatus.running &&
+        (!displayed || displayed.entries.length === 0);
 
       if (
-        previousStatus === ExecutionProcessStatus.running &&
-        currentStatus !== ExecutionProcessStatus.running &&
-        displayedExecutionProcesses.current[process.id]
+        (previousStatus === ExecutionProcessStatus.running &&
+          currentStatus !== ExecutionProcessStatus.running &&
+          displayed) ||
+        arrivedFinishedAfterInitialLoad
       ) {
         processesToReload.push(process);
       }

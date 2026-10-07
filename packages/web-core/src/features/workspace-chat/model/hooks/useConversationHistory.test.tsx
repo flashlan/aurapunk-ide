@@ -364,6 +364,38 @@ describe('useConversationHistory — conversation cache skips re-stream', () => 
     expect(getCachedEntries('proc-followup')).toBeDefined();
   });
 
+  it('loads a follow-up that finishes before the UI receives its running state', async () => {
+    const initial = makeFinishedProcess(PROCESS_ID);
+    const onTimelineUpdated = vi.fn();
+    setCachedEntries(PROCESS_ID, [cachedEntry(PROCESS_ID)]);
+
+    let active = [initial];
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <ExecutionProcessesContext.Provider value={makeContextList(active)}>
+        {children}
+      </ExecutionProcessesContext.Provider>
+    );
+
+    const { rerender } = renderHook(
+      () => useConversationHistory({ onTimelineUpdated, scopeKey: 'ws-1' }),
+      { wrapper }
+    );
+    await waitFor(() => expect(onTimelineUpdated).toHaveBeenCalled());
+    vi.mocked(streamJsonPatchEntries).mockClear();
+
+    // A short Codex turn can start and finish between WebSocket snapshots.
+    // It must still be fetched instead of remaining an invisible process.
+    active = [initial, makeFinishedProcess('proc-finished-too-fast')];
+    await act(async () => {
+      rerender();
+    });
+
+    await waitFor(() =>
+      expect(streamJsonPatchEntries).toHaveBeenCalledTimes(1)
+    );
+    expect(getCachedEntries('proc-finished-too-fast')).toBeDefined();
+  });
+
   it('finishes an on-demand older batch when isLoading flips mid-load', async () => {
     const slow = makeFinishedProcess('proc-slow');
     const cached = makeFinishedProcess('proc-cached');
