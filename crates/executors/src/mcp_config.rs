@@ -31,6 +31,40 @@ const LEGACY_VIBE_KANBAN_MCP_PACKAGE: &str = "vibe-kanban@latest";
 const LEGACY_VIBE_KANBAN_ALTERNATIVE_MCP_PACKAGE: &str = "vibe-kanban-alternative@latest";
 const AURAPUNK_MCP_PACKAGE: &str = "aurapunk-ide@latest";
 
+fn uses_legacy_vibe_kanban_launcher(server: &Map<String, Value>) -> bool {
+    server.get("command").and_then(Value::as_str) == Some("/bin/bash")
+        && server
+            .get("args")
+            .and_then(Value::as_array)
+            .is_some_and(|args| {
+                matches!(
+                    args.as_slice(),
+                    [launcher, mode]
+                        if launcher
+                            .as_str()
+                            .is_some_and(|path| path.ends_with("/.vibe-kanban/vk-mcp.sh"))
+                            && mode.as_str() == Some("--mcp")
+                )
+            })
+}
+
+fn uses_legacy_vibe_kanban_npx(server: &Map<String, Value>) -> bool {
+    server.get("command").and_then(Value::as_str) == Some("npx")
+        && server
+            .get("args")
+            .and_then(Value::as_array)
+            .is_some_and(|args| {
+                let mut parts = args.iter().map(Value::as_str);
+                parts.next() == Some(Some("-y"))
+                    && matches!(
+                        parts.next(),
+                        Some(Some(LEGACY_VIBE_KANBAN_MCP_PACKAGE))
+                            | Some(Some(LEGACY_VIBE_KANBAN_ALTERNATIVE_MCP_PACKAGE))
+                    )
+                    && parts.next() == Some(Some("--mcp"))
+            })
+}
+
 /// Upgrade a former Vibe Kanban MCP preset in a Codex config to the AuraPunk
 /// package and server name.
 ///
@@ -47,20 +81,7 @@ pub fn migrate_legacy_codex_vibe_kanban_mcp(config: &mut Value) -> bool {
         .get("vibe_kanban")
         .and_then(Value::as_object)
         .is_some_and(|server| {
-            server.get("command").and_then(Value::as_str) == Some("npx")
-                && server
-                    .get("args")
-                    .and_then(Value::as_array)
-                    .is_some_and(|args| {
-                        let mut parts = args.iter().map(Value::as_str);
-                        parts.next() == Some(Some("-y"))
-                            && matches!(
-                                parts.next(),
-                                Some(Some(LEGACY_VIBE_KANBAN_MCP_PACKAGE))
-                                    | Some(Some(LEGACY_VIBE_KANBAN_ALTERNATIVE_MCP_PACKAGE))
-                            )
-                            && parts.next() == Some(Some("--mcp"))
-                    })
+            uses_legacy_vibe_kanban_npx(server) || uses_legacy_vibe_kanban_launcher(server)
         });
 
     if !is_legacy {
@@ -71,6 +92,7 @@ pub fn migrate_legacy_codex_vibe_kanban_mcp(config: &mut Value) -> bool {
         .get_mut("vibe_kanban")
         .and_then(Value::as_object_mut)
     {
+        server.insert("command".to_string(), serde_json::json!("npx"));
         server.insert(
             "args".to_string(),
             serde_json::json!(["-y", AURAPUNK_MCP_PACKAGE, "--mcp", "--mode", "global"]),
@@ -535,6 +557,23 @@ mod tests {
         assert_eq!(
             config["mcp_servers"]["aurapunk"]["env"],
             serde_json::json!({ "VIBE_BACKEND_URL": "http://localhost:3002" })
+        );
+
+        let mut legacy_launcher = serde_json::json!({
+            "mcp_servers": {
+                "vibe_kanban": {
+                    "command": "/bin/bash",
+                    "args": ["/Users/me/.vibe-kanban/vk-mcp.sh", "--mcp"]
+                }
+            }
+        });
+        assert!(migrate_legacy_codex_vibe_kanban_mcp(&mut legacy_launcher));
+        assert_eq!(
+            legacy_launcher["mcp_servers"]["aurapunk"],
+            serde_json::json!({
+                "command": "npx",
+                "args": ["-y", "aurapunk-ide@latest", "--mcp", "--mode", "global"]
+            })
         );
 
         // A pre-existing `aurapunk` entry wins; the legacy duplicate is dropped.
