@@ -291,7 +291,14 @@ export type IntegrationRefusalsResponse = { days: number,
 /**
  * Direct merges in the same window, to put the refusals in proportion.
  */
-merges: number, refusals: Array<IntegrationRefusal>, };
+merges: number, refusals: Array<IntegrationRefusal>, 
+/**
+ * Most recent direct integrations. This is the operator-facing proof that
+ * a Done confirmation actually landed on its target branch.
+ */
+recent_merges: Array<RecentDirectMerge>, };
+
+export type RecentDirectMerge = { workspace_id: string, workspace_name: string | null, branch: string, merge_commit: string, target_branch_name: string, created_at: string, };
 
 export type DirectMerge = { id: string, workspace_id: string, repo_id: string, merge_commit: string, target_branch_name: string, created_at: string, };
 

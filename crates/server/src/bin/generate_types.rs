@@ -63,6 +63,7 @@ fn generate_types_content() -> String {
         db::models::merge::Merge::decl(),
         db::models::integration_refusal::IntegrationRefusal::decl(),
         server::routes::integration_refusals::IntegrationRefusalsResponse::decl(),
+        server::routes::integration_refusals::RecentDirectMerge::decl(),
         db::models::merge::DirectMerge::decl(),
         db::models::merge::PrMerge::decl(),
         db::models::merge::MergeStatus::decl(),

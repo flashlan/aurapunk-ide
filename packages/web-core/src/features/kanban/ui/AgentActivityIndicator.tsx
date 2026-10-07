@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   ArrowSquareOutIcon,
+  CheckCircleIcon,
   CircleNotchIcon,
   GitBranchIcon,
   ShieldCheckIcon,
@@ -260,6 +261,7 @@ function IntegrationGuardSection() {
   });
   if (!data) return null;
   const refusals = data.refusals;
+  const recentMerges = data.recent_merges;
   return (
     <div className="space-y-half border-t border-border pt-base">
       <div className="flex items-center justify-between">
@@ -268,6 +270,36 @@ function IntegrationGuardSection() {
           {data.days}d · {data.merges} merged · {refusals.length} stopped
         </span>
       </div>
+      {recentMerges.length > 0 && (
+        <ul className="max-h-40 space-y-half overflow-y-auto">
+          {recentMerges.map((merge) => (
+            <li
+              key={merge.merge_commit}
+              className="rounded-sm border border-success/20 bg-success/5 px-half py-quarter text-xs"
+              title={`Merged ${merge.branch} into ${merge.target_branch_name} at ${merge.merge_commit}`}
+            >
+              <div className="flex items-center justify-between gap-half">
+                <span className="flex min-w-0 items-center gap-quarter truncate font-medium text-normal">
+                  <CheckCircleIcon
+                    className="size-icon-xs shrink-0 text-success"
+                    weight="fill"
+                  />
+                  <span className="truncate">
+                    {merge.workspace_name ?? merge.branch}
+                  </span>
+                </span>
+                <span className="shrink-0 text-[10px] text-low">
+                  {timeAgo(merge.created_at)}
+                </span>
+              </div>
+              <div className="mt-quarter truncate text-low">
+                Merged into {merge.target_branch_name} ·{' '}
+                {merge.merge_commit.slice(0, 8)}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
       {refusals.length === 0 ? (
         <p className="text-xs text-low">No merge was stopped.</p>
       ) : (
