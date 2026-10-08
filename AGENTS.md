@@ -969,3 +969,36 @@ fixed them. Newest last.
   `database is locked`/`SQLITE_BUSY`, e o stderr passa a entrar no erro.
 - **Pendente (operador):** o banco do OpenCode cresce sem limite; apagar
   sessões antigas pelo próprio OpenCode reduziria o tempo de inicialização.
+
+### 2026-10-08 — Configuração de add-ons centralizada (frontend de Settings)
+- **Antes:** a mesma configuração vivia em três lugares. RLCD (engine, Laya
+  Docker/Cloud, Jev, guardrails) tinha uma segunda UI em Usage competindo com o
+  addon `jev_laya_suite`; o painel do Obsidian MCP aparecia em Memory só quando
+  `memory_backend !== 'mem0'` e no addon só com o toggle ligado (default
+  `false`) — instalação padrão não via o painel em lugar nenhum; e a credencial
+  do Jev tinha duas fontes (`providers.jev.key` no container mem0 via
+  `POST /api/usage/mem0-config` e `vk-jev-api-key` no localStorage, espelhada
+  para `rlcd.toml` por `useRlcdConfigSync`), então trocar a URL num lugar não
+  refletia no outro.
+- **Agora:** cada integração tem UM painel em Settings → Add-ons
+  (`AddonsSettingsSection.tsx` → `Mem0Panel.tsx`, `JevLayaSuitePanel.tsx`,
+  `MemoryGraphViewer.tsx`, `ObsidianMcpPanel.tsx`; default do Obsidian virou
+  `true`). Memory Settings ficou só com a escolha de memória
+  (`memory_backend`, campo que continua INERTE por decisão — o wiring fica
+  fora de escopo), o status dos módulos e as estatísticas
+  (`MemoryUsageStats.tsx`: tokens de extração, relevância do recall,
+  re-extração). O canvas estático do grafo saiu do Usage: quem o renderiza é o
+  addon `graphify`.
+- **Credencial do Jev:** fonte única = `useUiPreferencesStore`
+  (`useJevApiKey` / `useJevTypesafeUrl`). O `Mem0Panel` lê e escreve esses
+  mesmos campos, e `mem0Config.buildProviderPatches` injeta o valor no patch de
+  `providers.jev`, de modo que `rlcd.toml` (via `useRlcdConfigSync`) e o
+  container mem0 nunca divergem. O indicador de "chave salva" usa a view
+  redigida `GET /api/rlcd/config` (`has_jev_key`), nunca o segredo.
+- **Lógica pura em `mem0Config.ts` (+ `mem0Config.test.ts`, 15 casos):** detecção
+  de Cloud pela URL, URL self-managed, dimensões de embedding, patches de
+  provider (chave só quando digitada), gate de persistência, guardas de
+  migração. Rede isolada em `mem0Api.ts`; nenhuma rota nova.
+- **Verificado:** `tsc --noEmit` do web-core limpo, vitest web-core 285/285
+  (23 nos testes de settings), eslint local-web e ui com `--max-warnings 0`,
+  `check-unused-i18n-keys.mjs` limpo, Prettier limpo.

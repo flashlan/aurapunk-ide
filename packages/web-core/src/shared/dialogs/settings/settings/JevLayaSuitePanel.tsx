@@ -737,6 +737,11 @@ export const JevLayaSuitePanel: React.FC = () => {
           Direct calls to the official TypeSafe Jev API. Without a key, the
           compactor's Auto mode falls back to Laya.
         </p>
+        <p className="text-[10px] text-low">
+          Single source of truth: the Mem0 add-on reads and writes this same URL
+          and key for its Fast Jev extraction provider, and both are mirrored to{' '}
+          <code className="font-mono">rlcd.toml</code> for the backend.
+        </p>
       </div>
 
       {/* Module 5: Cloud Laya & Quotas */}

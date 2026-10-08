@@ -51,6 +51,11 @@
       "backToList": "Back to add-ons",
       "homepage": "View on GitHub",
       "disabledHint": "Enable this add-on to use it.",
+      "mem0": {
+        "name": "Mem0",
+        "tagline": "Memory hosting, extraction providers & migration",
+        "description": "Configure where Mem0 runs (your own server, a self-managed one or AuraPunk Cloud), its Qdrant index, the extraction provider chain and project-memory migration."
+      },
       "jev_laya_suite": {
         "name": "Fast Jev & Laya AI Suite",
         "tagline": "Zero-token compaction, Abide rule guardrails & memory extraction",

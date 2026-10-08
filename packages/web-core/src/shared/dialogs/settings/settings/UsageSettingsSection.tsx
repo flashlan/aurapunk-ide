@@ -1,33 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { makeRequest } from '@/shared/lib/remoteApi';
 import { handleApiResponse } from '@/shared/lib/api';
 import {
   useCompactionThreshold,
   useSetCompactionThreshold,
-  useAbideGuardrailsEngine,
-  useSetAbideGuardrailsEngine,
-  useLayaMode,
-  useSetLayaMode,
-  useLayaDockerUrl,
-  useSetLayaDockerUrl,
-  useLayaCloudUrl,
-  useSetLayaCloudUrl,
-  useJevApiKey,
-  useSetJevApiKey,
-  useJevTypesafeUrl,
-  useSetJevTypesafeUrl,
-  useLayaGuardrailsEnabled,
-  useSetLayaGuardrailsEnabled,
   type CompactionThreshold,
-  type AbideGuardrailsEngine,
 } from '@/shared/stores/useUiPreferencesStore';
 import {
   ScissorsIcon,
   SparkleIcon,
-  CpuIcon,
-  ShieldCheckIcon,
-  KeyIcon,
   DownloadSimpleIcon,
 } from '@phosphor-icons/react';
 
@@ -278,8 +260,6 @@ export async function fetchReExtractStatus(
   return handleApiResponse<ReExtractResponse>(response);
 }
 
-const RE_EXTRACT_POLL_MS = 2000;
-
 /** Report accumulated token usage for a given agent. Best-effort, fire-and-forget. */
 export async function reportTokenTelemetry(data: {
   agent: string;
@@ -325,7 +305,7 @@ const ACTIVITY_COLORS = [
 ];
 
 /** Stable color per extraction provider (llama / openrouter / groq / other). */
-function providerColor(provider: string): string {
+export function providerColor(provider: string): string {
   const p = provider.toLowerCase();
   if (p.includes('groq')) return 'bg-red-500/80';
   if (p.includes('openrouter')) return 'bg-sky-500/80';
@@ -369,141 +349,6 @@ function formatQuotaLimit(window: ProviderQuotaWindow): string | null {
   if (window.limit_value == null) return null;
   if (window.unit === 'usd') return `$${window.limit_value}`;
   return `${window.limit_value} ${window.unit ?? ''}`.trim();
-}
-
-function seededUnit(value: string): number {
-  let hash = 2166136261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0) / 0xffffffff;
-}
-
-/** A deterministic, bounded force layout without exposing the backing store. */
-function MemoryGraphCanvas({ graph }: { graph: MemoryGraphOverview }) {
-  const layout = useMemo(() => {
-    const width = 880;
-    const height = 340;
-    const positions = new Map(
-      graph.nodes.map((node) => [
-        node.id,
-        {
-          x: 80 + seededUnit(`${node.id}:x`) * (width - 160),
-          y: 46 + seededUnit(`${node.id}:y`) * (height - 92),
-          z: seededUnit(`${node.id}:z`),
-        },
-      ])
-    );
-    for (let iteration = 0; iteration < 90; iteration += 1) {
-      const force = new Map(
-        graph.nodes.map((node) => [node.id, { x: 0, y: 0 }])
-      );
-      for (let left = 0; left < graph.nodes.length; left += 1) {
-        for (let right = left + 1; right < graph.nodes.length; right += 1) {
-          const a = positions.get(graph.nodes[left].id)!;
-          const b = positions.get(graph.nodes[right].id)!;
-          const dx = a.x - b.x;
-          const dy = a.y - b.y;
-          const distance = Math.max(16, Math.hypot(dx, dy));
-          const strength = 1100 / (distance * distance);
-          force.get(graph.nodes[left].id)!.x += (dx / distance) * strength;
-          force.get(graph.nodes[left].id)!.y += (dy / distance) * strength;
-          force.get(graph.nodes[right].id)!.x -= (dx / distance) * strength;
-          force.get(graph.nodes[right].id)!.y -= (dy / distance) * strength;
-        }
-      }
-      for (const edge of graph.edges) {
-        const a = positions.get(edge.subject);
-        const b = positions.get(edge.object);
-        if (!a || !b) continue;
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const distance = Math.max(1, Math.hypot(dx, dy));
-        const strength = (distance - 105) * 0.012;
-        force.get(edge.subject)!.x += (dx / distance) * strength;
-        force.get(edge.subject)!.y += (dy / distance) * strength;
-        force.get(edge.object)!.x -= (dx / distance) * strength;
-        force.get(edge.object)!.y -= (dy / distance) * strength;
-      }
-      for (const node of graph.nodes) {
-        const point = positions.get(node.id)!;
-        const movement = force.get(node.id)!;
-        point.x = Math.min(width - 28, Math.max(28, point.x + movement.x));
-        point.y = Math.min(height - 24, Math.max(24, point.y + movement.y));
-      }
-    }
-    return { width, height, positions };
-  }, [graph]);
-
-  return (
-    <svg
-      viewBox={`0 0 ${layout.width} ${layout.height}`}
-      className="h-[340px] w-full rounded-sm border border-border bg-secondary/25"
-      role="img"
-      aria-label="Semantic memory relationship graph"
-    >
-      <defs>
-        <radialGradient id="memory-node" cx="35%" cy="30%">
-          <stop stopColor="var(--color-brand, #60a5fa)" stopOpacity="1" />
-          <stop
-            offset="1"
-            stopColor="var(--color-brand, #60a5fa)"
-            stopOpacity=".28"
-          />
-        </radialGradient>
-      </defs>
-      {graph.edges.map((edge) => {
-        const source = layout.positions.get(edge.subject);
-        const target = layout.positions.get(edge.object);
-        if (!source || !target) return null;
-        return (
-          <line
-            key={`${edge.subject}:${edge.predicate}:${edge.object}`}
-            x1={source.x}
-            y1={source.y}
-            x2={target.x}
-            y2={target.y}
-            stroke="currentColor"
-            strokeOpacity="0.22"
-            strokeWidth="1"
-            className="text-brand"
-          />
-        );
-      })}
-      {graph.nodes.map((node) => {
-        const point = layout.positions.get(node.id)!;
-        const radius = 5 + Math.min(8, node.degree * 1.25) + point.z * 2;
-        return (
-          <g key={node.id} className="group cursor-default">
-            <title>{`${node.id}${node.description ? ` — ${node.description}` : ''}`}</title>
-            <circle
-              cx={point.x}
-              cy={point.y}
-              r={radius + 7}
-              fill="var(--color-brand, #60a5fa)"
-              opacity="0.07"
-            />
-            <circle
-              cx={point.x}
-              cy={point.y}
-              r={radius}
-              fill="url(#memory-node)"
-              stroke="var(--color-brand, #60a5fa)"
-              strokeOpacity="0.8"
-            />
-            <text
-              x={point.x + radius + 6}
-              y={point.y + 4}
-              className="fill-high text-[10px] opacity-75 group-hover:opacity-100"
-            >
-              {node.id.length > 28 ? `${node.id.slice(0, 27)}…` : node.id}
-            </text>
-          </g>
-        );
-      })}
-    </svg>
-  );
 }
 
 function ProgressScatterChart({ points }: { points: AgentProgressPoint[] }) {
@@ -583,15 +428,6 @@ export function UsageSettingsSection() {
   const [tokenReportAgent, setTokenReportAgent] = useState('');
   const [tokenReportLoading, setTokenReportLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [reExtractUser, setReExtractUser] = useState('');
-  const [reExtractBusy, setReExtractBusy] = useState(false);
-  const [reExtractResult, setReExtractResult] =
-    useState<ReExtractResponse | null>(null);
-  const [memoryGraph, setMemoryGraph] = useState<MemoryGraphOverview | null>(
-    null
-  );
-  const [memoryGraphLoading, setMemoryGraphLoading] = useState(false);
-  const [memoryGraphError, setMemoryGraphError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -627,51 +463,6 @@ export function UsageSettingsSection() {
       active = false;
     };
   }, [tokenReportAgent, tokenReportDays]);
-
-  const loadMemoryGraph = useCallback(async (userId: string) => {
-    setMemoryGraphLoading(true);
-    setMemoryGraphError(null);
-    try {
-      setMemoryGraph(await fetchMemoryGraph(userId.trim() || 'default'));
-    } catch (e) {
-      setMemoryGraph(null);
-      setMemoryGraphError(
-        e instanceof Error ? e.message : 'Failed to load memory graph'
-      );
-    } finally {
-      setMemoryGraphLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadMemoryGraph('default');
-  }, [loadMemoryGraph]);
-
-  const handleReExtract = async () => {
-    const userId = reExtractUser.trim() || 'default';
-    setReExtractBusy(true);
-    setReExtractResult(null);
-    try {
-      setError(null);
-      let res = await triggerReExtract(userId);
-      setReExtractResult(res);
-      // One LLM call per memory: a repository takes minutes, so the server
-      // runs it in the background and we poll until it settles.
-      while (res.status === 'running') {
-        await new Promise((r) => setTimeout(r, RE_EXTRACT_POLL_MS));
-        res = await fetchReExtractStatus(userId);
-        setReExtractResult(res);
-      }
-      if (res.status === 'failed') {
-        setError(res.error ?? 'Re-extraction failed');
-      }
-      await Promise.all([load(), loadMemoryGraph(userId)]);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Re-extraction failed');
-    } finally {
-      setReExtractBusy(false);
-    }
-  };
 
   // Build last-30-days grid. `activity` maps "YYYY-MM-DD" -> executions.
   const activityByDay = new Map<string, number>();
@@ -733,48 +524,6 @@ export function UsageSettingsSection() {
 
   const compactionThreshold = useCompactionThreshold();
   const setCompactionThreshold = useSetCompactionThreshold();
-
-  // The RLCD engine (Laya / Jev / both) used by the backend: memory gate,
-  // guardrails, conflict classification, handoff and session-start recall.
-  // Chat compaction is the agent's own /compact and needs no engine.
-  const rlcdEngine = useAbideGuardrailsEngine();
-  const setRlcdEngine = useSetAbideGuardrailsEngine();
-  const layaMode = useLayaMode();
-  const setLayaMode = useSetLayaMode();
-  const layaDockerUrl = useLayaDockerUrl();
-  const setLayaDockerUrl = useSetLayaDockerUrl();
-  const layaCloudUrl = useLayaCloudUrl();
-  const setLayaCloudUrl = useSetLayaCloudUrl();
-  const jevApiKey = useJevApiKey();
-  const setJevApiKey = useSetJevApiKey();
-  const jevTypesafeUrl = useJevTypesafeUrl();
-  const setJevTypesafeUrl = useSetJevTypesafeUrl();
-  const layaGuardrailsEnabled = useLayaGuardrailsEnabled();
-  const setLayaGuardrailsEnabled = useSetLayaGuardrailsEnabled();
-
-  const ENGINE_OPTIONS: Array<{
-    id: AbideGuardrailsEngine;
-    label: string;
-    sublabel: string;
-    badge?: string;
-  }> = [
-    {
-      id: 'adaptive',
-      label: 'Auto (Jev + Laya)',
-      sublabel: 'Jev first, Laya (Docker/Cloud) when Jev does not answer',
-      badge: 'Recommended',
-    },
-    {
-      id: 'laya',
-      label: 'Laya model (System-1)',
-      sublabel: 'Docker container or AuraPunk Cloud (no Embedded)',
-    },
-    {
-      id: 'jev',
-      label: 'TypeSafe Jev',
-      sublabel: 'Cloud API (Requires API Key)',
-    },
-  ];
 
   const THRESHOLD_OPTIONS: Array<{
     id: CompactionThreshold;
@@ -1383,211 +1132,9 @@ export function UsageSettingsSection() {
         </div>
       </section>
 
-      {/* mem0 extraction tokens — segmented bars per provider */}
-      <section>
-        <h3 className="mb-2 text-sm font-medium text-high">
-          {t('settings.usage.mem0Tokens', 'mem0 extraction tokens')}
-        </h3>
-        <div className="rounded-sm border border-border bg-panel p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-2xl font-semibold text-high">
-              {(summary?.mem0_tokens.total ?? 0).toLocaleString()}
-            </span>
-            <span className="text-xs text-low">
-              {t('settings.usage.totalTokens', 'total tokens')}
-            </span>
-          </div>
-          {(summary?.mem0_tokens.days ?? []).length === 0 ? (
-            <div className="text-sm text-low">
-              {t(
-                'settings.usage.noTokenData',
-                'No extraction tokens recorded yet (mem0 may be offline or the extraction LLM unused).'
-              )}
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-col gap-3">
-                {(summary?.mem0_tokens.days ?? []).map((d) => {
-                  return (
-                    <div key={d.day} className="flex items-center gap-3">
-                      <span className="w-24 shrink-0 text-xs text-low">
-                        {d.day}
-                      </span>
-                      <div className="flex h-5 flex-1 overflow-hidden rounded-sm bg-secondary">
-                        {d.providers.map((p) => {
-                          const share =
-                            d.total > 0
-                              ? Math.max(
-                                  1,
-                                  Math.round(
-                                    ((p.prompt + p.completion) / d.total) * 100
-                                  )
-                                )
-                              : 0;
-                          return (
-                            <div
-                              key={`${p.provider}|${p.model}`}
-                              title={`${p.provider} · ${p.model}: ${(p.prompt + p.completion).toLocaleString()} tok`}
-                              className={providerColor(p.provider)}
-                              style={{ width: `${share}%` }}
-                            />
-                          );
-                        })}
-                      </div>
-                      <span className="w-16 shrink-0 text-right text-xs text-low">
-                        {d.total.toLocaleString()}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 border-t border-border pt-2">
-                {(summary?.mem0_tokens.providers ?? []).map((p) => (
-                  <span
-                    key={`${p.provider}|${p.model}`}
-                    className="flex items-center gap-1.5 text-xs text-low"
-                  >
-                    <span
-                      className={`h-2.5 w-2.5 rounded-sm ${providerColor(p.provider)}`}
-                    />
-                    {p.provider} · {p.model} ·{' '}
-                    {(p.prompt + p.completion).toLocaleString()}
-                  </span>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      </section>
-
-      {/* mem0 recall relevance — memory_search top-score per day, since last
-          server restart (in-memory ledger; see ADR-030). */}
-      <section>
-        <h3 className="mb-2 text-sm font-medium text-high">
-          {t('settings.usage.mem0Relevance', 'mem0 recall relevance')}
-        </h3>
-        <div className="rounded-sm border border-border bg-panel p-3">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-2xl font-semibold text-high">
-              {(summary?.mem0_relevance.total_calls ?? 0).toLocaleString()}
-            </span>
-            <span className="text-xs text-low">
-              {t('settings.usage.recallCalls', 'memory_search calls')}
-              {(summary?.mem0_relevance.total_weak_calls ?? 0) > 0 && (
-                <>
-                  {' · '}
-                  <span className="text-warning">
-                    {(
-                      summary?.mem0_relevance.total_weak_calls ?? 0
-                    ).toLocaleString()}{' '}
-                    {t('settings.usage.weak', 'weak')}
-                  </span>
-                </>
-              )}
-            </span>
-          </div>
-          {(summary?.mem0_relevance.days ?? []).length === 0 ? (
-            <div className="text-sm text-low">
-              {t(
-                'settings.usage.noRelevanceData',
-                'No recall calls recorded yet this server run (in-memory only — resets on restart).'
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {(summary?.mem0_relevance.days ?? []).map((d) => {
-                const score = d.avg_top_score;
-                const widthPct =
-                  score != null ? Math.max(4, Math.round(score * 100)) : 0;
-                const barColor =
-                  score == null
-                    ? 'bg-secondary'
-                    : score < 0.3
-                      ? 'bg-red-500/80'
-                      : score < 0.6
-                        ? 'bg-amber-500/80'
-                        : 'bg-emerald-500/80';
-                return (
-                  <div key={d.day} className="flex items-center gap-3">
-                    <span className="w-24 shrink-0 text-xs text-low">
-                      {d.day}
-                    </span>
-                    <div className="h-5 flex-1 overflow-hidden rounded-sm bg-secondary">
-                      <div
-                        title={
-                          score != null
-                            ? `avg top score ${score.toFixed(3)} · ${d.calls} call(s), ${d.weak_calls} weak`
-                            : `no scored hits · ${d.calls} call(s), ${d.weak_calls} weak`
-                        }
-                        className={`h-full ${barColor}`}
-                        style={{ width: `${widthPct}%` }}
-                      />
-                    </div>
-                    <span className="w-20 shrink-0 text-right text-xs text-low">
-                      {score != null ? score.toFixed(2) : '—'}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section>
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-medium text-high">
-              {t('settings.usage.memoryGraph', 'Semantic memory graph')}
-            </h3>
-            <p className="mt-0.5 text-xs text-low">
-              {t(
-                'settings.usage.memoryGraphHint',
-                'Extracted concepts and relations from Mem0; vector records stay private in Qdrant.'
-              )}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void loadMemoryGraph(reExtractUser)}
-            disabled={memoryGraphLoading}
-            className="shrink-0 rounded-sm bg-panel px-3 py-1.5 text-sm text-normal ring-1 ring-border hover:text-high disabled:opacity-50"
-          >
-            {memoryGraphLoading
-              ? t('settings.usage.loadingGraph', 'Loading…')
-              : t('settings.usage.refreshGraph', 'Refresh graph')}
-          </button>
-        </div>
-        <div className="rounded-sm border border-border bg-panel p-3">
-          {memoryGraphError ? (
-            <p className="text-sm text-low">
-              {t(
-                'settings.usage.graphUnavailable',
-                'Graph unavailable. Enable the Mem0 graph service, then try again.'
-              )}
-            </p>
-          ) : memoryGraph && memoryGraph.nodes.length > 0 ? (
-            <>
-              <MemoryGraphCanvas graph={memoryGraph} />
-              <p className="mt-2 text-xs text-low">
-                {memoryGraph.nodes.length}{' '}
-                {t('settings.usage.graphNodes', 'concepts')} ·{' '}
-                {memoryGraph.edges.length}{' '}
-                {t('settings.usage.graphEdges', 'relations')}
-                {memoryGraph.truncated &&
-                  ` · ${t('settings.usage.graphTruncated', 'showing the most connected concepts')}`}
-              </p>
-            </>
-          ) : (
-            <p className="text-sm text-low">
-              {t(
-                'settings.usage.noGraphData',
-                'No extracted relations yet. Save memories or run re-extraction for this repository.'
-              )}
-            </p>
-          )}
-        </div>
-      </section>
+      {/* mem0 extraction tokens and recall relevance, plus graph
+          re-extraction, live in Settings → Memory: they describe memory, not
+          general usage. The graph itself is the `graphify` add-on. */}
 
       <section>
         <h3 className="mb-2 text-sm font-medium text-high">
@@ -1623,53 +1170,6 @@ export function UsageSettingsSection() {
         </div>
       </section>
 
-      {/* Re-extract graph entities (for memories saved before an LLM was configured) */}
-      <section>
-        <h3 className="mb-2 text-sm font-medium text-high">
-          {t('settings.usage.reExtract', 'Re-extract graph entities')}
-        </h3>
-        <div className="rounded-sm border border-border bg-panel p-3">
-          <p className="mb-2 text-xs text-low">
-            {t(
-              'settings.usage.reExtractHint',
-              'Run graph extraction for memories stored before an extraction LLM was configured. Enter the repository slug (memories user_id), then trigger.'
-            )}
-          </p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={reExtractUser}
-              onChange={(e) => setReExtractUser(e.target.value)}
-              placeholder="repo-slug (e.g. vibe-kanban-alternative)"
-              className="min-w-0 flex-1 rounded-sm border border-border bg-secondary px-2 py-1.5 text-sm text-high placeholder:text-low focus:outline-none focus:ring-1 focus:ring-brand"
-            />
-            <button
-              type="button"
-              onClick={() => void handleReExtract()}
-              disabled={reExtractBusy}
-              className="shrink-0 rounded-sm bg-panel px-3 py-1.5 text-sm text-normal ring-1 ring-border hover:text-high disabled:opacity-50"
-            >
-              {reExtractBusy
-                ? t('settings.usage.reExtracting', 'Extracting…')
-                : t('settings.usage.reExtractBtn', 'Re-extract')}
-            </button>
-          </div>
-          {reExtractResult && (
-            <div className="mt-2 text-xs text-low">
-              {reExtractResult.status === 'running' &&
-                `${reExtractResult.processed}/${reExtractResult.scanned} · `}
-              {t('settings.usage.reExtractResult', 'Scanned', {
-                count: reExtractResult.scanned,
-              })}{' '}
-              · {reExtractResult.entities}{' '}
-              {t('settings.usage.reExtractEntities', 'entities')} ·{' '}
-              {reExtractResult.relations}{' '}
-              {t('settings.usage.reExtractRelations', 'relations')} extracted
-            </div>
-          )}
-        </div>
-      </section>
-
       {/* Context Compaction & Token Limit Management */}
       <section>
         <h3 className="mb-2 text-sm font-medium text-high">
@@ -1679,226 +1179,6 @@ export function UsageSettingsSection() {
           )}
         </h3>
         <div className="rounded-sm border border-border bg-panel p-3.5 space-y-3">
-          {/* Compactor Engine & Classifier Selector */}
-          <div className="rounded-sm border border-border/70 bg-secondary/30 p-3 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-high flex items-center gap-1.5">
-                <CpuIcon className="size-3.5 text-brand" weight="bold" />
-                <span>
-                  {t(
-                    'settings.usage.compactorEngineTitle',
-                    'RLCD Engine & Decision Classifier'
-                  )}
-                </span>
-              </span>
-              <span className="text-[11px] text-low">
-                {rlcdEngine === 'adaptive' &&
-                  '⚡ Cloud Jev + Laya (Docker/Cloud) fallback'}
-                {rlcdEngine === 'laya' &&
-                  (layaMode === 'cloud'
-                    ? '☁️ AuraPunk Cloud Laya'
-                    : '🐳 Laya Docker container')}
-                {rlcdEngine === 'jev' && '🌐 TypeSafe Jev Cloud API'}
-              </span>
-            </div>
-
-            <p className="text-[11px] text-low">
-              Used by the memory gate, tool-call guardrails, merge-conflict
-              classification, handoff selection and the project memory given to
-              new sessions. Chat compaction does not use it — the agent compacts
-              its own session.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {ENGINE_OPTIONS.map((opt) => {
-                const isSelected = rlcdEngine === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setRlcdEngine(opt.id)}
-                    className={`relative flex flex-col items-start justify-center rounded-sm p-2.5 text-left transition-all border cursor-pointer ${
-                      isSelected
-                        ? opt.id === 'adaptive'
-                          ? 'border-brand bg-brand/15 text-brand ring-1 ring-brand/50 shadow-xs'
-                          : 'border-emerald-500 bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/50 shadow-xs'
-                        : 'border-border bg-panel hover:bg-secondary text-normal'
-                    }`}
-                  >
-                    {opt.badge && (
-                      <span className="absolute -top-2 right-2 rounded-full bg-brand px-1.5 py-0.2 text-[9px] font-bold text-white uppercase tracking-wider shadow-xs">
-                        {opt.badge}
-                      </span>
-                    )}
-                    <span className="text-xs font-bold">{opt.label}</span>
-                    <span className="text-[10px] text-low mt-0.5">
-                      {opt.sublabel}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Sub-configuration for Laya (Docker / Cloud) */}
-            {(rlcdEngine === 'adaptive' || rlcdEngine === 'laya') && (
-              <div className="rounded-sm border border-border/50 bg-panel/60 p-2.5 space-y-2 text-xs">
-                <div className="flex items-center justify-between font-medium text-normal">
-                  <span className="flex items-center gap-1.5">
-                    <CpuIcon className="size-3 text-accent" />
-                    <span>Laya Execution Mode:</span>
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-1 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="layaMode"
-                        checked={layaMode === 'docker'}
-                        onChange={() => setLayaMode('docker')}
-                        className="accent-brand"
-                      />
-                      <span>Docker Container (Local)</span>
-                    </label>
-                    <label className="flex items-center gap-1 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="layaMode"
-                        checked={layaMode === 'cloud'}
-                        onChange={() => setLayaMode('cloud')}
-                        className="accent-brand"
-                      />
-                      <span>Cloud</span>
-                    </label>
-                  </div>
-                </div>
-
-                {layaMode === 'docker' && (
-                  <div className="space-y-1.5 pt-1 border-t border-border/40">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-low shrink-0">
-                        Endpoint URL:
-                      </span>
-                      <input
-                        type="text"
-                        value={layaDockerUrl}
-                        onChange={(e) => setLayaDockerUrl(e.target.value)}
-                        placeholder="http://localhost:8080"
-                        className="flex-1 rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
-                      />
-                    </div>
-                    <p className="text-[10px] text-low">
-                      Run Docker image:{' '}
-                      <code className="text-normal bg-secondary px-1 py-0.5 rounded font-mono">
-                        docker run -d -p 8080:8080 datyapoint/vk-laya:latest
-                      </code>
-                    </p>
-                    <p className="text-[10px] text-low">
-                      🐳 Laya runs inside the container. If Docker is not
-                      running, compaction reports the endpoint as unreachable
-                      instead of falling back to a local heuristic engine.
-                    </p>
-                  </div>
-                )}
-
-                {layaMode === 'cloud' && (
-                  <div className="space-y-1.5 pt-1 border-t border-border/40">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-low shrink-0">
-                        Cloud Gateway URL:
-                      </span>
-                      <input
-                        type="text"
-                        value={layaCloudUrl}
-                        onChange={(e) => setLayaCloudUrl(e.target.value)}
-                        placeholder="https://aurapunk.dev/api/memory/v1"
-                        className="flex-1 rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
-                      />
-                    </div>
-                    <p className="text-[10px] text-low">
-                      ☁️ Laya runs on AuraPunk Cloud. Sign in under Settings →
-                      Memory to authorize the Desktop; there is no local
-                      (embedded) execution mode.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Sub-configuration for Jev (TypeSafe) */}
-            {(rlcdEngine === 'adaptive' || rlcdEngine === 'jev') && (
-              <div className="rounded-sm border border-border/50 bg-panel/60 p-2.5 space-y-2 text-xs">
-                <div className="flex items-center gap-1.5 font-medium text-normal">
-                  <KeyIcon className="size-3 text-warning" />
-                  <span>
-                    Fast Jev API Connection: Official Jev API (TypeSafe)
-                  </span>
-                </div>
-                <div className="space-y-1.5 pt-1 border-t border-border/40">
-                  <div>
-                    <span className="text-[11px] text-low block mb-0.5">
-                      Official Jev Endpoint URL:
-                    </span>
-                    <input
-                      type="text"
-                      value={jevTypesafeUrl}
-                      onChange={(e) => setJevTypesafeUrl(e.target.value)}
-                      placeholder="https://api.typesafe.ai/v1/systemone"
-                      className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] text-low">
-                      TypeSafe Jev API Key:
-                    </span>
-                    <span className="text-[10px] text-low">
-                      {rlcdEngine === 'adaptive'
-                        ? 'Optional (Falls back to Laya if absent)'
-                        : 'Required'}
-                    </span>
-                  </div>
-                  <input
-                    type="password"
-                    value={jevApiKey}
-                    onChange={(e) => setJevApiKey(e.target.value)}
-                    placeholder="apikey_..."
-                    className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
-                  />
-                  <p className="text-[10px] text-low">
-                    Uses the official TypeSafe Jev API (
-                    <code className="font-mono">jev-latest</code>) directly.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Guardrails Toggle */}
-            <div className="flex items-start gap-2 pt-1">
-              <input
-                type="checkbox"
-                id="laya-guardrails-checkbox"
-                checked={layaGuardrailsEnabled}
-                onChange={(e) => setLayaGuardrailsEnabled(e.target.checked)}
-                className="mt-0.5 accent-brand"
-              />
-              <label
-                htmlFor="laya-guardrails-checkbox"
-                className="text-xs text-normal cursor-pointer select-none"
-              >
-                <span className="font-semibold text-high flex items-center gap-1">
-                  <ShieldCheckIcon
-                    className="size-3.5 text-emerald-400"
-                    weight="bold"
-                  />
-                  Enable RLCD Autonomous Guardrails (9 Decisions)
-                </span>
-                <span className="block text-[11px] text-low mt-0.5">
-                  Evaluates instructions in &lt;1ms to intercept destructive
-                  commands (<code className="font-mono">rm -rf</code>,{' '}
-                  <code className="font-mono">git reset --hard</code>) requiring
-                  confirmation, detect ambiguous requests, and route tasks.
-                </span>
-              </label>
-            </div>
-          </div>
-
           {/* Threshold Selector with Green Highlight on 85% */}
           <div className="rounded-sm border border-border/70 bg-secondary/30 p-3 space-y-2">
             <div className="flex items-center justify-between">

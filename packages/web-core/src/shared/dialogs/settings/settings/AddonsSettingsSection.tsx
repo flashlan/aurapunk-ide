@@ -7,11 +7,13 @@ import {
   GearSixIcon,
   LightningIcon,
   NotebookIcon,
+  DatabaseIcon,
   type Icon,
 } from '@phosphor-icons/react';
 import { Button } from '@vibe/ui/components/Button';
 import { MemoryGraphViewer } from './MemoryGraphViewer';
 import { JevLayaSuitePanel } from './JevLayaSuitePanel';
+import { Mem0Panel } from './Mem0Panel';
 import { ObsidianMcpPanel } from './ObsidianMcpPanel';
 
 /**
@@ -34,6 +36,13 @@ interface AddonDefinition {
 
 const ADDONS: AddonDefinition[] = [
   {
+    id: 'mem0',
+    homepage: 'https://github.com/mem0ai/mem0',
+    defaultEnabled: true,
+    icon: DatabaseIcon,
+    renderPanel: () => <Mem0Panel />,
+  },
+  {
     id: 'jev_laya_suite',
     homepage: 'https://github.com/coldteadotai/abide',
     defaultEnabled: true,
@@ -48,9 +57,12 @@ const ADDONS: AddonDefinition[] = [
     renderPanel: () => <MemoryGraphViewer />,
   },
   {
+    // Default on: the panel used to be reachable from Settings → Memory only
+    // when `memory_backend !== 'mem0'`, so a default install could not find the
+    // Obsidian configuration anywhere. This add-on list is now its only home.
     id: 'obsidian_mcp',
     homepage: 'https://github.com/StevenStavrakis/obsidian-mcp',
-    defaultEnabled: false,
+    defaultEnabled: true,
     icon: NotebookIcon,
     renderPanel: () => <ObsidianMcpPanel />,
   },
