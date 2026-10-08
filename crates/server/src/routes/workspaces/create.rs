@@ -6,6 +6,7 @@ use db::models::{
     file::File,
     issue::Issue,
     issue_workspace::IssueWorkspace,
+    quick_git_decision::QuickGitDecision,
     repo::Repo,
     requests::{
         CloseOrchestratorResponse, CreateAndStartWorkspaceRequest, CreateAndStartWorkspaceResponse,
@@ -96,11 +97,68 @@ fn normalize_prompt(prompt: &str) -> Option<String> {
     }
 }
 
+fn issue_uses_quick_direct_checkout(issue: &Issue) -> bool {
+    issue
+        .extension_metadata
+        .get("pipeline")
+        .and_then(|pipeline| pipeline.get("pipelineIds"))
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some("quick")))
+}
+
+/// A freshly initialized repository has a symbolic initial branch (usually
+/// `main`) but no commit/ref yet. Git cannot create a worktree from it. For a
+/// normal workspace, establish that explicit, empty initial commit first so
+/// the usual isolated-worktree flow can continue. QuickDirect owns its own
+/// checkpoint below and intentionally skips this helper.
+async fn initialize_unborn_repositories(
+    deployment: &DeploymentImpl,
+    repos: &[WorkspaceRepoInput],
+) -> Result<(), ApiError> {
+    for repo_input in repos {
+        let repo = Repo::find_by_id(&deployment.db().pool, repo_input.repo_id)
+            .await?
+            .ok_or_else(|| ApiError::BadRequest("Repository not found.".to_string()))?;
+        if deployment.git().get_head_info(&repo.path).is_ok() {
+            continue;
+        }
+        let checked_out = deployment.git().get_checked_out_branch(&repo.path)?;
+        if checked_out != repo_input.target_branch {
+            return Err(ApiError::BadRequest(format!(
+                "Repository '{}' has no commits yet. Check out '{}' before creating its first workspace.",
+                repo.name, repo_input.target_branch
+            )));
+        }
+        let status = deployment.git().get_worktree_status(&repo.path)?;
+        if !status.entries.is_empty() {
+            return Err(ApiError::BadRequest(format!(
+                "Repository '{}' has no commits yet and contains local changes. Commit or stash them before creating the first workspace.",
+                repo.name
+            )));
+        }
+        deployment.git().commit_allow_empty(
+            &repo.path,
+            &format!("chore: initialize {} for AuraPunk workspace", checked_out),
+        )?;
+    }
+    Ok(())
+}
+
 /// Roll back the database record and any filesystem state created while
 /// starting a workspace. This is especially important for GUI builds on
 /// macOS: TCC can deny access to repositories under Desktop/Documents after
 /// the workspace row has already been inserted.
 async fn cleanup_failed_workspace(managed_workspace: &ManagedWorkspace) {
+    // A QuickDirect workspace's container ref is the operator's real checkout.
+    // It must never flow through worktree deletion/branch cleanup paths.
+    if managed_workspace
+        .workspace
+        .kind
+        .is_some_and(WorkspaceKind::uses_target_checkout)
+    {
+        let _ = managed_workspace.delete_record().await;
+        return;
+    }
     match managed_workspace.prepare_deletion_context().await {
         Ok(context) => {
             if let Err(error) = managed_workspace.delete_record().await {
@@ -155,19 +213,6 @@ pub async fn create_and_start_workspace(
         ));
     }
 
-    let workspace_record = create_workspace_record(&deployment, name, kind).await?;
-    let mut managed_workspace = match deployment
-        .workspace_manager()
-        .load_managed_workspace(workspace_record.clone())
-        .await
-    {
-        Ok(workspace) => workspace,
-        Err(error) => {
-            let _ = Workspace::delete(&deployment.db().pool, workspace_record.id).await;
-            return Err(ApiError::Database(error));
-        }
-    };
-
     let pool = &deployment.db().pool;
 
     // Resolve the linked issue once (read-only). Feeds Fix 1 (link) and Fix 2 (repo union).
@@ -185,6 +230,42 @@ pub async fn create_and_start_workspace(
         None => None,
     };
 
+    let quick_direct = kind.is_none()
+        && linked_local_issue
+            .as_ref()
+            .is_some_and(issue_uses_quick_direct_checkout);
+    if quick_direct && repos.len() != 1 {
+        return Err(ApiError::BadRequest(
+            "Quick direct checkout supports exactly one repository. Use the normal workspace flow for multi-repository cards."
+                .to_string(),
+        ));
+    }
+    if !quick_direct {
+        initialize_unborn_repositories(&deployment, &repos).await?;
+    }
+
+    let workspace_record = create_workspace_record(
+        &deployment,
+        name,
+        if quick_direct {
+            Some(WorkspaceKind::QuickDirect)
+        } else {
+            kind
+        },
+    )
+    .await?;
+    let mut managed_workspace = match deployment
+        .workspace_manager()
+        .load_managed_workspace(workspace_record.clone())
+        .await
+    {
+        Ok(workspace) => workspace,
+        Err(error) => {
+            let _ = Workspace::delete(&deployment.db().pool, workspace_record.id).await;
+            return Err(ApiError::Database(error));
+        }
+    };
+
     // Card attachments are not merely Markdown links: make them workspace
     // attachments so the local deployment copies them into .vibe-attachments
     // before the coding agent starts.
@@ -200,35 +281,41 @@ pub async fn create_and_start_workspace(
     // UI starts. Applies to every linked-issue workspace; the union is deduped by
     // `repo_id` (caller entries win), so it's a no-op when the caller already
     // sent the full set. Scratch read/parse failures degrade to no expansion.
-    let sibling_repos: Vec<WorkspaceRepoInput> = match &linked_local_issue {
-        Some(issue) => {
-            match Scratch::find_by_id(pool, issue.project_id, &ScratchType::ProjectRepoDefaults)
-                .await
-            {
-                Ok(Some(Scratch {
-                    payload: ScratchPayload::ProjectRepoDefaults(defaults),
-                    ..
-                })) => {
-                    let default_ids: Vec<Uuid> = defaults.repos.iter().map(|r| r.repo_id).collect();
-                    let existing_repo_ids: HashSet<Uuid> = Repo::find_by_ids(pool, &default_ids)
-                        .await?
-                        .into_iter()
-                        .map(|r| r.id)
-                        .collect();
-                    sibling_repo_inputs(&repos, &defaults.repos, &existing_repo_ids)
-                }
-                Ok(_) => Vec::new(),
-                Err(e) => {
-                    tracing::warn!(
-                        "failed to read project repo defaults for project {} (skipping expansion): {}",
-                        issue.project_id,
-                        e
-                    );
-                    Vec::new()
+    let sibling_repos: Vec<WorkspaceRepoInput> = if quick_direct {
+        Vec::new()
+    } else {
+        match &linked_local_issue {
+            Some(issue) => {
+                match Scratch::find_by_id(pool, issue.project_id, &ScratchType::ProjectRepoDefaults)
+                    .await
+                {
+                    Ok(Some(Scratch {
+                        payload: ScratchPayload::ProjectRepoDefaults(defaults),
+                        ..
+                    })) => {
+                        let default_ids: Vec<Uuid> =
+                            defaults.repos.iter().map(|r| r.repo_id).collect();
+                        let existing_repo_ids: HashSet<Uuid> =
+                            Repo::find_by_ids(pool, &default_ids)
+                                .await?
+                                .into_iter()
+                                .map(|r| r.id)
+                                .collect();
+                        sibling_repo_inputs(&repos, &defaults.repos, &existing_repo_ids)
+                    }
+                    Ok(_) => Vec::new(),
+                    Err(e) => {
+                        tracing::warn!(
+                            "failed to read project repo defaults for project {} (skipping expansion): {}",
+                            issue.project_id,
+                            e
+                        );
+                        Vec::new()
+                    }
                 }
             }
+            None => Vec::new(),
         }
-        None => Vec::new(),
     };
 
     for repo in &repos {
@@ -261,6 +348,80 @@ pub async fn create_and_start_workspace(
         }
     }
 
+    if quick_direct {
+        let direct_repo = managed_workspace.repos.first().ok_or_else(|| {
+            ApiError::BadRequest("Quick direct checkout has no configured repository.".to_string())
+        })?;
+        if QuickGitDecision::has_active_checkout(
+            pool,
+            direct_repo.repo.id,
+            &direct_repo.target_branch,
+        )
+        .await?
+        {
+            cleanup_failed_workspace(&managed_workspace).await;
+            return Err(ApiError::BadRequest(format!(
+                "Quick is already running or awaiting a decision on {} ({}). Resolve that Agent Activity decision first.",
+                direct_repo.repo.path.display(),
+                direct_repo.target_branch
+            )));
+        }
+        let status = deployment
+            .git()
+            .get_worktree_status(&direct_repo.repo.path)?;
+        if !status.entries.is_empty() {
+            cleanup_failed_workspace(&managed_workspace).await;
+            return Err(ApiError::BadRequest(format!(
+                "Quick needs a clean target checkout at {}. Commit, stash, or discard your own changes before starting it.",
+                direct_repo.repo.path.display()
+            )));
+        }
+        let checked_out_branch = deployment
+            .git()
+            .get_checked_out_branch(&direct_repo.repo.path)?;
+        if checked_out_branch != direct_repo.target_branch {
+            cleanup_failed_workspace(&managed_workspace).await;
+            return Err(ApiError::BadRequest(format!(
+                "Quick needs the target branch '{}' checked out at {} (currently '{}').",
+                direct_repo.target_branch,
+                direct_repo.repo.path.display(),
+                checked_out_branch
+            )));
+        }
+        let checkpoint_message = format!(
+            "chore(quick): checkpoint before {}",
+            linked_local_issue
+                .as_ref()
+                .map(|issue| issue.title.as_str())
+                .unwrap_or("AuraPunk Quick run")
+        );
+        deployment
+            .git()
+            .commit_allow_empty(&direct_repo.repo.path, &checkpoint_message)?;
+        let checkpoint = deployment.git().get_head_info(&direct_repo.repo.path)?;
+        Workspace::update_branch_name(
+            pool,
+            managed_workspace.workspace.id,
+            &direct_repo.target_branch,
+        )
+        .await?;
+        Workspace::update_container_ref(
+            pool,
+            managed_workspace.workspace.id,
+            &direct_repo.repo.path.to_string_lossy(),
+        )
+        .await?;
+        QuickGitDecision::create(
+            pool,
+            managed_workspace.workspace.id,
+            linked_local_issue.as_ref().map(|issue| issue.id),
+            direct_repo.repo.id,
+            &direct_repo.target_branch,
+            &checkpoint.oid,
+        )
+        .await?;
+    }
+
     let mut all_attachment_ids = attachment_ids.unwrap_or_default();
     for attachment in &issue_attachments {
         if !all_attachment_ids.contains(&attachment.id) {
@@ -276,7 +437,9 @@ pub async fn create_and_start_workspace(
         return Err(ApiError::from(error));
     }
 
-    let workspace = managed_workspace.workspace.clone();
+    let workspace = Workspace::find_by_id(pool, managed_workspace.workspace.id)
+        .await?
+        .ok_or_else(|| ApiError::BadRequest("Workspace vanished during setup.".to_string()))?;
     tracing::info!("Created workspace {}", workspace.id);
 
     // Fix 1: create the local issue<->workspace link before the terminal tab
@@ -328,7 +491,11 @@ pub async fn create_and_start_workspace(
         }
     }
 
-    let deletion_context = managed_workspace.prepare_deletion_context().await.ok();
+    let deletion_context = if quick_direct {
+        None
+    } else {
+        managed_workspace.prepare_deletion_context().await.ok()
+    };
     let execution_process = match deployment
         .container()
         .start_workspace(&workspace, executor_config.clone(), final_prompt)

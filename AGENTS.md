@@ -42,6 +42,7 @@ Rules:
 - [x] **Done** — Chat travado ao subir mensagens anteriores: race do cache que estrangula isLoadingHistory e aborta o walk de histórico (`vk/3a4e-caht-da-uam-tr`)
 - [x] **Done** — Chat volta pro final ao rolar para cima durante streaming: bottom-lock libera em todo scroll do usuário e follow pausa até descer ao fim; seleção de sessão sticky (refresh/reorder/não-dados não remontam o chat) (`vk/3a4e-caht-da-uam-tr`)
 - [~] **In Progress** — Guardião do merge: explica o bloqueio, espera e recusa Done sem merge (`vk/2b51-agent-activity-n`)
+- [~] **In Progress** — Quick direto: checkpoint, decisão Git e auditoria no Agent Activity (`main`)
 - [x] **Done** — Carregamento sob demanda + sync por diff: projeção `?minimal=1`, gate da sidebar, cache de transcript normalizado, janela de histórico, thinking sob demanda, WS kanban com deltas (`vk/4a2c-corrigir-ram`)
 - [x] **Done** — Erros de integração (Mem0/Laya/Jev) em balões na sidebar + transcript normalizado gravado no fim do processo + descrição dos cards (delta WS por projeção) (`vk/integration-errors`)
 - [x] **Done** — RAM da interface: lazy-load (configurações, terminal, diffs), gaveta mobile só no mobile, logo reduzido, sem Noto Emoji, inspetor opcional (`vk/webview-memory`)

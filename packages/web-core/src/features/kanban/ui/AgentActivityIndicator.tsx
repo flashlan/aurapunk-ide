@@ -262,6 +262,7 @@ function IntegrationGuardSection() {
   if (!data) return null;
   const refusals = data.refusals;
   const recentMerges = data.recent_merges;
+  const quickDecisions = data.quick_git_decisions;
   return (
     <div className="space-y-half border-t border-border pt-base">
       <div className="flex items-center justify-between">
@@ -299,6 +300,49 @@ function IntegrationGuardSection() {
             </li>
           ))}
         </ul>
+      )}
+      {quickDecisions.length > 0 && (
+        <div className="space-y-half border-t border-border pt-half">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-medium text-normal">Quick decisions</h4>
+            <span className="text-[10px] text-low">
+              {
+                quickDecisions.filter(
+                  (decision) => decision.status === 'pending'
+                ).length
+              }{' '}
+              awaiting
+            </span>
+          </div>
+          <ul className="max-h-40 space-y-half overflow-y-auto">
+            {quickDecisions.map((decision) => (
+              <li
+                key={decision.id}
+                className="rounded-sm bg-secondary/40 px-half py-quarter text-xs"
+                title={`Checkpoint ${decision.checkpoint_sha}`}
+              >
+                <div className="flex items-center justify-between gap-half">
+                  <span className="truncate font-medium text-normal">
+                    {decision.target_branch}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-low">
+                    {decision.status === 'pending'
+                      ? 'Awaiting decision'
+                      : decision.action === 'revert'
+                        ? 'Reverted'
+                        : decision.action === 'keep'
+                          ? 'Kept'
+                          : 'Delegated'}
+                  </span>
+                </div>
+                <div className="truncate text-low">
+                  checkpoint {decision.checkpoint_sha.slice(0, 8)} ·{' '}
+                  {timeAgo(decision.created_at)}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {refusals.length === 0 ? (
         <p className="text-xs text-low">No merge was stopped.</p>

@@ -2,18 +2,23 @@
 
 > **Principle:** the app runs locally and reads everything from a `projects.toml`. Install it once, point it at your repos, and the agents have a ready-to-use workspace.
 
+## Official links
+
+- **Website:** [aurapunk.dev](https://aurapunk.dev)
+- **GitHub repository:** [github.com/flashlan/aurapunk-ide](https://github.com/flashlan/aurapunk-ide)
+
 ## Two ways to run
 
 | Option | Command | When to use |
 | --- | --- | --- |
 | **npx (zero-install)** | `npx aurapunk-ide` | Quickest try; downloads and runs the latest release |
-| **Clone + dev** | `git clone … && pnpm install && pnpm run dev` | When you want to customize the app itself (Part II) |
+| **Clone + dev** | `git clone https://github.com/flashlan/aurapunk-ide.git && pnpm install && pnpm run dev` | When you want to customize Aurapunk IDE (Part II) |
 
 Both open the same UI at `http://localhost:3001` (backend `:3002`, preview proxy `:3003`). If a port is taken, see the `AddrInUse` troubleshooting in ch. 02 §5 / ch. 13.
 
 ## projects.toml — the single source of project config
 
-Vibe Kanban does not store project settings in a database you edit by hand; it reads a `projects.toml` at the repo (or workspace) root. A minimal but complete example:
+Aurapunk IDE does not store project settings in a database you edit by hand; it reads a `projects.toml` at the repo (or workspace) root. A minimal but complete example:
 
 ```toml
 # projects.toml

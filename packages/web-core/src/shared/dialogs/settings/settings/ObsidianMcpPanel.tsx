@@ -147,7 +147,8 @@ export function ObsidianMcpPanel() {
           if (selectedAgents.has(agent)) {
             updatedServers.obsidian = createObsidianMcpServer(
               vaultPath.trim(),
-              vaultId.trim()
+              vaultId.trim(),
+              agent
             );
           } else {
             delete updatedServers.obsidian;

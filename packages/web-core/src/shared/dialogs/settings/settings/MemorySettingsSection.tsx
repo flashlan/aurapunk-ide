@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { makeRequest } from '@/shared/lib/remoteApi';
 import { handleApiResponse } from '@/shared/lib/api';
+import { useUserSystem } from '@/shared/hooks/useUserSystem';
+import { ObsidianMcpPanel } from './ObsidianMcpPanel';
 
 export interface Mem0ProviderCfg {
   url: string;
@@ -190,6 +192,9 @@ interface ProviderDraft {
 }
 
 export function MemorySettingsSection() {
+  const { config: appConfig, updateAndSaveConfig } = useUserSystem();
+  const [memorySaving, setMemorySaving] = useState(false);
+  const [memorySaveError, setMemorySaveError] = useState<string | null>(null);
   const { t } = useTranslation('settings');
   const [config, setConfig] = useState<Mem0Config | null>(null);
   const [connection, setConnection] = useState<Mem0Connection | null>(null);
@@ -531,6 +536,52 @@ export function MemorySettingsSection() {
 
   return (
     <div className="flex flex-col gap-6 overflow-y-auto p-4">
+      <div className="rounded-sm border border-border bg-panel p-3 space-y-3">
+        <label
+          htmlFor="memory-backend"
+          className="block text-sm font-medium text-high"
+        >
+          Fonte de memória
+        </label>
+        <select
+          id="memory-backend"
+          className="w-full rounded border border-border bg-secondary px-3 py-2 text-sm text-normal"
+          value={appConfig?.memory_backend ?? 'mem0'}
+          disabled={!appConfig || memorySaving}
+          onChange={async (event) => {
+            const memory_backend = event.target.value;
+            setMemorySaving(true);
+            setMemorySaveError(null);
+            try {
+              if (!(await updateAndSaveConfig({ memory_backend }))) {
+                setMemorySaveError(
+                  'Não foi possível salvar a fonte de memória.'
+                );
+              }
+            } catch {
+              setMemorySaveError('Não foi possível salvar a fonte de memória.');
+            } finally {
+              setMemorySaving(false);
+            }
+          }}
+        >
+          <option value="mem0">Mem0</option>
+          <option value="obsidian_okf">Obsidian + OKF</option>
+          <option value="both">Ambos</option>
+        </select>
+        <p className="text-xs text-low">
+          Preferência padrão do app. A integração automática OKF ainda está em
+          implementação; esta seleção ainda não altera a memória usada pelas
+          sessões.
+        </p>
+        {memorySaving && <p role="status">Salvando…</p>}
+        {memorySaveError && (
+          <p role="alert" className="text-sm text-error">
+            {memorySaveError}
+          </p>
+        )}
+      </div>
+      {appConfig && appConfig.memory_backend !== 'mem0' && <ObsidianMcpPanel />}
       {error && (
         <div className="rounded-sm border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
           {error}

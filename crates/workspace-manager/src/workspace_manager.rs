@@ -7,7 +7,7 @@ use db::{
         repo::{Repo, RepoError},
         requests::WorkspaceRepoInput,
         session::Session,
-        workspace::Workspace as DbWorkspace,
+        workspace::{Workspace as DbWorkspace, WorkspaceKind},
         workspace_repo::{CreateWorkspaceRepo, RepoWithTargetBranch, WorkspaceRepo},
     },
 };
@@ -139,13 +139,46 @@ impl ManagedWorkspace {
         // conventional `main`/`master`. Without this, an MCP/orchestrator
         // start with a typo'd or stale branch hard-fails with a 400 that the
         // driving agent may not recover from.
-        let effective_branch = resolve_existing_branch(
+        let effective_branch = match resolve_existing_branch(
             git,
             &repo.path,
             &repo.name,
             &repo_ref.target_branch,
             repo.default_target_branch.as_deref(),
-        )?;
+        ) {
+            Ok(branch) => branch,
+            // A QuickDirect run is the only workspace allowed to operate in
+            // an unborn checkout: it will immediately create an empty
+            // checkpoint, turning this symbolic branch into a real ref.
+            Err(WorkspaceError::BranchNotFound { .. })
+                if self
+                    .workspace
+                    .kind
+                    .is_some_and(WorkspaceKind::uses_target_checkout) =>
+            {
+                let checked_out = git.get_checked_out_branch(&repo.path).map_err(|_| {
+                    WorkspaceError::BranchNotFound {
+                        repo_name: repo.name.clone(),
+                        branch: repo_ref.target_branch.clone(),
+                    }
+                })?;
+                if fallback_branch_candidates(
+                    &repo_ref.target_branch,
+                    repo.default_target_branch.as_deref(),
+                )
+                .iter()
+                .any(|candidate| candidate == &checked_out)
+                {
+                    checked_out
+                } else {
+                    return Err(WorkspaceError::BranchNotFound {
+                        repo_name: repo.name.clone(),
+                        branch: repo_ref.target_branch.clone(),
+                    });
+                }
+            }
+            Err(error) => return Err(error),
+        };
 
         if WorkspaceRepo::find_by_workspace_and_repo_id(
             &self.db.pool,

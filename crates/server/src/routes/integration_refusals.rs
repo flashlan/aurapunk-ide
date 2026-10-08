@@ -7,7 +7,7 @@ use axum::{
     routing::get,
 };
 use chrono::{DateTime, Duration, Utc};
-use db::models::integration_refusal::IntegrationRefusal;
+use db::models::{integration_refusal::IntegrationRefusal, quick_git_decision::QuickGitDecision};
 use deployment::Deployment;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -30,6 +30,9 @@ pub struct IntegrationRefusalsResponse {
     #[ts(type = "number")]
     pub merges: i64,
     pub refusals: Vec<IntegrationRefusal>,
+    /// Quick runs waiting for an explicit keep/revert/delegate decision, plus
+    /// the latest resolved decisions so the operator can audit them.
+    pub quick_git_decisions: Vec<QuickGitDecision>,
     /// Most recent direct integrations. This is the operator-facing proof that
     /// a Done confirmation actually landed on its target branch.
     pub recent_merges: Vec<RecentDirectMerge>,
@@ -57,6 +60,7 @@ async fn list(
     let days = query.days.unwrap_or(7).clamp(1, 90);
     let since = Utc::now() - Duration::days(days);
     let refusals = IntegrationRefusal::since(pool, since, 50).await?;
+    let quick_git_decisions = QuickGitDecision::recent(pool, 20).await?;
     let merges: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM merges WHERE merge_type = 'direct' AND created_at >= ?",
     )
@@ -79,6 +83,7 @@ async fn list(
             days,
             merges,
             refusals,
+            quick_git_decisions,
             recent_merges,
         },
     )))

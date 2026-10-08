@@ -39,6 +39,11 @@ pub enum WorkspaceKind {
     /// Recurring/scheduled task session, repo-independent, running from a
     /// fixed `~/.aurapunk/recurrent/<slug>` directory.
     Recurrent,
+    /// A single-repository Quick card operates in the repository's configured
+    /// target checkout. Unlike ordinary workspaces it never creates a Git
+    /// worktree; its lifecycle is protected by a checkpoint and an explicit
+    /// operator decision in Agent Activity.
+    QuickDirect,
 }
 
 impl WorkspaceKind {
@@ -55,11 +60,18 @@ impl WorkspaceKind {
         Self::NON_CARD.contains(&self)
     }
 
+    /// Whether this card deliberately uses its repository source checkout in
+    /// place, rather than a generated worktree.
+    pub fn uses_target_checkout(self) -> bool {
+        matches!(self, WorkspaceKind::QuickDirect)
+    }
+
     /// The lowercase discriminator string as stored in SQL / serialized.
     pub fn as_sql_str(self) -> &'static str {
         match self {
             WorkspaceKind::Orchestrator => "orchestrator",
             WorkspaceKind::Recurrent => "recurrent",
+            WorkspaceKind::QuickDirect => "quickdirect",
         }
     }
 }

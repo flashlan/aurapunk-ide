@@ -2,6 +2,11 @@
 
 > **Objetivo:** sair do zero para um board com seu primeiro projeto — `AssinaFácil` — sem conta na nuvem, com `projects.toml` versionável.
 
+## Links oficiais
+
+- **Site:** [aurapunk.dev](https://aurapunk.dev)
+- **Repositório no GitHub:** [github.com/flashlan/aurapunk-ide](https://github.com/flashlan/aurapunk-ide)
+
 ## 1. Requisitos
 
 | Requisito | Versão | Onde está declarado |
@@ -24,7 +29,7 @@ No Windows, use `winget` para Node/pnpm e `rustup-init.exe` para Rust.
 
 ## 2. Duas formas de rodar
 
-O Indie é **100% local** — sem login, sem cloud. Escolha uma:
+A Aurapunk IDE é **100% local** — sem login, sem cloud. Escolha uma:
 
 ### Opção A — npx (para usar, sem clonar)
 
@@ -35,11 +40,11 @@ npx aurapunk-ide
 
 Ideal para quem só quer usar a interface. O binário baixa, cria `db.v2.sqlite` em `asset_dir()` (`crates/server/src/main.rs:44` — na primeira execução copia `db.sqlite` → `db.v2.sqlite` se precisar) e abre em `http://localhost:3001`.
 
-### Opção B — clone (para desenvolver/customizar o próprio Vibe Kanban)
+### Opção B — clone (para desenvolver/customizar a Aurapunk IDE)
 
 ```bash
-git clone <repo> vibe-kanban
-cd vibe-kanban
+git clone https://github.com/flashlan/aurapunk-ide.git
+cd aurapunk-ide
 pnpm i
 pnpm run dev
 # Mesmo :3001/:3002/:3003, mas com hot-reload (Vite + cargo watch)
@@ -49,7 +54,7 @@ As três portas são **fixas** (`AGENTS.md`, `package.json` scripts exportam `FR
 
 ```bash
 lsof -nP -i :3002 -sTCP:LISTEN
-# confira o cwd do PID — pode ser outra instância do Vibe Kanban em outro diretório
+# confira o cwd do PID — pode ser outra instância da Aurapunk IDE em outro diretório
 # (ver cap. 02, §3 — Engineering Loop e conflito de portas)
 ```
 
@@ -69,7 +74,7 @@ O onboarding mostra screenshots em `/images/onboarding-*.png`. Altere depois em 
 
 ## 4. Declarar seu primeiro projeto: `projects.toml`
 
-O Indie não tem "criar conta" — ele lê um arquivo **`projects.toml`** portável (`docs/cockpit/local-projects.mdx`). O SQLite é a fonte da verdade; o TOML é o export/import que você pode versionar e compartilhar.
+A Aurapunk IDE não tem "criar conta" — ela lê um arquivo **`projects.toml`** portável (`docs/cockpit/local-projects.mdx`). O SQLite é a fonte da verdade; o TOML é o export/import que você pode versionar e compartilhar.
 
 ### Formato mínimo (para o SaaS do livro)
 

@@ -275,6 +275,22 @@ fn get_all_branches_lists_current_and_others() {
 }
 
 #[test]
+fn get_all_branches_exposes_the_symbolic_branch_of_an_unborn_repository() {
+    let td = TempDir::new().unwrap();
+    let repo_path = td.path().join("unborn");
+    std::fs::create_dir_all(&repo_path).unwrap();
+    let repo = git2::Repository::init(&repo_path).unwrap();
+    repo.set_head("refs/heads/main").unwrap();
+
+    let s = GitService::new();
+    let branches = s.get_all_branches(&repo_path).unwrap();
+    assert_eq!(branches.len(), 1);
+    assert_eq!(branches[0].name, "main");
+    assert!(branches[0].is_current);
+    assert_eq!(s.get_checked_out_branch(&repo_path).unwrap(), "main");
+}
+
+#[test]
 fn worktree_diff_respects_path_filter() {
     // Use git CLI status diff under the hood
     let td = TempDir::new().unwrap();

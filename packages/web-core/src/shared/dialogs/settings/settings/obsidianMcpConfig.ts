@@ -1,4 +1,4 @@
-import type { JsonValue } from 'shared/types';
+import { BaseCodingAgent, type JsonValue } from 'shared/types';
 
 export const OBSIDIAN_MCP_SERVER_ID = 'obsidian';
 export const OBSIDIAN_MCP_PACKAGE = 'obsidian-mcp@2';
@@ -19,17 +19,34 @@ export function isValidVaultId(vaultId: string): boolean {
 
 export function createObsidianMcpServer(
   vaultPath: string,
-  vaultId: string
+  vaultId: string,
+  agent: BaseCodingAgent
 ): JsonObject {
+  const command = [
+    'npx',
+    '-y',
+    OBSIDIAN_MCP_PACKAGE,
+    'serve',
+    '--vault',
+    `${vaultId}=${vaultPath}`,
+  ];
+
+  // OpenCode validates MCP entries as a discriminated union. Its local
+  // server format is different from Claude Code's command/args format.
+  if (
+    agent === BaseCodingAgent.OPENCODE ||
+    agent === BaseCodingAgent.OPENCODE_HEADED
+  ) {
+    return {
+      type: 'local',
+      command,
+      enabled: true,
+    };
+  }
+
   return {
     command: 'npx',
-    args: [
-      '-y',
-      OBSIDIAN_MCP_PACKAGE,
-      'serve',
-      '--vault',
-      `${vaultId}=${vaultPath}`,
-    ],
+    args: command.slice(1),
   };
 }
 

@@ -238,7 +238,7 @@ kind: WorkspaceKind | null,
  */
 current_pipeline_stage: bigint | null, };
 
-export type WorkspaceKind = "orchestrator" | "recurrent";
+export type WorkspaceKind = "orchestrator" | "recurrent" | "quickdirect";
 
 export type WorkspaceWithStatus = { is_running: boolean, is_errored: boolean, id: string, task_id: string | null, container_ref: string | null, branch: string, setup_completed_at: string | null, created_at: string, updated_at: string, archived: boolean, pinned: boolean, name: string | null, worktree_deleted: boolean, 
 /**
@@ -287,11 +287,18 @@ export type Merge = { "type": "direct" } & DirectMerge | { "type": "pr" } & PrMe
 
 export type IntegrationRefusal = { id: string, workspace_id: string, workspace_name: string | null, branch: string, blocker: string, message: string, files: Array<string>, created_at: string, };
 
+export type QuickGitDecision = { id: string, workspace_id: string, issue_id: string | null, repo_id: string, target_branch: string, checkpoint_sha: string, head_sha: string | null, action: string, status: string, result_sha: string | null, detail: string | null, created_at: string, decided_at: string | null, };
+
 export type IntegrationRefusalsResponse = { days: number, 
 /**
  * Direct merges in the same window, to put the refusals in proportion.
  */
 merges: number, refusals: Array<IntegrationRefusal>, 
+/**
+ * Quick runs waiting for an explicit keep/revert/delegate decision, plus
+ * the latest resolved decisions so the operator can audit them.
+ */
+quick_git_decisions: Array<QuickGitDecision>, 
 /**
  * Most recent direct integrations. This is the operator-facing proof that
  * a Done confirmation actually landed on its target branch.
@@ -902,7 +909,11 @@ export type DirectoryListResponse = { entries: Array<DirectoryEntry>, current_pa
 
 export type SearchMode = "taskform" | "settings";
 
-export type Config = { config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, remote_onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, gitea: GiteaConfig, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, commit_reminder_enabled: boolean, commit_reminder_prompt: string | null, 
+export type Config = { 
+/**
+ * Preferred memory integration. Runtime routing is configured separately.
+ */
+memory_backend: string, config_version: string, theme: ThemeMode, executor_profile: ExecutorProfileId, disclaimer_acknowledged: boolean, onboarding_acknowledged: boolean, remote_onboarding_acknowledged: boolean, notifications: NotificationConfig, editor: EditorConfig, github: GitHubConfig, gitea: GiteaConfig, workspace_dir: string | null, last_app_version: string | null, show_release_notes: boolean, language: UiLanguage, git_branch_prefix: string, showcases: ShowcaseState, pr_auto_description_enabled: boolean, pr_auto_description_prompt: string | null, commit_reminder_enabled: boolean, commit_reminder_prompt: string | null, 
 /**
  * General project rules resolved by the `get_rules` MCP tool — the
  * pre/post split lets an execution agent keep guardrails in mind

@@ -344,6 +344,33 @@ impl GitService {
         Ok(true)
     }
 
+    /// Make a durable, empty checkpoint commit after the caller has verified
+    /// that the checkout is clean. It is used by Quick direct-checkout runs as
+    /// the non-destructive anchor for a later `git revert`.
+    pub fn commit_allow_empty(&self, path: &Path, message: &str) -> Result<(), GitServiceError> {
+        self.ensure_cli_commit_identity(path)?;
+        GitCli::new()
+            .commit_allow_empty(path, message)
+            .map_err(|e| {
+                GitServiceError::InvalidRepository(format!("empty checkpoint commit failed: {e}"))
+            })
+    }
+
+    /// Safely undo commits made after a Quick checkpoint by appending normal
+    /// revert commits. Never use reset here: the operator may have observed or
+    /// shared the commits already.
+    pub fn revert_since_checkpoint(
+        &self,
+        path: &Path,
+        checkpoint: &str,
+    ) -> Result<(), GitServiceError> {
+        GitCli::new()
+            .revert_since_checkpoint(path, checkpoint)
+            .map_err(|e| {
+                GitServiceError::InvalidRepository(format!("revert since checkpoint failed: {e}"))
+            })
+    }
+
     /// Get worktree diffs against a base commit
     pub fn get_diffs(
         &self,
@@ -1210,6 +1237,25 @@ impl GitService {
         Ok(self.get_head_info(repo_path)?.branch)
     }
 
+    /// Return the checked-out branch even for an unborn repository, where
+    /// `HEAD` names (for example) `main` but has no commit OID yet.
+    pub fn get_checked_out_branch(&self, repo_path: &Path) -> Result<String, GitServiceError> {
+        let repo = self.open_repo(repo_path)?;
+        // `Repository::head()` deliberately errors for an unborn branch.
+        // Reading the HEAD reference itself preserves its symbolic target
+        // (`refs/heads/main`) before the first commit exists.
+        let head = repo.find_reference("HEAD")?;
+        if let Some(target) = head.symbolic_target() {
+            return Ok(target
+                .strip_prefix("refs/heads/")
+                .unwrap_or(target)
+                .to_owned());
+        }
+        head.shorthand()
+            .map(str::to_owned)
+            .ok_or_else(|| GitServiceError::InvalidRepository("HEAD is detached".to_string()))
+    }
+
     /// Get the commit OID (as hex string) for a given branch without modifying HEAD
     pub fn get_branch_oid(
         &self,
@@ -1380,7 +1426,9 @@ impl GitService {
 
     pub fn get_all_branches(&self, repo_path: &Path) -> Result<Vec<GitBranch>, GitServiceError> {
         let repo = Repository::open(repo_path)?;
-        let current_branch = self.get_current_branch(repo_path).unwrap_or_default();
+        // An unborn repository still has a symbolic HEAD (normally `main`),
+        // even though `get_head_info` cannot provide an OID yet.
+        let current_branch = self.get_checked_out_branch(repo_path).unwrap_or_default();
         let mut branches = Vec::new();
 
         // Helper function to get last commit date for a branch
@@ -1425,6 +1473,21 @@ impl GitService {
                     });
                 }
             }
+        }
+
+        // `git branch` deliberately lists no refs for an unborn repository.
+        // The UI must still let the user choose the initialized branch so a
+        // Quick run can create its initial checkpoint commit.
+        // libgit2 does not consistently report an unborn symbolic HEAD as
+        // `is_empty()`, so the absence of every branch ref is the reliable
+        // signal here.
+        if branches.is_empty() && !current_branch.is_empty() {
+            branches.push(GitBranch {
+                name: current_branch,
+                is_current: true,
+                is_remote: false,
+                last_commit_date: Utc::now(),
+            });
         }
 
         // Sort branches: current first, then by most recent commit date

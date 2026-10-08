@@ -20,6 +20,7 @@ import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { CreateModeRepoPickerBar } from './CreateModeRepoPickerBar';
 import { ModelSelectorContainer } from '@/shared/components/ModelSelectorContainer';
 import { cn } from '@/shared/lib/utils';
+import { ConfirmDialog } from '@vibe/ui/components/ConfirmDialog';
 
 function getRepoDisplayName(repo: Repo) {
   return repo.display_name || repo.name;
@@ -65,6 +66,9 @@ export function CreateChatBoxContainer({
   const { createWorkspace } = useCreateWorkspace();
   const hasSelectedRepos = repos.length > 0;
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  // Keep the failure visible even if TanStack resets mutation state while an
+  // inline composer remounts (the old behavior made Create appear inert).
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [hasInitializedStep, setHasInitializedStep] = useState(false);
   const [isSelectingRepos, setIsSelectingRepos] = useState(true);
 
@@ -228,6 +232,7 @@ export function CreateChatBoxContainer({
   // Handle submit
   const handleSubmit = useCallback(async () => {
     setHasAttemptedSubmit(true);
+    setSubmissionError(null);
     if (!canSubmit || !executorConfig) return;
 
     addPromptToHistory(message);
@@ -256,10 +261,26 @@ export function CreateChatBoxContainer({
         }
       : undefined;
 
-    const result = await createWorkspace.mutateAsync({
-      data,
-      linkToIssue,
-    });
+    let result: { workspace: { id: string } | undefined };
+    try {
+      result = await createWorkspace.mutateAsync({
+        data,
+        linkToIssue,
+      });
+    } catch (error) {
+      const failure =
+        error instanceof Error
+          ? error.message
+          : 'Failed to create workspace. Please try again.';
+      setSubmissionError(failure);
+      void ConfirmDialog.show({
+        title: 'Could not create workspace',
+        message: failure,
+        confirmText: 'OK',
+        showCancelButton: false,
+      });
+      return;
+    }
 
     if (result.workspace) {
       onWorkspaceCreated(result.workspace.id);
@@ -293,11 +314,12 @@ export function CreateChatBoxContainer({
             ? 'Select a coding agent before creating a workspace.'
             : hasAttemptedSubmit && !executorConfig
               ? 'Finish configuring the selected coding agent before creating a workspace.'
-              : createWorkspace.error
-                ? createWorkspace.error instanceof Error
-                  ? createWorkspace.error.message
-                  : 'Failed to create workspace'
-                : null;
+              : (submissionError ??
+                (createWorkspace.error
+                  ? createWorkspace.error instanceof Error
+                    ? createWorkspace.error.message
+                    : 'Failed to create workspace'
+                  : null));
 
   // Wait for initial value to be applied before rendering
   // This ensures the editor mounts with content ready, so autoFocus works correctly
@@ -356,6 +378,15 @@ export function CreateChatBoxContainer({
               >
                 {t('createMode.headings.chatStep')}
               </h2>
+
+              {displayError && (
+                <div
+                  role="alert"
+                  className="w-full rounded-sm border border-error/40 bg-error/10 px-base py-half text-sm text-error"
+                >
+                  Could not create workspace: {displayError}
+                </div>
+              )}
 
               <div
                 className={cn(

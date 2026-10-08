@@ -36,8 +36,15 @@ fn default_theme_variant() -> String {
     "default".to_string()
 }
 
+fn default_memory_backend() -> String {
+    "mem0".to_string()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 pub struct Config {
+    /// Preferred memory integration. Runtime routing is configured separately.
+    #[serde(default = "default_memory_backend")]
+    pub memory_backend: String,
     pub config_version: String,
     pub theme: ThemeMode,
     pub executor_profile: ExecutorProfileId,
@@ -96,6 +103,7 @@ pub struct Config {
 impl Config {
     fn from_v9_config(old_config: v9::Config) -> Self {
         Self {
+            memory_backend: default_memory_backend(),
             config_version: "v10".to_string(),
             theme: old_config.theme,
             executor_profile: old_config.executor_profile,
@@ -158,6 +166,7 @@ impl From<String> for Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            memory_backend: default_memory_backend(),
             config_version: "v10".to_string(),
             theme: ThemeMode::System,
             executor_profile: ExecutorProfileId::new(BaseCodingAgent::ClaudeCode),

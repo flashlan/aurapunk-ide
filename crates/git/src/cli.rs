@@ -382,6 +382,30 @@ impl GitCli {
         self.git(worktree_path, ["commit", "-m", message])?;
         Ok(())
     }
+
+    /// Create an explicit empty recovery-point commit. This is deliberately a
+    /// separate operation from `commit`: callers use it only after proving the
+    /// target checkout is clean.
+    pub fn commit_allow_empty(
+        &self,
+        worktree_path: &Path,
+        message: &str,
+    ) -> Result<(), GitCliError> {
+        self.git(worktree_path, ["commit", "--allow-empty", "-m", message])?;
+        Ok(())
+    }
+
+    /// Revert every commit after `checkpoint` using normal Git history. This
+    /// never rewrites the branch and therefore remains auditable/recoverable.
+    pub fn revert_since_checkpoint(
+        &self,
+        worktree_path: &Path,
+        checkpoint: &str,
+    ) -> Result<(), GitCliError> {
+        let range = format!("{checkpoint}..HEAD");
+        self.git(worktree_path, ["revert", "--no-edit", range.as_str()])?;
+        Ok(())
+    }
     /// Fetch a branch to the given remote using native git authentication.
     pub fn fetch_with_refspec(
         &self,

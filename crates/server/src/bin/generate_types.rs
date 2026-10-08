@@ -62,6 +62,7 @@ fn generate_types_content() -> String {
         db::models::execution_process_repo_state::ExecutionProcessRepoState::decl(),
         db::models::merge::Merge::decl(),
         db::models::integration_refusal::IntegrationRefusal::decl(),
+        db::models::quick_git_decision::QuickGitDecision::decl(),
         server::routes::integration_refusals::IntegrationRefusalsResponse::decl(),
         server::routes::integration_refusals::RecentDirectMerge::decl(),
         db::models::merge::DirectMerge::decl(),

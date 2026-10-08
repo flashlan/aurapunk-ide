@@ -35,6 +35,9 @@ Este livro foi escrito dentro do próprio repositório que ele ensina a usar. To
 | 7 | Git, workspaces e worktrees | `07-git-workspaces.md` | Escrito |
 | 8 | Projeto prático: Criando um SaaS com Vibe Kanban | `08-projeto-saas.md` | Escrito |
 | 9 | Da escrita à Amazon KDP | `09-publicacao-kdp.md` | Escrito |
+| 17 | Agentes: instalação, autenticação e modelos | `17-agentes.md` | Escrito |
+| 18 | Configurações: referência das abas | `18-configuracoes.md` | Escrito |
+| 19 | Resolução de problemas: índice de erros | `19-resolucao-problemas.md` | Escrito |
 
 ## Parte II — Bastidores (para quem customiza o app)
 
@@ -429,6 +432,11 @@ Nos próximos capítulos você vai viver esse fluxo na prática, começando pela
 
 > **Objetivo:** sair do zero para um board com seu primeiro projeto — `AssinaFácil` — sem conta na nuvem, com `projects.toml` versionável.
 
+## Links oficiais
+
+- **Site:** [aurapunk.dev](https://aurapunk.dev)
+- **Repositório no GitHub:** [github.com/flashlan/aurapunk-ide](https://github.com/flashlan/aurapunk-ide)
+
 ## 1. Requisitos
 
 | Requisito | Versão | Onde está declarado |
@@ -451,7 +459,7 @@ No Windows, use `winget` para Node/pnpm e `rustup-init.exe` para Rust.
 
 ## 2. Duas formas de rodar
 
-O Indie é **100% local** — sem login, sem cloud. Escolha uma:
+A Aurapunk IDE é **100% local** — sem login, sem cloud. Escolha uma:
 
 ### Opção A — npx (para usar, sem clonar)
 
@@ -462,11 +470,11 @@ npx aurapunk-ide
 
 Ideal para quem só quer usar a interface. O binário baixa, cria `db.v2.sqlite` em `asset_dir()` (`crates/server/src/main.rs:44` — na primeira execução copia `db.sqlite` → `db.v2.sqlite` se precisar) e abre em `http://localhost:3001`.
 
-### Opção B — clone (para desenvolver/customizar o próprio Vibe Kanban)
+### Opção B — clone (para desenvolver/customizar a Aurapunk IDE)
 
 ```bash
-git clone <repo> vibe-kanban
-cd vibe-kanban
+git clone https://github.com/flashlan/aurapunk-ide.git
+cd aurapunk-ide
 pnpm i
 pnpm run dev
 # Mesmo :3001/:3002/:3003, mas com hot-reload (Vite + cargo watch)
@@ -476,7 +484,7 @@ As três portas são **fixas** (`AGENTS.md`, `package.json` scripts exportam `FR
 
 ```bash
 lsof -nP -i :3002 -sTCP:LISTEN
-# confira o cwd do PID — pode ser outra instância do Vibe Kanban em outro diretório
+# confira o cwd do PID — pode ser outra instância da Aurapunk IDE em outro diretório
 # (ver cap. 02, §3 — Engineering Loop e conflito de portas)
 ```
 
@@ -496,7 +504,7 @@ O onboarding mostra screenshots em `/images/onboarding-*.png`. Altere depois em 
 
 ## 4. Declarar seu primeiro projeto: `projects.toml`
 
-O Indie não tem "criar conta" — ele lê um arquivo **`projects.toml`** portável (`docs/cockpit/local-projects.mdx`). O SQLite é a fonte da verdade; o TOML é o export/import que você pode versionar e compartilhar.
+A Aurapunk IDE não tem "criar conta" — ela lê um arquivo **`projects.toml`** portável (`docs/cockpit/local-projects.mdx`). O SQLite é a fonte da verdade; o TOML é o export/import que você pode versionar e compartilhar.
 
 ### Formato mínimo (para o SaaS do livro)
 
@@ -1856,6 +1864,188 @@ Ao criar uma feature visual, o card pode **anexar a imagem-âncora desejada** (e
 - [ ] Prévias PIL são substituídas por screenshots reais quando o card vai para Done (cap. 08).
 - [ ] Para KDP paperback, imagens exportadas em 300 DPI, CMYK, com bleed 0,125" (cap. 09).
 - [ ] O card de feature visual referencia a imagem-âncora na descrição — texto + imagem, não só texto.
+
+---
+
+# 17 — Agentes: instalação, autenticação e modelos
+
+**Objetivo:** deixar pelo menos um agente de codificação instalado, autenticado
+e selecionável dentro do AuraPunk IDE antes do primeiro workspace de verdade.
+Sem isso, o workspace abre, mas nenhum executor assume a tarefa.
+
+> Regra de ouro deste capítulo: o agente mora **fora** do AuraPunk IDE (é um
+> CLI instalado na sua máquina). O IDE apenas o detecta e o dirige. Se o
+> agente não aparece no dropdown do workspace, o problema está na instalação
+> ou no `PATH`, nunca no board.
+
+## 17.1 O ciclo de vida de um agente no IDE
+
+1. **Instale o CLI** do agente (seção 17.2).
+2. **Autentique** (login interativo ou variável de ambiente com API key).
+3. Abra o AuraPunk IDE (`npx aurapunk-ide`) e crie um workspace.
+4. Escolha o agente no dropdown do chat. O IDE lembra a última escolha.
+
+## 17.2 Tabela de instalação e autenticação
+
+| Agente | Instalação | Autenticação |
+| --- | --- | --- |
+| Claude Code | `npx -y @anthropic-ai/claude-code` | Login interativo guiado |
+| OpenAI Codex | `npx -y @openai/codex` | Plano ChatGPT **ou** `OPENAI_API_KEY` |
+| GitHub Copilot | `npx -y @github/copilot` | Comando `/login` no CLI |
+| Gemini CLI | `npx -y @google/gemini-cli` | Login interativo guiado |
+| Amp | `npx -y @sourcegraph/amp` | Login interativo (ver manual do Amp) |
+| Cursor Agent | `curl https://cursor.com/install -fsS \| bash` | `cursor-agent login` ou `CURSOR_API_KEY` |
+| OpenCode | `npx -y opencode-ai` | Login interativo guiado |
+| Factory Droid | `curl -fsSL https://app.factory.ai/cli \| sh` | `/login` no CLI ou `FACTORY_API_KEY=fk-...` |
+| Qwen Code | `npx -y @qwen-code/qwen-code` | Login interativo guiado |
+| CCR (roteador) | `npx -y @musistudio/claude-code-router ui` | Configure providers na UI do CCR |
+
+Detalhes que evitam as armadilhas mais comuns:
+
+- **Codex com diretório customizado:** se você usa `CODEX_HOME` para separar
+  perfis (pessoal × trabalho), o IDE detecta e respeita automaticamente.
+  ```bash
+  export CODEX_HOME=/caminho/do/codex-projeto
+  npx aurapunk-ide
+  ```
+- **Cursor:** confira com `cursor-agent --version` antes de abrir o IDE.
+- **Droid no Windows:** `irm https://app.factory.ai/cli/windows | iex`; a
+  chave alternativa sai em `app.factory.ai/settings/api-keys`.
+- **CCR não é da Anthropic:** é um roteador de terceiros que distribui
+  prompts entre provedores e modelos (contexto longo, background, imagens).
+  Útil para paralelizar vários workspaces sem fila.
+
+## 17.3 Perfis de agente: planejar, permissões e modelos
+
+Em **Settings → Agents** você cria variantes reutilizáveis por agente
+(modelo, planning mode, permissões, sandbox, variáveis de ambiente). A
+configuração padrão já vem pré-selecionada no dropdown do chat. Receitas:
+
+| Caso | Configuração |
+| --- | --- |
+| Iteração rápida | Planning mode desligado, modelo leve |
+| Tarefa complexa | Planning mode ligado, modelo avançado |
+| Trabalho autônomo | Pular prompts de permissão (com cautela) |
+| Revisão de código | Aprovações ligadas para toda mudança |
+| Paralelismo | CCR distribuindo instâncias |
+
+Conceitos que valem o minuto de leitura:
+
+- **Planning mode:** o agente escreve o plano antes do código; você aprova a
+  estratégia. Ótimo para tarefas complexas, overhead para as simples.
+- **Permission prompts:** o agente pede confirmação antes de ações
+  destrutivas (apagar arquivos, shell, configs de sistema). Pular tudo
+  (`dangerously_skip_permissions`) remove as travas — use com cautela.
+- **Sandbox (Codex):** `read-only` (só lê), `workspace-write` (só o projeto),
+  `danger-full-access` (sem restrições).
+- **Approval levels:** definem quando o agente pausa para sua confirmação.
+
+## 17.4 Verificação e problemas comuns
+
+1. Rode o CLI no terminal (`claude --version`, `codex --version` etc.).
+2. Se o comando não existe, reinstale e **reinicie o terminal** (é o `PATH`
+   desatualizado em 9 de 10 casos).
+3. Abra o IDE e confira o dropdown do workspace.
+4. Teste com um prompt trivial antes da tarefa real.
+
+Se o agente some do dropdown depois de funcionar: confira se a variável de
+ambiente da chave (`OPENAI_API_KEY`, `CURSOR_API_KEY`, `FACTORY_API_KEY`…)
+continua exportada na sessão onde o IDE foi lançado.
+
+---
+
+# 18 — Configurações: referência das abas
+
+**Objetivo:** saber onde fica cada ajuste sem caçar menus. O diálogo
+**Settings** tem as abas General, Projects & Repos, Agents e MCP (além das
+seções de conta quando aplicável).
+
+## 18.1 General
+
+- **Tema** (claro/escuro/sistema).
+- **Agente e variante padrão:** o que já vem selecionado em todo workspace
+  novo e nos follow-ups.
+- **Editor:** qual editor abre os arquivos.
+- **Workspace dir:** raiz onde os worktrees nascem (padrão: `~/.vibe-kanban/worktrees`).
+- **Prefixo git / notificações / som:** pequenos comportamentos do dia a dia.
+
+## 18.2 Projects & Repos
+
+Por projeto: nome de exibição, caminho, scripts de **dev**, **setup** e
+**cleanup**, com exemplos e boas práticas:
+
+- `dev`: como servir o projeto para o Preview (ex.: `pnpm dev --port 3000`).
+- `setup`: prepara o worktree recém-criado (ex.: `pnpm install`).
+- `cleanup`: roda ao arquivar/remover (ex.: derrubar containers temporários).
+
+Sem script de dev configurado, o Preview não tem o que exibir — é a causa
+número um do painel de Preview vazio (ver cap. 19).
+
+## 18.3 Agents
+
+Atalho para o conteúdo do cap. 17: criar, clonar e definir como padrão as
+variantes por agente (modelo, planning, permissões, sandbox, env vars).
+
+## 18.4 Tags (@-snippets)
+
+Crie trechos reutilizáveis em `snake_case` (ex.: `revisar_testes`) e insira
+com `@` no prompt do workspace. Tags valem globalmente, em todos os
+projetos — use para instruções que você repete sempre (padrão de testes,
+formato de commit, checklist de review).
+
+## 18.5 MCP servers
+
+Servidores MCP dão ferramentas extras aos agentes, configurados **por
+agente** via JSON nas Settings (há atalhos de 1 clique para os populares).
+Se o agente ignora a ferramenta, confira: JSON válido, servidor alcançável e
+o agente certo selecionado no workspace.
+
+---
+
+# 19 — Resolução de problemas: índice de erros
+
+**Objetivo:** sair do lugar em minutos quando algo quebra, em vez de
+reinstalar tudo. Procure o sintoma, aplique a cura na ordem.
+
+## 19.1 Git e merge
+
+| Sintoma | Causa provável | Cura |
+| --- | --- | --- |
+| PR atrás do target, merge bloqueado | Branch desatualizada | Rebase antes do merge/push |
+| Conflito no rebase/merge | Edições concorrentes | Resolva no painel Changes (diff lado a lado), marque resolvido, continue |
+| Worktree "suja", comandos recusam | Mudanças não commitadas | Commit/stash na worktree antes de trocar de branch |
+| Branch não aparece para worktree | Branch só existe local/abortada | Confira `git branch -a`; crie a partir do remoto |
+
+Regra de bolso: rebase **antes** de abrir PR, quando o target andou e sempre
+que o IDE pedir por estar atrás do target.
+
+## 19.2 Preview e checks
+
+| Sintoma | Causa provável | Cura |
+| --- | --- | --- |
+| Preview vazio | Sem script de dev no projeto | Configure `dev` em Projects & Repos (cap. 18) |
+| Checks falhando | Lint/testes do repo | Rode `pnpm check` local, corrija, reenvie |
+| Porta em uso (`AddrInUse`) | Processo antigo vivo | Localize com `lsof -i :PORTA` e encerre |
+
+## 19.3 Banco local e logs
+
+| Sintoma | Causa provável | Cura |
+| --- | --- | --- |
+| Estado estranho/impeditivo | Banco local corrompido | **Último recurso:** apague o SQLite do app e reabra (ver abaixo) |
+| Comportamento sem explicação | Falta evidência | `RUST_LOG=debug npx aurapunk-ide` e leia o log |
+| Codebase vazia no workspace | Sparse-checkout agressivo | Desative o checkout esparso do repo |
+
+> **Apagar o banco local** remove projetos, issues e histórico daquela
+> máquina (o sync pode trazer de volta o que estava sincronizado). Localize
+> o `db.v2.sqlite` no diretório de dados do app
+> (`~/.local/share/vibe-kanban/` no Linux) e remova com o IDE **fechado**.
+> Nunca faça isso com trabalho não commitado nas worktrees.
+
+## 19.4 Quando pedir ajuda
+
+Anote sempre: versão (`npx aurapunk-ide --version`), SO, agente e modelo,
+o erro literal e os últimos 30 linhas do log com `RUST_LOG=debug`. Com isso,
+metade dos casos se resolve sozinha na leitura.
 
 ---
 

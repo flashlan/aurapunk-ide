@@ -19,6 +19,9 @@ ORDER = [
     "13-engineering-loop.md",
     "14-orquestracao.md",
     "15-ancoragem-imagens.md",
+    "17-agentes.md",
+    "18-configuracoes.md",
+    "19-resolucao-problemas.md",
     "apendice-comandos.md",
     "16-agradecimentos.md",
 ]
@@ -66,11 +69,17 @@ build("docs/livro-en", """# Modern Vibe Coding Manual
 # --- EPUB generation (Kobo/Google Play/KDP) ---
 import subprocess, shutil
 if shutil.which("pandoc"):
-    for src, dst in [("docs/livro/manuscript.md", "docs/livro/manuscript.epub"),
-                     ("docs/livro-en/manuscript.md", "docs/livro-en/manuscript.epub")]:
-        # cover only if exists
-        cover = "docs/images/livro/capa-ebook.png"
-        cmd = ["pandoc", src, "-o", dst]
+    for src, dst, cover, title, lang in [
+        ("docs/livro/manuscript.md", "docs/livro/manuscript.epub", "docs/images/livro/capa-pt.jpg", "Aurapunk IDE", "pt-BR"),
+        ("docs/livro-en/manuscript.md", "docs/livro-en/manuscript.epub", "docs/images/livro/capa-en.jpg", "Aurapunk IDE", "en-US"),
+    ]:
+        cmd = [
+            "pandoc", src, "-o", dst,
+            "--resource-path=.:docs/livro:docs",
+            "--metadata", f"title={title}",
+            "--metadata", "author=Evertone L. Kozloski",
+            "--metadata", f"lang={lang}",
+        ]
         if Path(cover).exists():
             cmd += [f"--epub-cover-image={cover}"]
         try:
