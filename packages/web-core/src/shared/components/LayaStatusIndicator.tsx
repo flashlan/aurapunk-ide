@@ -11,13 +11,17 @@ import {
 import { testLayaConnection } from '@/shared/lib/decisionEngineTests';
 import { useIntegrationErrors } from '@/shared/hooks/useIntegrationErrors';
 import { IntegrationErrorBalloon } from '@/shared/components/IntegrationErrorBalloon';
+import { makeRequest, handleApiResponse } from '@/shared/lib/api';
+import { useAddonEnabled } from '@/shared/dialogs/settings/settings/addonPreferences';
 import type { IntegrationService } from 'shared/types';
 import {
   LAYA_PROBE_COLORS,
   buildLayaTooltip,
+  isRlcdConfigured,
   layaModeLabel,
   resolveLayaEndpoint,
   type LayaProbeState,
+  type RlcdConfigSnapshot,
 } from './layaStatus';
 
 const POLL_INTERVAL_MS = 60_000;
@@ -75,6 +79,34 @@ export function LayaStatusIndicator() {
   const endpoint = resolveLayaEndpoint(mode, dockerUrl, cloudUrl);
   const [token, setToken] = useState<string | null>(null);
   const [probe, setProbe] = useState<LayaProbeResult>({ state: 'checking' });
+  // `null` until the first config read lands, so we never claim "disabled"
+  // before we actually know.
+  const [rlcdConfig, setRlcdConfig] = useState<RlcdConfigSnapshot | null>(
+    null
+  );
+  const rlcdConfigured = isRlcdConfigured(rlcdConfig);
+  // The add-on being off is the strongest signal: RLCD has no UI to configure
+  // it with, so the user never opted in and a red dot is a false alarm.
+  const enabled = useAddonEnabled('jev_laya_suite');
+  const disabled = !enabled;
+
+  const loadRlcdConfig = useCallback(async () => {
+    try {
+      const response = await makeRequest('/api/rlcd/config', {
+        cache: 'no-store',
+      });
+      const data = await handleApiResponse<RlcdConfigSnapshot>(response);
+      if (data) setRlcdConfig(data);
+    } catch {
+      // Keep last-known config; a transient read must not flip the dot.
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadRlcdConfig();
+    const timer = setInterval(() => void loadRlcdConfig(), POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [loadRlcdConfig]);
 
   // The Cloud device token is read straight from localStorage, so subscribe
   // to the auth event to pick up sign-in/sign-out without a reload.
@@ -91,6 +123,12 @@ export function LayaStatusIndicator() {
   }, [mode]);
 
   const runProbe = useCallback(async () => {
+    // Off by the user's choice: not configured, or no classifier target. Both
+    // are "off", never a failure, so report it instead of probing.
+    if (!enabled || !rlcdConfigured) {
+      setProbe({ state: 'disabled' });
+      return;
+    }
     if (!endpoint) {
       setProbe({ state: 'offline', error: 'no endpoint configured' });
       return;
@@ -111,7 +149,7 @@ export function LayaStatusIndicator() {
         ? { state: 'online', latencyMs: result.latencyMs }
         : { state: 'offline', error: result.error }
     );
-  }, [endpoint, mode, token]);
+  }, [enabled, endpoint, mode, rlcdConfigured, token]);
 
   useEffect(() => {
     void runProbe();
@@ -123,11 +161,14 @@ export function LayaStatusIndicator() {
 
   const { errors, dismiss } = useIntegrationErrors(RLCD_SERVICES);
   const ModeIcon = mode === 'cloud' ? CloudIcon : CubeIcon;
-  // Recent Laya/Jev failures override a passing probe until dismissed.
-  const color =
-    errors.length > 0
+  // Recent Laya/Jev failures override a passing probe until dismissed — but an
+  // unconfigured engine is off, not failing, so it stays gray and silent.
+  const color = disabled || probe.state === 'disabled'
+    ? LAYA_PROBE_COLORS.disabled
+    : errors.length > 0
       ? LAYA_PROBE_COLORS.offline
       : LAYA_PROBE_COLORS[probe.state];
+  const visibleErrors = disabled || probe.state === 'disabled' ? [] : errors;
   const tooltip = buildLayaTooltip({
     mode,
     state: probe.state,
@@ -140,7 +181,7 @@ export function LayaStatusIndicator() {
   return (
     <IntegrationErrorBalloon
       title="RLCD (Laya · Jev)"
-      errors={errors}
+      errors={visibleErrors}
       onDismiss={dismiss}
     >
       <Tooltip content={tooltip} side="bottom" className="whitespace-pre-line">

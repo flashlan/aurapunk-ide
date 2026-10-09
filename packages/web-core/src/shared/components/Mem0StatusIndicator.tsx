@@ -6,6 +6,7 @@ import { SettingsDialog } from '@/shared/dialogs/settings/SettingsDialog';
 import { Tooltip } from '@vibe/ui/components/Tooltip';
 import { useIntegrationErrors } from '@/shared/hooks/useIntegrationErrors';
 import { IntegrationErrorBalloon } from '@/shared/components/IntegrationErrorBalloon';
+import { useAddonEnabled } from '@/shared/dialogs/settings/settings/addonPreferences';
 
 type Mem0Level = 'green' | 'yellow' | 'orange' | 'red' | 'disabled';
 
@@ -110,10 +111,17 @@ export function Mem0StatusIndicator() {
   const { errors, dismiss } = useIntegrationErrors(MEM0_SERVICES);
   const level: Mem0Level = status?.level ?? 'green';
   const components = status?.components;
+  // Disabled either way the user turned it off: the add-on toggle (the UI
+  // gate) or the backend config. Both mean "off", never "broken", so the dot
+  // stays gray and the error balloon stays closed.
+  const addonEnabled = useAddonEnabled('mem0');
+  const disabled = !addonEnabled || level === 'disabled';
+  const visibleErrors = disabled ? [] : errors;
   // A passing health probe does not mean writes land: recent operation
   // failures override the probe color until they are dismissed.
-  const color =
-    errors.length > 0
+  const color = disabled
+    ? LEVEL_COLOR.disabled
+    : errors.length > 0
       ? LEVEL_COLOR.red
       : status
         ? LEVEL_COLOR[level]
@@ -141,8 +149,8 @@ export function Mem0StatusIndicator() {
         componentLine('Mem0', components?.mem0 ?? false),
         componentLine('Embeddings', components?.embeddings ?? false),
         componentLine('Qdrant', components?.qdrant ?? false),
-        errors.length > 0
-          ? `\n⚠ ${errors.length} recent operation error${errors.length === 1 ? '' : 's'}`
+        visibleErrors.length > 0
+          ? `\n⚠ ${visibleErrors.length} recent operation error${visibleErrors.length === 1 ? '' : 's'}`
           : '',
         '',
         'Click to open Settings → Memory',
@@ -150,7 +158,11 @@ export function Mem0StatusIndicator() {
     : 'Checking Mem0 status…';
 
   return (
-    <IntegrationErrorBalloon title="Mem0" errors={errors} onDismiss={dismiss}>
+    <IntegrationErrorBalloon
+      title="Mem0"
+      errors={visibleErrors}
+      onDismiss={dismiss}
+    >
       <Tooltip content={tooltip} side="bottom" className="whitespace-pre-line">
         <button
           type="button"

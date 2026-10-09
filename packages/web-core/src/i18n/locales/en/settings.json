@@ -44,13 +44,11 @@
       }
     },
     "addons": {
-      "subtitle": "Enable optional add-ons. Each add-on extends the app with a focused integration.",
-      "enable": "Enabled",
+      "subtitle": "Optional integrations. Active add-ons report status in the sidebar; their settings stay reachable either way.",
+      "active": "Active",
       "configure": "Configure add-on",
-      "enableFirst": "Enable this add-on first",
       "backToList": "Back to add-ons",
       "homepage": "View on GitHub",
-      "disabledHint": "Enable this add-on to use it.",
       "mem0": {
         "name": "Mem0",
         "tagline": "Memory hosting, extraction providers & migration",
