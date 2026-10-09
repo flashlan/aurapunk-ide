@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.47] - 2026-10-09
+
+### Added
+
+- **Memory sources replace the inert memory source select.** Settings → Memory
+  now lists the memories the `memory_project` MCP tool may consult — mem0
+  semantic, Qdrant, Obsidian and Specs — as checkboxes, and it actually decides.
+  The previous `memory_backend` field was read nowhere in the backend, so the
+  selection changed nothing. Turning off mem0 semantic now drops the
+  `<aurapunk-memory>` block from the agent kickoff and makes `memory_search`
+  return empty. At least one source must stay active; qdrant requires mem0
+  semantic because it only stores the vectors mem0 writes.
+
+- **Laya execution mode is configurable again.** The Docker/Cloud selector and
+  the endpoint URL moved into the Jev & Laya add-on panel. They were removed
+  with the duplicate settings block in Usage, which left the panel reading
+  `layaMode` with no way to change it.
+
+### Changed
+
+- **Add-ons ship disabled, and their settings stay reachable.** Each add-on
+  needs external setup, so none looks active before that happens. The enable
+  toggle now only drives the sidebar status indicator; the configure gear is
+  always available, so the mem0 local/cloud switch and the RLCD engine cannot
+  become unreachable.
+
+- **Disabled integrations report as disabled, not as failures.** The mem0 and
+  Laya/Jev sidebar indicators stay gray and keep their error balloons closed
+  while their add-on is off, instead of turning red from integration-log entries
+  recorded for services that were never enabled.
+
+### Fixed
+
+- **A fresh install no longer reports a phantom memory failure.** RLCD mirrors
+  default preferences into `rlcd.toml`, so `laya_url` was populated with the
+  default `http://localhost:8080` whether or not the user set it. The indicator
+  therefore probed a container that was never installed and reported it down.
+
 ## [0.3.46] - 2026-10-02
 
 ### Added
