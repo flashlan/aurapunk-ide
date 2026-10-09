@@ -15,6 +15,12 @@ import { MemoryGraphViewer } from './MemoryGraphViewer';
 import { JevLayaSuitePanel } from './JevLayaSuitePanel';
 import { Mem0Panel } from './Mem0Panel';
 import { ObsidianMcpPanel } from './ObsidianMcpPanel';
+import {
+  ADDON_DEFAULT_ENABLED,
+  setAddonEnabled,
+  useAddonEnabledMap,
+  type AddonId,
+} from './addonPreferences';
 
 /**
  * Settings → Add-ons: registry of optional integrations.
@@ -24,8 +30,6 @@ import { ObsidianMcpPanel } from './ObsidianMcpPanel';
  * settings page.
  */
 
-const ADDONS_ENABLED_STORAGE_KEY = 'aurapunk.settings.addons-enabled';
-
 interface AddonDefinition {
   id: string;
   homepage: string;
@@ -34,58 +38,39 @@ interface AddonDefinition {
   renderPanel: () => ReactNode;
 }
 
+// Every add-on defaults to disabled: each one needs the user to install and
+// configure something external before it does anything, so none of them should
+// look active until that setup actually happened.
 const ADDONS: AddonDefinition[] = [
   {
     id: 'mem0',
     homepage: 'https://github.com/mem0ai/mem0',
-    defaultEnabled: true,
+    defaultEnabled: ADDON_DEFAULT_ENABLED.mem0,
     icon: DatabaseIcon,
     renderPanel: () => <Mem0Panel />,
   },
   {
     id: 'jev_laya_suite',
     homepage: 'https://github.com/coldteadotai/abide',
-    defaultEnabled: true,
+    defaultEnabled: ADDON_DEFAULT_ENABLED.jev_laya_suite,
     icon: LightningIcon,
     renderPanel: () => <JevLayaSuitePanel />,
   },
   {
     id: 'graphify',
     homepage: 'https://github.com/Graphify-Labs/graphify',
-    defaultEnabled: true,
+    defaultEnabled: ADDON_DEFAULT_ENABLED.graphify,
     icon: ChartLineUpIcon,
     renderPanel: () => <MemoryGraphViewer />,
   },
   {
-    // Default on: the panel used to be reachable from Settings → Memory only
-    // when `memory_backend !== 'mem0'`, so a default install could not find the
-    // Obsidian configuration anywhere. This add-on list is now its only home.
     id: 'obsidian_mcp',
     homepage: 'https://github.com/StevenStavrakis/obsidian-mcp',
-    defaultEnabled: true,
+    defaultEnabled: ADDON_DEFAULT_ENABLED.obsidian_mcp,
     icon: NotebookIcon,
     renderPanel: () => <ObsidianMcpPanel />,
   },
 ];
-
-function readEnabledMap(): Record<string, boolean> {
-  const initial: Record<string, boolean> = {};
-  for (const addon of ADDONS) initial[addon.id] = addon.defaultEnabled;
-  try {
-    const raw = window.localStorage.getItem(ADDONS_ENABLED_STORAGE_KEY);
-    if (!raw) return initial;
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    for (const addon of ADDONS) {
-      const value = parsed[addon.id];
-      if (typeof value === 'boolean') {
-        initial[addon.id] = value;
-      }
-    }
-  } catch {
-    // Corrupt storage degrades to defaults; never blocks the section.
-  }
-  return initial;
-}
 
 function AddonRow({
   addon,
@@ -120,12 +105,12 @@ function AddonRow({
       <div className="flex shrink-0 items-center gap-1.5">
         <label className="flex cursor-pointer items-center gap-1.5 text-sm text-low">
           <span className="hidden sm:inline">
-            {t('settings.addons.enable', 'Enabled')}
+            {t('settings.addons.active', 'Active')}
           </span>
           <input
             type="checkbox"
             role="switch"
-            aria-label={`${t('settings.addons.enable', 'Enabled')}: ${t(`${base}.name`, addon.id)}`}
+            aria-label={`${t('settings.addons.active', 'Active')}: ${t(`${base}.name`, addon.id)}`}
             checked={enabled}
             onChange={(event) => onToggle(event.target.checked)}
             className="h-4 w-4 rounded border-border bg-secondary text-brand focus:ring-brand focus:ring-offset-0"
@@ -136,12 +121,7 @@ function AddonRow({
           variant="ghost"
           size="icon"
           onClick={onConfigure}
-          disabled={!enabled}
-          title={
-            enabled
-              ? t('settings.addons.configure', 'Configure add-on')
-              : t('settings.addons.enableFirst', 'Enable this add-on first')
-          }
+          title={t('settings.addons.configure', 'Configure add-on')}
           aria-label={`${t('settings.addons.configure', 'Configure add-on')}: ${t(`${base}.name`, addon.id)}`}
         >
           <GearSixIcon className="size-4" />
@@ -151,25 +131,12 @@ function AddonRow({
   );
 }
 
-export function AddonsSettingsSection() {
+function AddonsSettingsSectionInner({ enabledMap }: { enabledMap: Record<string, boolean> }) {
   const { t } = useTranslation('settings');
-  const [enabledMap, setEnabledMap] =
-    useState<Record<string, boolean>>(readEnabledMap);
   const [selectedAddonId, setSelectedAddonId] = useState<string | null>(null);
 
-  const toggle = (id: string, enabled: boolean) => {
-    setEnabledMap((prev) => {
-      const next = { ...prev, [id]: enabled };
-      try {
-        window.localStorage.setItem(
-          ADDONS_ENABLED_STORAGE_KEY,
-          JSON.stringify(next)
-        );
-      } catch {
-        // Storage failures (private mode, quota) degrade silently.
-      }
-      return next;
-    });
+  const toggle = (id: AddonId, enabled: boolean) => {
+    setAddonEnabled(id, enabled);
   };
 
   const selectedAddon = ADDONS.find((addon) => addon.id === selectedAddonId);
@@ -232,11 +199,20 @@ export function AddonsSettingsSection() {
             key={addon.id}
             addon={addon}
             enabled={enabledMap[addon.id] ?? addon.defaultEnabled}
-            onToggle={(enabled) => toggle(addon.id, enabled)}
+            onToggle={(enabled) => toggle(addon.id as AddonId, enabled)}
             onConfigure={() => setSelectedAddonId(addon.id)}
           />
         ))}
       </div>
     </div>
   );
+}
+
+/**
+ * Reads the shared add-on preference store so the list and the sidebar
+ * indicators never disagree about what is enabled.
+ */
+export function AddonsSettingsSection() {
+  const enabledMap = useAddonEnabledMap();
+  return <AddonsSettingsSectionInner enabledMap={enabledMap} />;
 }

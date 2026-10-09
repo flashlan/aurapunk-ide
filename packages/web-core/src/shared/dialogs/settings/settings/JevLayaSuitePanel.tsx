@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { updateMem0ExtractionProvider } from '@/shared/lib/mem0ExtractionProvider';
 import {
+  CubeIcon,
   LightningIcon,
   ShieldCheckIcon,
   ChatCircleTextIcon,
@@ -47,6 +48,9 @@ import {
   useLayaMode,
   useLayaDockerUrl,
   useLayaCloudUrl,
+  useSetLayaMode,
+  useSetLayaDockerUrl,
+  useSetLayaCloudUrl,
   readCloudAccessToken,
   type CompactionThreshold,
   type PrimaryEngine,
@@ -121,6 +125,10 @@ export const JevLayaSuitePanel: React.FC = () => {
   const layaMode = useLayaMode();
   const layaDockerUrl = useLayaDockerUrl();
   const layaCloudUrl = useLayaCloudUrl();
+  const setLayaMode = useSetLayaMode();
+  const setLayaDockerUrl = useSetLayaDockerUrl();
+  const setLayaCloudUrl = useSetLayaCloudUrl();
+  const cloudToken = readCloudAccessToken();
 
   // Connection tests for every surface the decision engine feeds.
   const [testBusy, setTestBusy] = useState<string | null>(null);
@@ -690,6 +698,94 @@ export const JevLayaSuitePanel: React.FC = () => {
       </div>
 
       {/* Module 4: Jev API Connection (Official TypeSafe) */}
+      <div className="rounded-md border border-border/80 bg-panel p-4 space-y-3">
+        <div className="border-b border-border/60 pb-2.5">
+          <div className="flex items-center gap-2">
+            <CubeIcon className="size-5 text-brand" weight="bold" />
+            <div>
+              <div className="text-sm font-medium text-high">
+                Laya Execution Mode
+              </div>
+              <div className="text-2xs text-low">
+                Where the System-1 classifier runs: your local Docker
+                container, or the AuraPunk Cloud gateway.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {(['docker', 'cloud'] as const).map((option) => {
+            const active = layaMode === option;
+            return (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setLayaMode(option)}
+                aria-pressed={active}
+                className={`rounded-sm border px-3 py-2 text-left text-xs transition-colors ${
+                  active
+                    ? 'border-brand bg-brand/10 text-high'
+                    : 'border-border bg-secondary text-low hover:text-normal'
+                }`}
+              >
+                <div className="font-medium">
+                  {option === 'docker' ? 'Local (Docker)' : 'AuraPunk Cloud'}
+                </div>
+                <div className="text-2xs text-low">
+                  {option === 'docker'
+                    ? 'Runs on this machine; free and unmetered.'
+                    : 'Hosted gateway; extraction calls count against the plan.'}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {layaMode === 'docker' ? (
+            <div>
+              <span className="text-2xs text-low block mb-0.5">
+                Docker endpoint:
+              </span>
+              <input
+                type="text"
+                value={layaDockerUrl}
+                onChange={(e) => setLayaDockerUrl(e.target.value)}
+                placeholder="http://localhost:8080"
+                className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
+              />
+            </div>
+          ) : (
+            <div>
+              <span className="text-2xs text-low block mb-0.5">
+                Cloud gateway URL:
+              </span>
+              <input
+                type="text"
+                value={layaCloudUrl}
+                onChange={(e) => setLayaCloudUrl(e.target.value)}
+                placeholder="https://aurapunk.dev/api/memory/v1"
+                className="w-full rounded-sm border border-border bg-secondary px-2 py-1 text-xs text-normal font-mono"
+              />
+            </div>
+          )}
+        </div>
+
+        {layaMode === 'cloud' && !cloudToken ? (
+          <p className="text-[10px] text-low">
+            Cloud mode needs a signed-in AuraPunk Cloud account: the gateway
+            authorizes the device token and answers without metering a
+            prediction.
+          </p>
+        ) : null}
+
+        <p className="text-[10px] text-low">
+          Mirrored to <code className="font-mono">rlcd.toml</code> so the
+          backend classifies with the same endpoint this panel probes.
+        </p>
+      </div>
+
       <div className="rounded-md border border-border/80 bg-panel p-4 space-y-3">
         <div className="border-b border-border/60 pb-2.5">
           <div className="flex items-center gap-2">
