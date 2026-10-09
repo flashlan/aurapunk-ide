@@ -9,6 +9,7 @@ import type {
   Mem0Config,
   Mem0Connection,
   MemoryMigrationResult,
+  MemorySource,
 } from './mem0Config';
 
 export async function fetchMem0Config(): Promise<Mem0Config> {
@@ -47,6 +48,7 @@ export async function updateMem0Connection(
     enabled: boolean;
     url: string;
     cloud_vector_only: boolean;
+    sources: MemorySource[];
     mem0_api_key: string;
     qdrant_url: string;
     qdrant_api_key: string;

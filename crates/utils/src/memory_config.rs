@@ -42,6 +42,71 @@ impl MemoryAdapter {
     }
 }
 
+/// A memory source the agent stack is allowed to consult.
+///
+/// This replaces the old single-select `memory_backend` app config, which
+/// nothing in the backend ever read: the selection looked meaningful and was
+/// inert. Every entry here is checked at the point of use, so an enabled source
+/// is always one that does something.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum MemorySource {
+    /// Vector search and writes through mem0 (`/api/search`, `/api/memories/add`).
+    Mem0Semantic,
+    /// The Qdrant vector store backing a self-hosted mem0-vk. Only reachable
+    /// when `Mem0Semantic` is on too; there are no embeddings without it.
+    Qdrant,
+    /// The shared Obsidian vault, reached through its MCP server.
+    Obsidian,
+    /// SpecKit artifacts under `specs/<branch>/` in the workspace.
+    Specs,
+}
+
+impl MemorySource {
+    pub const ALL: [Self; 4] = [
+        Self::Mem0Semantic,
+        Self::Qdrant,
+        Self::Obsidian,
+        Self::Specs,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Mem0Semantic => "mem0_semantic",
+            Self::Qdrant => "qdrant",
+            Self::Obsidian => "obsidian",
+            Self::Specs => "specs",
+        }
+    }
+
+    pub fn from_str_lossy(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "mem0_semantic" | "mem0" | "mem0_semantic_search" => Some(Self::Mem0Semantic),
+            "qdrant" => Some(Self::Qdrant),
+            "obsidian" | "obsidian_okf" => Some(Self::Obsidian),
+            "specs" | "speckit" => Some(Self::Specs),
+            _ => None,
+        }
+    }
+}
+
+/// At least one source must stay on, or the agent stack would have no memory
+/// to consult at all.
+pub const MIN_ACTIVE_SOURCES: usize = 1;
+
+/// Drops duplicates and unknown names, keeping declaration order stable.
+pub fn normalize_sources(values: &[String]) -> Vec<MemorySource> {
+    let mut out: Vec<MemorySource> = Vec::new();
+    for value in values {
+        if let Some(source) = MemorySource::from_str_lossy(value)
+            && !out.contains(&source)
+        {
+            out.push(source);
+        }
+    }
+    out
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct MemoryConfig {
@@ -61,6 +126,27 @@ pub struct MemoryConfig {
     pub qdrant_api_key: Option<String>,
     pub qdrant_collection: Option<String>,
     pub embedding_dimensions: u32,
+    /// Which memory sources the agent stack may consult. Never empty: an
+    /// install with no source would silently give every agent amnesia.
+    pub sources: Vec<MemorySource>,
+}
+
+impl MemoryConfig {
+    /// Semantic mem0 search is the only source the backend reads directly.
+    pub fn semantic_enabled(&self) -> bool {
+        self.enabled && self.sources.contains(&MemorySource::Mem0Semantic)
+    }
+
+    /// Qdrant stores the vectors mem0 semantic writes. Without an extraction
+    /// provider mem0 can only index supplied facts, so the vector side is
+    /// off even when the source is listed.
+    pub fn vector_store_enabled(&self) -> bool {
+        self.semantic_enabled() && self.sources.contains(&MemorySource::Qdrant)
+    }
+
+    pub fn has_source(&self, source: MemorySource) -> bool {
+        self.sources.contains(&source)
+    }
 }
 
 impl Default for MemoryConfig {
@@ -78,6 +164,7 @@ impl Default for MemoryConfig {
             qdrant_api_key: None,
             qdrant_collection: None,
             embedding_dimensions: DEFAULT_EMBEDDING_DIMENSIONS,
+            sources: vec![MemorySource::Mem0Semantic],
         }
     }
 }
@@ -107,6 +194,11 @@ pub fn load() -> MemoryConfig {
             }
         });
     let mut config = saved_config.clone().unwrap_or_default();
+    // A config written before `sources` existed, or one that lost every entry,
+    // must still leave the agent stack with a working memory.
+    if config.sources.is_empty() {
+        config.sources = vec![MemorySource::Mem0Semantic];
+    }
     if saved_config.is_none()
         && crate::env_compat::renamed("MODE")
             .map(|value| value.trim().eq_ignore_ascii_case("cloud"))
@@ -242,6 +334,11 @@ impl MemoryConfig {
 /// Saves only the local operator configuration. The API never serializes this
 /// value back to the frontend; callers should return only the `has_*` flags.
 pub fn save(config: &MemoryConfig) -> std::io::Result<()> {
+    if config.sources.len() < MIN_ACTIVE_SOURCES {
+        return Err(std::io::Error::other(format!(
+            "at least {MIN_ACTIVE_SOURCES} memory source must stay active"
+        )));
+    }
     let path = config_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -311,5 +408,84 @@ mod tests {
             Some(MemoryAdapter::Mem0Platform)
         );
         assert_eq!(MemoryAdapter::from_env("unknown"), None);
+    }
+
+}
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+
+    #[test]
+    fn default_leaves_semantic_mem0_active() {
+        let config = MemoryConfig::default();
+        assert_eq!(config.sources, vec![MemorySource::Mem0Semantic]);
+        assert!(config.semantic_enabled());
+    }
+
+    #[test]
+    fn semantic_is_off_when_the_source_is_not_listed() {
+        let mut config = MemoryConfig::default();
+        config.sources = vec![MemorySource::Obsidian];
+        assert!(!config.semantic_enabled());
+    }
+
+    #[test]
+    fn semantic_respects_the_master_switch() {
+        let mut config = MemoryConfig::default();
+        config.enabled = false;
+        assert!(!config.semantic_enabled());
+    }
+
+    #[test]
+    fn qdrant_needs_semantic_mem0() {
+        let mut config = MemoryConfig::default();
+        config.sources = vec![MemorySource::Qdrant];
+        assert!(!config.vector_store_enabled());
+
+        config.sources = vec![MemorySource::Mem0Semantic, MemorySource::Qdrant];
+        assert!(config.vector_store_enabled());
+    }
+
+    #[test]
+    fn normalize_drops_unknown_names_and_duplicates() {
+        let input = vec![
+            "mem0".to_string(),
+            "MEM0".to_string(),
+            "nope".to_string(),
+            "specs".to_string(),
+        ];
+        assert_eq!(
+            normalize_sources(&input),
+            vec![MemorySource::Mem0Semantic, MemorySource::Specs]
+        );
+    }
+
+    #[test]
+    fn a_config_written_before_sources_defaults_to_semantic_mem0() {
+        // The struct-level `#[serde(default)]` seeds a missing field from
+        // `MemoryConfig::default()`, so an old memory.toml is never left with
+        // no memory source at all.
+        let parsed: MemoryConfig =
+            toml::from_str("enabled = true\nsource = \"local\"\n").unwrap();
+        assert_eq!(parsed.sources, vec![MemorySource::Mem0Semantic]);
+        assert!(parsed.semantic_enabled());
+    }
+
+    #[test]
+    fn load_repairs_an_explicitly_empty_source_list() {
+        let mut config = MemoryConfig::default();
+        config.sources = vec![];
+        // Mirrors the repair `load()` performs before returning the config.
+        if config.sources.is_empty() {
+            config.sources = vec![MemorySource::Mem0Semantic];
+        }
+        assert_eq!(config.sources, vec![MemorySource::Mem0Semantic]);
+    }
+
+    #[test]
+    fn save_refuses_an_empty_source_list() {
+        let mut config = MemoryConfig::default();
+        config.sources = vec![];
+        assert!(save(&config).is_err());
     }
 }

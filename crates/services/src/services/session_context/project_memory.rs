@@ -56,7 +56,9 @@ struct RecallResponse {
 
 fn active_config() -> Option<MemoryConfig> {
     let config = memory_config::load();
-    (config.enabled && config.adapter == MemoryAdapter::Mem0Vk).then_some(config)
+    // Semantic mem0 must be an active source, not merely enabled: the kickoff
+    // recall goes through the same search as the MCP tool.
+    (config.semantic_enabled() && config.adapter == MemoryAdapter::Mem0Vk).then_some(config)
 }
 
 fn request(

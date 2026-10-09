@@ -21,7 +21,9 @@ fn mem0_url() -> String {
 }
 
 fn memory_enabled() -> bool {
-    memory_config::load().enabled
+    // Not just the master switch: semantic mem0 has to be one of the active
+    // sources too, otherwise the operator turned that source off in Settings.
+    memory_config::load().semantic_enabled()
 }
 
 fn using_mem0_platform() -> bool {

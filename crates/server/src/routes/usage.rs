@@ -25,7 +25,7 @@ use sqlx::FromRow;
 use sqlx::SqlitePool;
 use ts_rs::TS;
 use utils::{
-    memory_config::{self, MemoryAdapter},
+    memory_config::{self, normalize_sources, MemoryAdapter, MIN_ACTIVE_SOURCES},
     response::ApiResponse,
 };
 use uuid::Uuid;
@@ -60,6 +60,8 @@ pub struct Mem0Connection {
     pub qdrant_url: String,
     pub qdrant_api_key_configured: bool,
     pub embedding_dimensions: u32,
+    /// Which memory sources the agent stack may consult.
+    pub sources: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -78,6 +80,8 @@ struct UpdateMem0ConnectionRequest {
     clear_qdrant_api_key: Option<bool>,
     qdrant_collection: Option<String>,
     embedding_dimensions: Option<u32>,
+    /// Active memory sources. Empty is rejected: at least one must stay on.
+    sources: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,6 +114,11 @@ fn mem0_connection() -> Mem0Connection {
         qdrant_url: config.qdrant_url.clone().unwrap_or_default(),
         qdrant_api_key_configured: config.has_qdrant_api_key(),
         embedding_dimensions: config.embedding_dimensions,
+        sources: config
+            .sources
+            .iter()
+            .map(|source| source.as_str().to_string())
+            .collect(),
     }
 }
 
@@ -895,6 +904,15 @@ async fn update_mem0_connection(
     }
     if let Some(enabled) = body.enabled {
         config.enabled = enabled;
+    }
+    if let Some(raw_sources) = body.sources {
+        let normalized = normalize_sources(&raw_sources);
+        if normalized.len() < MIN_ACTIVE_SOURCES {
+            return ResponseJson(ApiResponse::error(
+                "at least one memory source must stay active",
+            ));
+        }
+        config.sources = normalized;
     }
     if let Some(cloud_vector_only) = body.cloud_vector_only {
         config.cloud_vector_only = cloud_vector_only;

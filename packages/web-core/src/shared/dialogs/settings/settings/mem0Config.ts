@@ -24,6 +24,22 @@ export type Mem0Adapter = 'mem0_vk' | 'mem0_platform';
 export type MigrationAdapter = Mem0Adapter;
 export type MemoryHostingMode = 'self-hosted' | 'cloud';
 
+/**
+ * A memory source the agent stack may consult. Mirrors the Rust
+ * `memory_config::MemorySource`; persisted in `memory.toml`.
+ */
+export type MemorySource = 'mem0_semantic' | 'qdrant' | 'obsidian' | 'specs';
+
+export const MEMORY_SOURCES: readonly MemorySource[] = [
+  'mem0_semantic',
+  'qdrant',
+  'obsidian',
+  'specs',
+];
+
+/** At least one source must stay active, or agents would have no memory at all. */
+export const MIN_ACTIVE_SOURCES = 1;
+
 /** How the desktop reaches Mem0, as persisted by `PUT /api/usage/mem0-connection`. */
 export interface Mem0Connection {
   source: 'local' | 'cloud';
@@ -36,6 +52,7 @@ export interface Mem0Connection {
   qdrant_url: string;
   qdrant_api_key_configured: boolean;
   embedding_dimensions: number;
+  sources: MemorySource[];
 }
 
 export interface MemoryMigrationResult {
